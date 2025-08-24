@@ -116,3 +116,6 @@ Sugestões do Copilot, mas que ainda devem ser estudadas:
 
 >>>>>>> 341a7a0 (Initial commit)
 
+
+hello world
+
