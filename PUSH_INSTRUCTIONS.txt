@@ -1,0 +1,60 @@
+Instruções rápidas para subir atualizações ao GitHub (personalizado para Alex Martins)
+
+Resumo / plano rápido
+- Testar localmente, commitar, integrar mudanças remotas (rebase) e dar push para o remoto.
+
+Informações deste arquivo
+- Nome: Alex Martins
+- GitHub username: alexsandromfas
+- Email sugerido para commits: alexsandromfas@users.noreply.github.com
+- Remote GitHub: git@github.com:alexsandromfas/agentbiosim.git
+
+Checklist (faça nesta ordem)
+1. Teste local (smoke test): execute a simulação ou os scripts relevantes (ex.: `python main.py`).
+2. Ver o estado do Git: `git status`.
+3. Preparar commit: `git add -A` e `git commit -m "mensagem curta"`.
+4. Trazer mudanças remotas e rebase: `git fetch origin` seguido de `git pull --rebase origin main`.
+5. Resolver conflitos (se houver): editar os arquivos, depois `git add <arquivo>` e `git rebase --continue`.
+6. Enviar para o GitHub: `git push origin main`.
+
+Comandos (PowerShell) — copie e cole, um por vez
+# Configurar seu nome e email (já preenchidos para você)
+git config user.name "Alex Martins"
+git config user.email "alexsandromfas@users.noreply.github.com"
+
+# Ver o que mudou
+git status
+
+# Rodar um teste rápido (exemplo)
+python main.py
+
+# Adicionar e commitar
+git add -A
+git commit -m "Mensagem curta explicando a mudança"
+
+# Integrar remoto com rebase (recomendado)
+git fetch origin
+git pull --rebase origin main
+
+# Se houver conflitos: edite os arquivos conflitantes, depois marque como resolvidos
+git add <arquivos-resolvidos>
+git rebase --continue
+# Para abortar o rebase e voltar atrás
+# git rebase --abort
+
+# Enviar para o GitHub
+git push origin main
+
+Boas práticas rápidas
+- Use branches para features/experimentação: `git checkout -b feat/nome-da-feature` e depois abra um PR no GitHub.
+- Mantenha um `.gitignore` para evitar enviar arquivos gerados (ex.: `__pycache__/`, `*.pyc`, `venv/`).
+- Faça commits atômicos com mensagens claras (imperativo curto: "Corrige bug X").
+
+Script automático (opcional)
+- Posso criar um script PowerShell chamado `push_update.ps1` que faz: testar (opcional), `git add -A`, `git commit` (se houver mudanças), `git pull --rebase origin main` e `git push origin main`. Diga se quer que eu crie.
+
+Local do arquivo
+- `PUSH_INSTRUCTIONS.txt` (na raiz do projeto). Abra com o Bloco de Notas:
+notepad "PUSH_INSTRUCTIONS.txt"
+
+Precisa de ajuda para criar o script automático? Responda "crie o script" e eu o adiciono aqui com instruções de uso.
