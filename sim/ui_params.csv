@@ -8,7 +8,7 @@ bacteria_initial_mass,100.0
 bacteria_max_limit,80
 bacteria_max_speed,300.0
 bacteria_max_turn_deg,180.0
-bacteria_min_limit,40
+bacteria_min_limit,50
 bacteria_mutation_rate,0.1
 bacteria_mutation_strength,0.1
 bacteria_neurons_layer_1,32
@@ -36,10 +36,10 @@ predator_energy_loss_idle,0.01
 predator_energy_loss_move,5.0
 predator_hidden_layers,3
 predator_initial_mass,100.0
-predator_max_limit,20
+predator_max_limit,50
 predator_max_speed,350.0
 predator_max_turn_deg,180.0
-predator_min_limit,10
+predator_min_limit,30
 predator_mutation_rate,0.1
 predator_mutation_strength,0.1
 predator_neurons_layer_1,32
@@ -56,7 +56,7 @@ predator_show_vision,False
 predator_split_mass,100.0
 predator_vision_radius,120.0
 predators_enabled,True
-retina_skip,0
+retina_skip,2
 reuse_spatial_grid,True
 show_selected_details,True
 simple_render,False
@@ -64,5 +64,5 @@ substrate_radius,400.0
 substrate_shape,rectangular
 time_scale,0.5
 use_spatial,True
-world_h,1000.0
-world_w,1000.0
+world_h,1500.0
+world_w,1500.0

@@ -76,7 +76,7 @@ Melhorias futuras
 - Permitir que agentes possam andar para trás se a rede neural assim decidir.
 - Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
 - Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
-- Avaliar alternativa: remover variação de tamanho e introduzir energia interna (bateria) fixa por indivíduo; divisões ocorrem por acúmulo de energia.
+- Avaliar alternativa: remover variação de tamanho e introduzir energia interna (bateria) fixa por indivíduo; divisões ocorrem por acúmulo de energia. Ou talvez aumentar o custo de energia quanto maior o tamanho do agente.
 - Introduzir alimentos com diferentes valores nutricionais (comida mais nutritiva altera comportamento de competição).
 - Dar opção no UI para que predadores exijam múltiplos impactos para matar uma presa (ex.: 3 impactos configuráveis).
 - Permitir comportamentos agressivos adicionais (bactérias atacando bactérias; predadores atacando outros predadores).
