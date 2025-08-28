@@ -1,0 +1,8 @@
+# requirements for agentbiosim
+# Dependências externas detectadas automaticamente a partir dos imports do projeto.
+# Observações:
+# - 'tkinter' faz parte da biblioteca padrão do CPython (Tcl/Tk) e normalmente não é instalado via pip.
+# - Todo o restante do código usa apenas a biblioteca padrão do Python.
+# - Recomenda-se usar Python 3.10+ (o código usa sintaxe de tipos compatível com 3.10+).
+
+pygame>=2.1,<3.0
