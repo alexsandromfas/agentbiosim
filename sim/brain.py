@@ -3,7 +3,8 @@ Interfaces e implementação de cérebros (redes neurais) para agentes.
 """
 import math
 import random
-from typing import List, Protocol, runtime_checkable
+import numpy as np
+from typing import List, Protocol, runtime_checkable, Union
 
 
 @runtime_checkable
@@ -48,105 +49,121 @@ class NeuralNet:
             init_std: Desvio padrão para inicialização dos pesos
         """
         self.sizes = list(sizes)
-        self.weights = []  # List[List[List[float]]] - [layer][neuron][weight]
-        self.biases = []   # List[List[float]] - [layer][neuron]
-        
-        # Inicializa pesos e biases
+        self.weights = []  # List[np.ndarray] - [layer] shape (out, in)
+        self.biases = []   # List[np.ndarray] - [layer] shape (out,)
         for i in range(1, len(self.sizes)):
-            rows = self.sizes[i]      # Neurônios na camada atual
-            cols = self.sizes[i-1]    # Neurônios na camada anterior
-            
-            # Xavier/Glorot initialization
+            rows = self.sizes[i]
+            cols = self.sizes[i-1]
             fan_in = cols
             std = init_std / math.sqrt(fan_in if fan_in > 0 else 1)
-            
-            layer_weights = []
-            for _ in range(rows):
-                neuron_weights = [random.gauss(0, std) for _ in range(cols)]
-                layer_weights.append(neuron_weights)
-            
-            self.weights.append(layer_weights)
-            # Biases aleatórios para quebrar simetria inicial e evitar todos agentes seguirem linha reta
+            w = np.random.normal(0, std, (rows, cols))
+            self.weights.append(w)
             if random_biases:
-                # Usa um std menor para não saturar tanh rapidamente
                 bias_std = std * 0.5
-                self.biases.append([random.gauss(0, bias_std) for _ in range(rows)])
+                b = np.random.normal(0, bias_std, (rows,))
             else:
-                self.biases.append([0.0 for _ in range(rows)])
+                b = np.zeros((rows,))
+            self.biases.append(b)
     
-    def forward(self, inputs: List[float]) -> List[float]:
-        """Passada forward pela rede."""
-        x = list(inputs)
-        
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        """Passada forward para um único input."""
+        # Garantir formato numpy dos pesos
+        for i, W in enumerate(self.weights):
+            if isinstance(W, list):
+                self.weights[i] = np.array(W, dtype=np.float32)
+        for i, b in enumerate(self.biases):
+            if isinstance(b, list):
+                self.biases[i] = np.array(b, dtype=np.float32)
+        x = np.array(inputs, dtype=np.float32)
         for layer_idx in range(len(self.weights)):
             W = self.weights[layer_idx]
             b = self.biases[layer_idx]
-            
-            # Calcula saídas da camada
-            y = []
-            for i in range(len(W)):
-                # Produto escalar + bias
-                activation = b[i]
-                row = W[i]
-                for j in range(len(row)):
-                    activation += row[j] * x[j]
-                y.append(activation)
-            
-            # Função de ativação
+            x = W @ x + b
             if layer_idx < len(self.weights) - 1:
-                # Camadas ocultas: tanh
-                x = [math.tanh(v) for v in y]
-            else:
-                # Camada de saída: linear (deixa para o atuador interpretar)
-                x = y
-        
+                x = np.tanh(x)
+        return x.tolist()
+
+    def forward_batch(self, inputs: np.ndarray) -> np.ndarray:
+        """
+        Passada forward para um lote de inputs.
+        inputs: shape (batch, input_size)
+        returns: shape (batch, output_size)
+        """
+        # Converter pesos/biases se ainda em lista (ex: após copy antigo)
+        for i, W in enumerate(self.weights):
+            if isinstance(W, list):
+                self.weights[i] = np.array(W, dtype=np.float32)
+        for i, b in enumerate(self.biases):
+            if isinstance(b, list):
+                self.biases[i] = np.array(b, dtype=np.float32)
+        x = np.array(inputs, dtype=np.float32)
+        for layer_idx in range(len(self.weights)):
+            W = self.weights[layer_idx]
+            b = self.biases[layer_idx]
+            x = x @ W.T + b
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
         return x
     
-    def activations(self, inputs: List[float]) -> List[List[float]]:
-        """Retorna ativações de todas as camadas para debug."""
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        """Retorna ativações de todas as camadas para debug (single amostra)."""
         activations_per_layer = []
-        x = list(inputs)
-        
+        for i, W in enumerate(self.weights):
+            if isinstance(W, list):
+                self.weights[i] = np.array(W, dtype=np.float32)
+        for i, b in enumerate(self.biases):
+            if isinstance(b, list):
+                self.biases[i] = np.array(b, dtype=np.float32)
+        x = np.array(inputs, dtype=np.float32)
         for layer_idx in range(len(self.weights)):
             W = self.weights[layer_idx]
             b = self.biases[layer_idx]
-            
-            # Calcula pré-ativação
-            y = []
-            for i in range(len(W)):
-                activation = b[i]
-                row = W[i]
-                for j in range(len(row)):
-                    activation += row[j] * x[j]
-                y.append(activation)
-            
-            # Aplica função de ativação
+            x = W @ x + b
             if layer_idx < len(self.weights) - 1:
-                x = [math.tanh(v) for v in y]
-            else:
-                x = y  # Saída crua
-            
-            activations_per_layer.append(list(x))
-        
+                x = np.tanh(x)
+            activations_per_layer.append(x.tolist())
+        return activations_per_layer
+
+    def activations_batch(self, inputs: np.ndarray) -> List[np.ndarray]:
+        """
+        Retorna ativações de todas as camadas para um lote de inputs.
+        inputs: shape (batch, input_size)
+        returns: List[np.ndarray] (cada shape: (batch, layer_size))
+        """
+        activations_per_layer = []
+        for i, W in enumerate(self.weights):
+            if isinstance(W, list):
+                self.weights[i] = np.array(W, dtype=np.float32)
+        for i, b in enumerate(self.biases):
+            if isinstance(b, list):
+                self.biases[i] = np.array(b, dtype=np.float32)
+        x = np.array(inputs, dtype=np.float32)
+        for layer_idx in range(len(self.weights)):
+            W = self.weights[layer_idx]
+            b = self.biases[layer_idx]
+            x = x @ W.T + b
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+            activations_per_layer.append(x.copy())
         return activations_per_layer
     
     def copy(self) -> 'NeuralNet':
         """Cria cópia profunda da rede."""
         new_net = NeuralNet(self.sizes, init_std=0.01)
-        
-        # Copia pesos
-        new_net.weights = []
+        new_weights = []
         for layer in self.weights:
-            new_layer = []
-            for neuron in layer:
-                new_layer.append(list(neuron))
-            new_net.weights.append(new_layer)
-        
-        # Copia biases
-        new_net.biases = []
-        for layer in self.biases:
-            new_net.biases.append(list(layer))
-        
+            if isinstance(layer, list):
+                new_weights.append(np.array(layer, dtype=np.float32))
+            else:
+                new_weights.append(layer.copy())
+        new_biases = []
+        for b in self.biases:
+            if isinstance(b, list):
+                new_biases.append(np.array(b, dtype=np.float32))
+            else:
+                new_biases.append(b.copy())
+        new_net.weights = new_weights
+        new_net.biases = new_biases
         return new_net
 
     def resize_input(self, new_input_size: int):
@@ -164,17 +181,27 @@ class NeuralNet:
         if not self.weights:
             return  # Nenhuma camada oculta/saída ainda
         first_layer = self.weights[0]
-        # Para cada neurônio da primeira camada, ajustar vetor de pesos
-        for neuron_idx, neuron_weights in enumerate(first_layer):
+        if isinstance(first_layer, list):
+            # lista de listas
+            for neuron_weights in first_layer:
+                if new_input_size > old_input:
+                    fan_in = new_input_size
+                    std = 0.1 / math.sqrt(fan_in)
+                    for _ in range(new_input_size - old_input):
+                        neuron_weights.append(random.gauss(0, std))
+                else:
+                    del neuron_weights[new_input_size:]
+        else:
+            # ndarray
+            rows = first_layer.shape[0]
             if new_input_size > old_input:
-                # Adiciona pesos aleatórios
                 fan_in = new_input_size
                 std = 0.1 / math.sqrt(fan_in)
-                for _ in range(new_input_size - old_input):
-                    neuron_weights.append(random.gauss(0, std))
+                extra = np.random.normal(0, std, (rows, new_input_size - old_input)).astype(np.float32)
+                first_layer = np.concatenate([first_layer, extra], axis=1)
             else:
-                # Trunca
-                del neuron_weights[new_input_size:]
+                first_layer = first_layer[:, :new_input_size]
+            self.weights[0] = first_layer
     
     def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
         """

@@ -2,7 +2,8 @@
 Sensores e consulta de cena para percepção dos agentes.
 """
 import math
-from typing import List, Optional, TYPE_CHECKING, Set, Any
+import numpy as np
+from typing import List, Optional, TYPE_CHECKING, Set, Any, Sequence
 
 if TYPE_CHECKING:
     from .entities import Agent
@@ -140,12 +141,11 @@ class SceneQuery:
         
         # Filtra por tipo se necessário (spatial hash pode retornar todos os tipos)
         if self.spatial_hash:
+            # type_code: 0=food,1=bacteria,2=predator
             filtered = set()
             for obj in candidates:
-                obj_type = self._get_object_type(obj)
-                if ((obj_type == 'food' and see_food) or
-                    (obj_type == 'bacteria' and see_bacteria) or
-                    (obj_type == 'predator' and see_predators)):
+                tc = getattr(obj, 'type_code', -1)
+                if (tc == 0 and see_food) or (tc == 1 and see_bacteria) or (tc == 2 and see_predators):
                     filtered.add(obj)
             candidates = filtered
         
@@ -153,12 +153,16 @@ class SceneQuery:
     
     def _get_object_type(self, obj) -> str:
         """Determina tipo do objeto baseado na classe ou atributos."""
-        # Nova lógica: primeiro distingue agentes (têm atributo is_predator ou brain)
+        tc = getattr(obj, 'type_code', -1)
+        if tc == 0:
+            return 'food'
+        if tc == 1:
+            return 'bacteria'
+        if tc == 2:
+            return 'predator'
+        # Fallback lento (deve desaparecer após migração completa)
         if hasattr(obj, 'is_predator'):
             return 'predator' if getattr(obj, 'is_predator') else 'bacteria'
-        if hasattr(obj, 'brain'):
-            return 'bacteria'
-        # Caso contrário assume comida
         return 'food'
 
 
@@ -276,32 +280,175 @@ class RetinaSensor:
         self._countdown = self.skip
         
         return inputs
-    
+
     def get_ray_info(self, agent: 'Agent', ray_index: int) -> tuple:
         """Retorna (start_x, start_y, end_x, end_y, activation) para um raio.
         Se índice inválido ou sem dados ainda, retorna None.
         """
         if ray_index < 0 or ray_index >= self.retina_count or not self.last_inputs:
             return None
-
-        # Posição do "olho" na frente do agente
         eye_offset = agent.r
         eye_x = agent.x + math.cos(agent.angle) * eye_offset
         eye_y = agent.y + math.sin(agent.angle) * eye_offset
-
-        # Ângulo relativo dentro do FOV
         half_fov = math.radians(self.fov_degrees / 2.0)
         if self.retina_count > 1:
             rel_angle = (-half_fov) + (ray_index / (self.retina_count - 1)) * (2 * half_fov)
         else:
             rel_angle = 0.0
         ray_angle = agent.angle + rel_angle
-
-        # Ativação correspondente
         activation = self.last_inputs[ray_index] if ray_index < len(self.last_inputs) else 0.0
-
-        # Comprimento inverso: quanto mais forte (mais perto), menor o raio desenhado
         shown_length = (1.0 - activation) * self.vision_radius
         end_x = eye_x + math.cos(ray_angle) * shown_length
         end_y = eye_y + math.sin(ray_angle) * shown_length
         return (eye_x, eye_y, end_x, end_y, activation)
+
+
+def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Params') -> List[List[float]]:
+    """Processa percepção (retina) em lote para vários agentes que usam RetinaSensor.
+    Combina pré-filtragem por tipo e operações numpy para reduzir custo de loops Python.
+    Respeita skip individual e atualizações dinâmicas de parâmetros.
+    Retorna lista de listas (inputs por agente) na mesma ordem de entrada.
+    """
+    if not agents:
+        return []
+    # Coleta sensores e verifica tipo
+    sensors = [a.sensor for a in agents]
+    from .sensors import RetinaSensor as _RS  # evitar shadow
+    if not all(isinstance(s, _RS) for s in sensors):  # fallback se algum não for retina
+        return [a.sensor.sense(a, scene, params) for a in agents]
+
+    # Atualiza parâmetros dinâmicos e determina quais precisam recalcular
+    need_update_idx = []
+    results: List[List[float]] = [None] * len(agents)  # type: ignore
+    for idx, (agent, sensor) in enumerate(zip(agents, sensors)):
+        prefix = 'predator' if getattr(agent, 'is_predator', False) else 'bacteria'
+        # Valores atuais desejados
+        desired_count = params.get(f'{prefix}_retina_count', sensor.retina_count)
+        desired_fov = params.get(f'{prefix}_retina_fov_degrees', sensor.fov_degrees)
+        desired_radius = params.get(f'{prefix}_vision_radius', sensor.vision_radius)
+        desired_see_food = params.get(f'{prefix}_retina_see_food', sensor.see_food)
+        desired_see_bacteria = params.get(f'{prefix}_retina_see_bacteria', sensor.see_bacteria)
+        desired_see_predators = params.get(f'{prefix}_retina_see_predators', sensor.see_predators)
+        if (desired_count != sensor.retina_count or desired_fov != sensor.fov_degrees or
+            desired_radius != sensor.vision_radius or desired_see_food != sensor.see_food or
+            desired_see_bacteria != sensor.see_bacteria or desired_see_predators != sensor.see_predators):
+            sensor.retina_count = max(1, int(desired_count))
+            sensor.fov_degrees = float(desired_fov)
+            sensor.vision_radius = float(desired_radius)
+            sensor.see_food = bool(desired_see_food)
+            sensor.see_bacteria = bool(desired_see_bacteria)
+            sensor.see_predators = bool(desired_see_predators)
+            sensor.last_inputs = []
+            sensor._countdown = 0
+        if sensor._countdown > 0 and sensor.last_inputs:
+            sensor._countdown -= 1
+            results[idx] = list(sensor.last_inputs)
+        else:
+            need_update_idx.append(idx)
+
+    if not need_update_idx:
+        return results  # type: ignore
+
+    # Pré-filtragem global por tipo baseado no OR das flags (evita iterar objetos desnecessários)
+    any_food = any(sensors[i].see_food for i in need_update_idx)
+    any_bact = any(sensors[i].see_bacteria for i in need_update_idx)
+    any_pred = any(sensors[i].see_predators for i in need_update_idx)
+    candidates = []
+    if any_food:
+        candidates.extend(scene.entities.get('foods', []))
+    if any_bact:
+        candidates.extend(scene.entities.get('bacteria', []))
+    if any_pred:
+        candidates.extend(scene.entities.get('predators', []))
+    if not candidates:
+        # Nada visível -> todos zeros para os que precisavam
+        for idx in need_update_idx:
+            sensor = sensors[idx]
+            inputs = [0.0] * sensor.retina_count
+            sensor.last_inputs = inputs
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+        return results  # type: ignore
+
+    # Constrói arrays numpy dos candidatos
+    cand_x = np.array([c.x for c in candidates], dtype=np.float32)
+    cand_y = np.array([c.y for c in candidates], dtype=np.float32)
+    cand_r = np.array([getattr(c, 'r', 0.0) for c in candidates], dtype=np.float32)
+    cand_tc = np.array([getattr(c, 'type_code', -1) for c in candidates], dtype=np.int8)
+
+    def angle_wrap(a):
+        return (a + np.pi) % (2 * np.pi) - np.pi
+
+    for idx in need_update_idx:
+        agent = agents[idx]
+        sensor = sensors[idx]
+        # Posição do olho
+        eye_x = agent.x + math.cos(agent.angle) * agent.r
+        eye_y = agent.y + math.sin(agent.angle) * agent.r
+        # Vetores para candidatos
+        dx = cand_x - eye_x
+        dy = cand_y - eye_y
+        dist = np.sqrt(dx*dx + dy*dy)
+        # Filtra por raio de visão + raio objeto
+        within = dist - cand_r <= sensor.vision_radius
+        if not np.any(within):
+            inputs = [0.0] * sensor.retina_count
+            sensor.last_inputs = inputs
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+            continue
+        # Filtra por tipo visível
+        tc = cand_tc[within]
+        visible_mask = (
+            ((tc == 0) & sensor.see_food) |
+            ((tc == 1) & sensor.see_bacteria) |
+            ((tc == 2) & sensor.see_predators)
+        )
+        if not np.any(visible_mask):
+            inputs = [0.0] * sensor.retina_count
+            sensor.last_inputs = inputs
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+            continue
+        sel_dx = dx[within][visible_mask]
+        sel_dy = dy[within][visible_mask]
+        sel_dist = dist[within][visible_mask]
+        sel_r = cand_r[within][visible_mask]
+        # Ângulos para objetos
+        obj_angle = np.arctan2(sel_dy, sel_dx)
+        # Distâncias efetivas (considera raio aprox)
+        eff_dist = np.clip(sel_dist - sel_r, 0.0, sensor.vision_radius)
+        # Mapeia para rays
+        half_fov = math.radians(sensor.fov_degrees/2.0)
+        if half_fov <= 0:
+            rels = np.zeros_like(obj_angle)
+        else:
+            ang_diff = angle_wrap(obj_angle - agent.angle)
+            # Fora do FOV
+            inside = np.abs(ang_diff) <= half_fov
+            if not np.any(inside):
+                inputs = [0.0] * sensor.retina_count
+                sensor.last_inputs = inputs
+                sensor._countdown = sensor.skip
+                results[idx] = inputs
+                continue
+            ang_diff = ang_diff[inside]
+            eff_dist = eff_dist[inside]
+            # Índice do raio (0 .. retina_count-1)
+            if sensor.retina_count > 1:
+                rels = (ang_diff + half_fov) / (2*half_fov) * (sensor.retina_count - 1)
+            else:
+                rels = np.zeros_like(ang_diff)
+        ray_idx = np.clip(np.round(rels).astype(int), 0, sensor.retina_count - 1)
+        # Para cada raio manter menor distância
+        ray_best = np.full((sensor.retina_count,), np.inf, dtype=np.float32)
+        np.minimum.at(ray_best, ray_idx, eff_dist)
+        # Converte para ativações
+        activation = (sensor.vision_radius - ray_best) / sensor.vision_radius
+        activation[~np.isfinite(ray_best)] = 0.0
+        activation = np.clip(activation, 0.0, 1.0)
+        inputs = activation.tolist()
+        sensor.last_inputs = inputs
+        sensor._countdown = sensor.skip
+        results[idx] = inputs
+    return results  # type: ignore

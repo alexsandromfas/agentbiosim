@@ -1,3 +1,45 @@
+import numpy as np
+
+def update_agents_batch(agents, dt, world, scene, params):
+    """Atualiza agentes em lote (sensoriamento + cérebro + atuação).
+    Requer que compartilhem a mesma arquitetura de rede.
+    """
+    if not agents:
+        return
+    # 1. Sensoriamento em lote
+    for agent in agents:
+        agent.age += dt
+    from .sensors import batch_retina_sense
+    with profile_section('agent_sensor'):
+        sensor_inputs_list = batch_retina_sense(agents, scene, params)
+    # 1b. Ajuste dinâmico do tamanho de entrada
+    for agent, sensor_inputs in zip(agents, sensor_inputs_list):
+        expected_input_size = agent.brain.sizes[0] if hasattr(agent.brain, 'sizes') else len(sensor_inputs)
+        if len(sensor_inputs) != expected_input_size and hasattr(agent.brain, 'resize_input'):
+            agent.brain.resize_input(len(sensor_inputs))
+
+    # 2. Forward em lote
+    with profile_section('agent_brain_forward'):
+        inputs_np = np.array(sensor_inputs_list, dtype=np.float32)
+        outputs_np = agents[0].brain.forward_batch(inputs_np)
+
+    # 3. Activations opcionais
+    activations_batch = None
+    if profiler.enabled and not params.get('disable_brain_activations', False):
+        with profile_section('agent_brain_activations'):
+            activations_batch = agents[0].brain.activations_batch(inputs_np)
+
+    # 4. Distribuição + atuação + energia
+    for idx, agent in enumerate(agents):
+        agent.last_brain_output = outputs_np[idx].tolist()
+        if activations_batch is not None:
+            agent.last_brain_activations = [layer[idx].tolist() for layer in activations_batch]
+        else:
+            agent.last_brain_activations = []
+        with profile_section('agent_locomotion'):
+            agent.locomotion.step(agent, agent.last_brain_output, dt, world, params)
+        with profile_section('agent_energy'):
+            agent.energy.apply(agent, dt, params)
 """
 Entidades da simulação: Agent (base), Bacteria, Predator, Food.
 Usando herança onde há comportamento compartilhado e composição para capacidades.
@@ -18,68 +60,81 @@ if TYPE_CHECKING:
 
 
 class Entity(ABC):
+    """Classe base abstrata para todas as entidades.
+
+    Introduz __slots__ para reduzir overhead de memória por objeto e
+    permitir escalar para milhares de instâncias com menor pressão de GC.
+    Também adiciona um *type_code* inteiro para eliminar chamadas repetidas
+    a hasattr()/isinstance em loops críticos (0=food,1=bacteria,2=predator).
     """
-    Classe base abstrata para todas as entidades da simulação.
-    Define interface mínima comum.
-    """
-    
+
+    __slots__ = ("x", "y", "r", "color", "type_code")
+
     def __init__(self, x: float, y: float, r: float, color: tuple):
         self.x = x
         self.y = y
         self.r = r
         self.color = color
-    
+        self.type_code = -1  # definido em subclasses
+
     @abstractmethod
-    def draw(self, renderer):
-        """Desenha a entidade usando o renderer fornecido."""
+    def draw(self, renderer):  # pragma: no cover - desenho não crítico aqui
         pass
 
 
 class Food(Entity):
-    """
-    Comida simples - apenas posição, tamanho e massa.
-    """
-    
+    """Comida simples - apenas posição, tamanho e massa."""
+
+    __slots__ = Entity.__slots__ + ("mass",)
+
     def __init__(self, x: float, y: float, r: float):
-        super().__init__(x, y, r, (220, 30, 30))  # Cor vermelha
+        super().__init__(x, y, r, (220, 30, 30))
         self.mass = r * r  # Massa proporcional à área
-    
-    def draw(self, renderer):
-        """Desenha comida como círculo simples."""
+        self.type_code = 0
+
+    def draw(self, renderer):  # pragma: no cover
         renderer.draw_food(self)
 
 
 class Agent(Entity):
+    """Base para agentes inteligentes.
+
+    __slots__ reduz custo por instância (~atributos fixos) e prepara terreno
+    para futura migração completa para SoA (Struct of Arrays). Nesta etapa
+    mantemos objetos para compatibilidade, mas minimizamos hasattr.
     """
-    Classe base para agentes inteligentes (Bacteria, Predator).
-    
-    Usa composição para cérebro, sensores, atuadores e modelo energético.
-    Herança apenas para comportamentos realmente compartilhados.
-    """
-    
+
+    __slots__ = Entity.__slots__ + (
+        "angle", "vx", "vy", "m", "age", "selected", "brain", "sensor",
+        "locomotion", "energy", "last_brain_output", "last_brain_activations",
+        "is_predator"
+    )
+
     def __init__(self, x: float, y: float, r: float, color: tuple,
-                 brain: 'IBrain', sensor: 'RetinaSensor', 
+                 brain: 'IBrain', sensor: 'RetinaSensor',
                  locomotion: 'Locomotion', energy: 'EnergyModel',
                  angle: Optional[float] = None):
         super().__init__(x, y, r, color)
-        
+
         # Estado físico
         self.angle = angle if angle is not None else random.uniform(0, math.pi * 2)
         self.vx = 0.0
         self.vy = 0.0
-        self.m = r * r  # Massa inicial baseada no raio
+        self.m = r * r
         self.age = 0.0
         self.selected = False
-        
-        # Componentes (composição)
+
+        # Componentes
         self.brain = brain
         self.sensor = sensor
         self.locomotion = locomotion
         self.energy = energy
-        
-        # Estado para debugging/visualização
+
+        # Debug
         self.last_brain_output = []
         self.last_brain_activations = []
+        # is_predator definido em subclasses, mas declaramos aqui para slot fixo
+        self.is_predator = False
     
     def update(self, dt: float, world: 'World', scene: 'SceneQuery', params: 'Params'):
         """
@@ -211,17 +266,15 @@ class Agent(Entity):
 
 
 class Bacteria(Agent):
-    """
-    Bactéria - agente que come comida e se reproduz.
-    Implementação específica dos parâmetros de bactéria.
-    """
-    
+    """Agente do tipo bactéria."""
+
     def __init__(self, x: float, y: float, r: float, brain: 'IBrain',
-                 sensor: 'RetinaSensor', locomotion: 'Locomotion', 
+                 sensor: 'RetinaSensor', locomotion: 'Locomotion',
                  energy: 'EnergyModel', angle: Optional[float] = None):
-        color = (220, 220, 220)  # Cor branca/cinza claro
+        color = (220, 220, 220)
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy, angle)
         self.is_predator = False
+        self.type_code = 1
     
     def _get_mutation_rate(self, params: 'Params') -> float:
         return params.get('bacteria_mutation_rate', 0.05)
@@ -262,17 +315,15 @@ class Bacteria(Agent):
 
 
 class Predator(Agent):
-    """
-    Predador - agente que come bactérias.
-    Herda comportamento de Agent mas com parâmetros específicos.
-    """
-    
+    """Agente do tipo predador."""
+
     def __init__(self, x: float, y: float, r: float, brain: 'IBrain',
-                 sensor: 'RetinaSensor', locomotion: 'Locomotion', 
+                 sensor: 'RetinaSensor', locomotion: 'Locomotion',
                  energy: 'EnergyModel', angle: Optional[float] = None):
-        color = (80, 120, 220)  # Cor azul
+        color = (80, 120, 220)
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy, angle)
         self.is_predator = True
+        self.type_code = 2
     
     def _get_mutation_rate(self, params: 'Params') -> float:
         return params.get('predator_mutation_rate', 0.05)

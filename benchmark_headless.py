@@ -131,4 +131,11 @@ if __name__ == '__main__':
     ap.add_argument('--label', type=str, default=None, help='Rótulo da otimização / experimento para exportação')
     ap.add_argument('--no-activations', action='store_true', help='Desliga cálculo de activations do cérebro para reduzir overhead')
     args = ap.parse_args()
-    run_benchmark(sim_seconds=args.seconds, fps=args.fps, label=args.label, disable_activations=args.no_activations)
+
+    label = args.label
+    if label is None:
+        try:
+            label = input('Digite o título da otimização/relatório: ').strip()
+        except EOFError:
+            label = None
+    run_benchmark(sim_seconds=args.seconds, fps=args.fps, label=label, disable_activations=args.no_activations)

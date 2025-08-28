@@ -43,6 +43,8 @@ class Engine:
             'predators': [],
             'foods': []
         }
+        # Lista unificada para evitar concatenações frequentes (bactérias depois predadores)
+        self.all_agents = []
 
         # Sistemas
         self.interaction_system = InteractionSystem()
@@ -55,8 +57,8 @@ class Engine:
         self.population_controller = PopulationController()
 
         # Infraestrutura
-        self.spatial_hash: Optional[SpatialHash] = None
-        self.scene_query: Optional[SceneQuery] = None
+        self.spatial_hash = None
+        self.scene_query = None
 
         # Renderização
         if headless or SimpleRenderer is None:
@@ -75,7 +77,7 @@ class Engine:
         self.current_fps = 0.0
 
         # Estado para debugging
-        self.selected_agent: Optional[Agent] = None
+        self.selected_agent = None
     
     def start(self):
         """Inicia a simulação."""
@@ -164,14 +166,11 @@ class Engine:
     
     def get_agent_at_position(self, world_x: float, world_y: float) -> Optional[Agent]:
         """Encontra agente na posição do mundo especificada."""
-        all_agents = self.entities['bacteria'] + self.entities['predators']
-        
-        # Procura do mais próximo ao cursor (último desenhado = mais visível)
-        for agent in reversed(all_agents):
+        # Procura do mais próximo ao cursor (último desenhado = mais visível). Predadores são desenhados antes de bactérias.
+        for agent in reversed(self.all_agents):
             distance = math.hypot(agent.x - world_x, agent.y - world_y)
             if distance <= agent.r:
                 return agent
-        
         return None
     
     def add_food_at(self, world_x: float, world_y: float):
@@ -226,10 +225,17 @@ class Engine:
             )
             self.entities['foods'].extend(new_foods)
 
-        all_agents = self.entities['bacteria'] + self.entities['predators']
+        from .entities import update_agents_batch
         with profile_section('agents_update'):
-            for agent in all_agents:
-                agent.update(dt, self.world, self.scene_query, self.params)
+            # Agrupa agentes por classe e arquitetura do cérebro
+            agent_groups = {}
+            for agent in self.all_agents:
+                key = (type(agent), tuple(agent.brain.sizes) if hasattr(agent.brain, 'sizes') else None)
+                if key not in agent_groups:
+                    agent_groups[key] = []
+                agent_groups[key].append(agent)
+            for group in agent_groups.values():
+                update_agents_batch(group, dt, self.world, self.scene_query, self.params)
 
         with profile_section('interaction'):
             self.interaction_system.apply(
@@ -238,13 +244,16 @@ class Engine:
             )
 
         with profile_section('reproduction'):
-            new_agents = self.reproduction_system.apply(all_agents, self.params)
+            new_agents = self.reproduction_system.apply(self.all_agents, self.params)
 
-        for agent in new_agents:
-            if getattr(agent, 'is_predator', False):
-                self.entities['predators'].append(agent)
-            else:
-                self.entities['bacteria'].append(agent)
+        if new_agents:
+            for agent in new_agents:
+                if agent.is_predator:
+                    self.entities['predators'].append(agent)
+                else:
+                    self.entities['bacteria'].append(agent)
+            # Acrescenta em bloco (ordem não crítica)
+            self.all_agents.extend(new_agents)
 
         with profile_section('death'):
             surviving_bacteria, surviving_predators = self.death_system.apply(
@@ -252,9 +261,11 @@ class Engine:
             )
             self.entities['bacteria'] = surviving_bacteria
             self.entities['predators'] = surviving_predators
+            # Reconstroi lista unificada (custo O(n) mas uma vez por frame; elimina concatenações)
+            self.all_agents = surviving_bacteria + surviving_predators
 
         with profile_section('collision'):
-            self.collision_system.apply(all_agents, self.spatial_hash, self.params)
+            self.collision_system.apply(self.all_agents, self.spatial_hash, self.params)
     
     def _update_spatial_hash(self):
         """Atualiza ou recria spatial hash."""
@@ -338,31 +349,33 @@ class Engine:
         # Limpa entidades existentes
         for entity_list in self.entities.values():
             entity_list.clear()
-        
         all_entities = []
-        
+        self.all_agents.clear()
+
         # Cria bactérias
         bacteria_count = min(self.params.get('bacteria_count', 150), 10000)
         for _ in range(bacteria_count):
             bacterium = create_random_bacteria(all_entities, self.params,
-                                             self.world.width, self.world.height)
+                                               self.world.width, self.world.height)
             self.entities['bacteria'].append(bacterium)
             all_entities.append(bacterium)
-        
+            self.all_agents.append(bacterium)
+
         # Cria predadores se habilitados
         if self.params.get('predators_enabled', False):
             predator_count = min(self.params.get('predator_count', 0), 1000)
             for _ in range(predator_count):
                 predator = create_random_predator(all_entities, self.params,
-                                                self.world.width, self.world.height)
+                                                  self.world.width, self.world.height)
                 self.entities['predators'].append(predator)
                 all_entities.append(predator)
-        
+                self.all_agents.append(predator)
+
         # Cria comida
         food_target = self.params.get('food_target', 50)
         for _ in range(food_target):
             food = create_random_food(self.entities['foods'], self.params,
-                                    self.world.width, self.world.height)
+                                      self.world.width, self.world.height)
             self.entities['foods'].append(food)
     
     def _draw_world_bounds(self, surface):

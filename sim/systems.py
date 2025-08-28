@@ -63,8 +63,8 @@ class InteractionSystem:
                 nearby_objects = spatial_hash.query_ball(
                     bacterium.x, bacterium.y, bacterium.r + food_radius
                 )
-                nearby_foods = [obj for obj in nearby_objects 
-                              if hasattr(obj, 'mass') and not hasattr(obj, 'network')]
+                # type_code 0 = Food
+                nearby_foods = [obj for obj in nearby_objects if getattr(obj, 'type_code', -1) == 0]
             else:
                 # Fallback: busca linear
                 nearby_foods = foods
@@ -74,8 +74,10 @@ class InteractionSystem:
                     continue
                 
                 # Verifica colisão
-                distance = math.hypot(bacterium.x - food.x, bacterium.y - food.y)
-                if distance <= bacterium.r + food.r:
+                dx = bacterium.x - food.x
+                dy = bacterium.y - food.y
+                r_sum = bacterium.r + food.r
+                if dx*dx + dy*dy <= r_sum * r_sum:
                     # Bactéria come comida
                     bacterium.set_mass(bacterium.m + food.mass)
                     self._foods_to_remove.add(food)
@@ -92,15 +94,15 @@ class InteractionSystem:
                 nearby_objects = spatial_hash.query_ball(
                     predator.x, predator.y, predator.r + bacteria_radius
                 )
-                nearby_bacteria = [obj for obj in nearby_objects 
-                                 if hasattr(obj, 'is_predator') and not obj.is_predator]
+                # type_code 1 = Bacteria
+                nearby_bacteria = [obj for obj in nearby_objects if getattr(obj, 'type_code', -1) == 1]
             else:
                 # Fallback
                 nearby_bacteria = bacteria
             
             # Se já estamos no mínimo de bactérias permitido, impedir predação adicional
             min_bact = params.get('bacteria_min_limit', 0)
-            if len(bacteria) - len([a for a in self._agents_to_remove if hasattr(a, 'is_predator') and not a.is_predator]) <= min_bact:
+            if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
                 continue
 
             for bacterium in nearby_bacteria:
@@ -108,12 +110,14 @@ class InteractionSystem:
                     continue
                 
                 # Verifica colisão
-                distance = math.hypot(predator.x - bacterium.x, predator.y - bacterium.y)
-                if distance <= predator.r + bacterium.r:
+                dx = predator.x - bacterium.x
+                dy = predator.y - bacterium.y
+                r_sum = predator.r + bacterium.r
+                if dx*dx + dy*dy <= r_sum * r_sum:
                     # Predador come bactéria
                     predator.m += bacterium.m * 0.7  # Eficiência 70%
                     # Rechecar mínimo antes de remover
-                    if len(bacteria) - len([a for a in self._agents_to_remove if hasattr(a, 'is_predator') and not a.is_predator]) <= min_bact:
+                    if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
                         break
                     self._agents_to_remove.add(bacterium)
                     break  # Uma bactéria por frame por predador
@@ -226,11 +230,11 @@ class DeathSystem:
         """
         if not agents:
             return agents
-        
+
         current_count = len(agents)
-        
+
         # Identifica candidatos à morte
-        death_candidates = [agent for agent in agents if agent.should_die(params)]
+        death_candidates = [agent for agent in agents if agent.should_die(params)]  # type_code já padroniza
         
         # Se estamos no limite mínimo, não mata ninguém
         if current_count <= min_limit:
@@ -324,17 +328,18 @@ class CollisionSystem:
         """
         dx = agent1.x - agent2.x
         dy = agent1.y - agent2.y
-        distance = math.hypot(dx, dy)
-        
-        if distance == 0:
-            # Evita divisão por zero
+        dist2 = dx*dx + dy*dy
+        r_sum = agent1.r + agent2.r
+        r_sum2 = r_sum * r_sum
+        if dist2 >= r_sum2:
+            return  # Sem colisão
+        if dist2 == 0:
             distance = 0.01
             dx = 0.01
-            dy = 0
-        
-        overlap = agent1.r + agent2.r - distance
-        if overlap <= 0:
-            return  # Sem colisão
+            dy = 0.0
+        else:
+            distance = math.sqrt(dist2)
+        overlap = r_sum - distance
         
         # Separação dos objetos
         push_x = dx / distance * overlap
@@ -352,24 +357,25 @@ class CollisionSystem:
         agent1.y += push_y * mass_ratio_1
         agent2.x -= push_x * mass_ratio_2
         agent2.y -= push_y * mass_ratio_2
-        
+
         # Resposta elástica nas velocidades
-        nx = dx / distance  # Normal x
-        ny = dy / distance  # Normal y
-        
+        inv_dist = 1.0 / distance
+        nx = dx * inv_dist  # Normal x
+        ny = dy * inv_dist  # Normal y
+
         # Velocidade relativa
         dvx = agent1.vx - agent2.vx
         dvy = agent1.vy - agent2.vy
         relative_velocity_normal = dvx * nx + dvy * ny
-        
+
         if relative_velocity_normal > 0:
             return  # Objetos se afastando
-        
+
         # Impulso elástico
         impulse = (2 * relative_velocity_normal) / total_mass
         impulse_x = impulse * nx
         impulse_y = impulse * ny
-        
+
         agent1.vx -= impulse_x * agent2.m
         agent1.vy -= impulse_y * agent2.m
         agent2.vx += impulse_x * agent1.m
