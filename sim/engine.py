@@ -13,7 +13,12 @@ from .controllers import Params, FoodController, PopulationController
 from .entities import Agent, Bacteria, Predator, Food, create_random_bacteria, create_random_predator, create_random_food
 from .sensors import SceneQuery
 from .systems import InteractionSystem, ReproductionSystem, DeathSystem, CollisionSystem
-from .render import RendererStrategy, SimpleRenderer, EllipseRenderer
+try:
+    from .render import RendererStrategy, SimpleRenderer, EllipseRenderer  # noqa
+except Exception:  # pygame import pode falhar em headless puro
+    RendererStrategy = object  # type: ignore
+    SimpleRenderer = EllipseRenderer = None  # type: ignore
+from .profiler import profile_section, profiler
 
 
 class Engine:
@@ -26,45 +31,49 @@ class Engine:
     - Thread-safe: aceita comandos via queue
     """
     
-    def __init__(self, world: World, camera: Camera, params: Params, renderer: Optional[RendererStrategy] = None):
+    def __init__(self, world: World, camera: Camera, params: Params, renderer: Optional[Any] = None, headless: bool = False):
         self.world = world
         self.camera = camera
         self.params = params
-        
+        self.headless = headless
+
         # Entidades
         self.entities = {
             'bacteria': [],
             'predators': [],
             'foods': []
         }
-        
+
         # Sistemas
         self.interaction_system = InteractionSystem()
         self.reproduction_system = ReproductionSystem()
         self.death_system = DeathSystem(max_deaths_per_step=params.get('max_deaths_per_step', 1))
         self.collision_system = CollisionSystem()
-        
+
         # Controladores
         self.food_controller = FoodController()
         self.population_controller = PopulationController()
-        
+
         # Infraestrutura
         self.spatial_hash: Optional[SpatialHash] = None
         self.scene_query: Optional[SceneQuery] = None
-        
+
         # Renderização
-        self.renderer = renderer or SimpleRenderer()
-        
+        if headless or SimpleRenderer is None:
+            self.renderer = None
+        else:
+            self.renderer = renderer or SimpleRenderer()
+
         # Controle de execução
         self.running = False
         self.command_queue = Queue()
-        
+
         # Métricas
         self.total_simulation_time = 0.0
         self.frame_count = 0
         self.last_fps_time = time.time()
         self.current_fps = 0.0
-        
+
         # Estado para debugging
         self.selected_agent: Optional[Agent] = None
     
@@ -116,6 +125,8 @@ class Engine:
             surface: Superfície pygame para desenhar
             show_world_bounds: Se deve mostrar limites do mundo
         """
+        if self.headless or self.renderer is None:
+            return
         # Limpa tela
         surface.fill((10, 10, 20))
         
@@ -205,46 +216,45 @@ class Engine:
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
-        # 1. Atualiza/reutiliza spatial hash
-        self._update_spatial_hash()
-        
-        # 2. Controle de comida
-        target_food = self.params.get('food_target', 300)
-        new_foods = self.food_controller.update(
-            self.entities['foods'], target_food, self.world.width, self.world.height, self.params, dt
-        )
-        self.entities['foods'].extend(new_foods)
-        
-        # 3. Atualiza agentes (sense -> think -> act -> energy)
+        with profile_section('spatial_hash'):
+            self._update_spatial_hash()
+
+        with profile_section('food_control'):
+            target_food = self.params.get('food_target', 300)
+            new_foods = self.food_controller.update(
+                self.entities['foods'], target_food, self.world.width, self.world.height, self.params, dt
+            )
+            self.entities['foods'].extend(new_foods)
+
         all_agents = self.entities['bacteria'] + self.entities['predators']
-        for agent in all_agents:
-            agent.update(dt, self.world, self.scene_query, self.params)
-        
-        # 4. Interações (comer)
-        self.interaction_system.apply(
-            self.entities['bacteria'], self.entities['predators'],
-            self.entities['foods'], self.spatial_hash, self.params
-        )
-        
-        # 5. Reprodução
-        new_agents = self.reproduction_system.apply(all_agents, self.params)
-        
-        # Adiciona novos agentes às listas apropriadas
+        with profile_section('agents_update'):
+            for agent in all_agents:
+                agent.update(dt, self.world, self.scene_query, self.params)
+
+        with profile_section('interaction'):
+            self.interaction_system.apply(
+                self.entities['bacteria'], self.entities['predators'],
+                self.entities['foods'], self.spatial_hash, self.params
+            )
+
+        with profile_section('reproduction'):
+            new_agents = self.reproduction_system.apply(all_agents, self.params)
+
         for agent in new_agents:
             if getattr(agent, 'is_predator', False):
                 self.entities['predators'].append(agent)
             else:
                 self.entities['bacteria'].append(agent)
-        
-        # 6. Morte
-        surviving_bacteria, surviving_predators = self.death_system.apply(
-            self.entities['bacteria'], self.entities['predators'], self.params
-        )
-        self.entities['bacteria'] = surviving_bacteria
-        self.entities['predators'] = surviving_predators
-        
-        # 7. Colisões
-        self.collision_system.apply(all_agents, self.spatial_hash, self.params)
+
+        with profile_section('death'):
+            surviving_bacteria, surviving_predators = self.death_system.apply(
+                self.entities['bacteria'], self.entities['predators'], self.params
+            )
+            self.entities['bacteria'] = surviving_bacteria
+            self.entities['predators'] = surviving_predators
+
+        with profile_section('collision'):
+            self.collision_system.apply(all_agents, self.spatial_hash, self.params)
     
     def _update_spatial_hash(self):
         """Atualiza ou recria spatial hash."""

@@ -4,6 +4,7 @@ Usando herança onde há comportamento compartilhado e composição para capacid
 """
 import math
 import random
+from .profiler import profile_section, profiler
 from abc import ABC, abstractmethod
 from typing import Optional, TYPE_CHECKING
 
@@ -89,7 +90,8 @@ class Agent(Entity):
         self.age += dt
         
         # 1. Sensoriamento
-        sensor_inputs = self.sensor.sense(self, scene, params)
+        with profile_section('agent_sensor'):
+            sensor_inputs = self.sensor.sense(self, scene, params)
 
         # Ajuste dinâmico do tamanho de entrada da rede caso número de retinas mude
         expected_input_size = self.brain.sizes[0] if hasattr(self.brain, 'sizes') else len(sensor_inputs)
@@ -97,15 +99,24 @@ class Agent(Entity):
             self.brain.resize_input(len(sensor_inputs))
         
         # 2. Processamento neural
-        brain_outputs = self.brain.forward(sensor_inputs)
+        with profile_section('agent_brain_forward'):
+            brain_outputs = self.brain.forward(sensor_inputs)
         self.last_brain_output = list(brain_outputs)
-        self.last_brain_activations = self.brain.activations(sensor_inputs)
+        # Ativações só se profiler ligado (evita custo desnecessário em produção)
+        # Activations opcional (custa tempo). Pula se param disable_brain_activations está setado.
+        if profiler.enabled and not params.get('disable_brain_activations', False):
+            with profile_section('agent_brain_activations'):
+                self.last_brain_activations = self.brain.activations(sensor_inputs)
+        else:
+            self.last_brain_activations = []
         
         # 3. Atuação (movimento)
-        self.locomotion.step(self, brain_outputs, dt, world, params)
+        with profile_section('agent_locomotion'):
+            self.locomotion.step(self, brain_outputs, dt, world, params)
         
         # 4. Modelo energético
-        self.energy.apply(self, dt, params)
+        with profile_section('agent_energy'):
+            self.energy.apply(self, dt, params)
     
     def speed(self) -> float:
         """Calcula velocidade atual do agente."""
