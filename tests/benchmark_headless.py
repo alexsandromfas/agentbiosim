@@ -9,7 +9,17 @@ Executa por um número de passos simulando ~5 segundos de tempo de mundo.
 Imprime relatório no final.
 """
 from __future__ import annotations
+import os
+import sys
 import time
+
+# When this script is executed directly (python tests/benchmark_headless.py)
+# sys.path[0] is the tests/ directory which makes `import sim` fail. Ensure the
+# project root is on sys.path so imports like `from sim.*` work both when
+# running as a module (python -m tests.benchmark_headless) and as a script.
+ROOT = os.path.dirname(os.path.dirname(__file__))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 from sim.controllers import Params
 from sim.world import World, Camera
