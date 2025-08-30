@@ -50,11 +50,14 @@ class Params:
             'bacteria_max_limit': 300,
             
             # Bactérias - energia
-            'bacteria_initial_mass': 100.0,  # Massa inicial
+            'bacteria_initial_energy': 100.0,  # Energia inicial
             'bacteria_energy_loss_idle': 0.01,
             'bacteria_energy_loss_move': 5.0,
-            'bacteria_death_mass': 50.0,
-            'bacteria_split_mass': 150.0,
+            'bacteria_death_energy': 50.0,
+            'bacteria_split_energy': 150.0,
+
+            # Bactérias - tamanho fixo
+            'bacteria_body_size': 9.0,  # Raio fixo (antes variava com "massa")
             
             # Bactérias - movimento
             'bacteria_max_speed': 300.0,
@@ -90,11 +93,14 @@ class Params:
             'predator_max_limit': 100,
             
             # Predadores - energia
-            'predator_initial_mass': 100.0,  # Massa inicial
+            'predator_initial_energy': 100.0,  # Energia inicial
             'predator_energy_loss_idle': 0.01,
             'predator_energy_loss_move': 5.0,
-            'predator_death_mass': 50.0,
-            'predator_split_mass': 150.0,
+            'predator_death_energy': 50.0,
+            'predator_split_energy': 150.0,
+
+            # Predadores - tamanho fixo
+            'predator_body_size': 14.0,
             
             # Predadores - movimento
             'predator_max_speed': 300.0,
@@ -121,6 +127,9 @@ class Params:
             'predator_mutation_strength': 0.08,
             'predator_structural_jitter': 0,
             
+            # Física geral
+            'agents_inertia': 1.0,  # Inércia global (antes derivada de massa individual)
+
             # UI/Debug
             'show_selected_details': True,
         }
@@ -159,7 +168,7 @@ class Params:
         # Validações básicas por padrão de nome
         if 'count' in key or 'limit' in key:
             return max(0, int(value))
-        elif 'mass' in key or 'radius' in key or key.endswith('_r'):
+        elif 'energy' in key or 'radius' in key or key.endswith('_r'):
             return max(0.0, float(value))
         elif 'rate' in key and 'mutation' in key:
             return max(0.0, min(1.0, float(value)))

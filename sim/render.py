@@ -146,23 +146,22 @@ class SimpleRenderer(RendererStrategy):
         """Desenha detalhes do agente selecionado no canto direito."""
         box_w = 360
         pad = 8
-        
-        lines = []
-        lines.append("--- Agente Selecionado ---")
-        lines.append(f"Tipo: {'Predador' if getattr(agent, 'is_predator', False) else 'Bactéria'}")
-        lines.append(f"Pos: {agent.x:.1f}, {agent.y:.1f}")
-        lines.append(f"Idade: {agent.age:.2f}s")
-        lines.append(f"Velocidade: {agent.speed():.2f}")
-        lines.append(f"Direção (deg): {math.degrees(agent.angle):.1f}")
-        lines.append(f"Massa: {agent.m:.2f}  Raio: {agent.r:.2f}")
-        
-        # Retinas
-        if hasattr(agent, 'sensor') and agent.sensor.last_inputs:
+
+        lines = [
+            "--- Agente Selecionado ---",
+            f"Tipo: {'Predador' if getattr(agent, 'is_predator', False) else 'Bactéria'}",
+            f"Pos: {agent.x:.1f}, {agent.y:.1f}",
+            f"Idade: {agent.age:.2f}s",
+            f"Velocidade: {agent.speed():.2f}",
+            f"Direção (deg): {math.degrees(agent.angle):.1f}",
+            f"Energia: {getattr(agent, 'energy', 0.0):.2f}  Raio: {agent.r:.2f}",
+        ]
+
+        if hasattr(agent, 'sensor') and getattr(agent.sensor, 'last_inputs', None):
             lines.append(f"Retinas ({len(agent.sensor.last_inputs)}):")
             for i, val in enumerate(agent.sensor.last_inputs):
                 lines.append(f" R{i:02d}: {val:.3f}")
-        
-        # Ativações neurais
+
         if hasattr(agent, 'last_brain_activations') and agent.last_brain_activations:
             lines.append("Ativações neurais (por camada):")
             for li, layer in enumerate(agent.last_brain_activations):
@@ -170,20 +169,15 @@ class SimpleRenderer(RendererStrategy):
                 if len(layer) > 10:
                     preview += ", ..."
                 lines.append(f" L{li} ({len(layer)}): {preview}")
-        
-        # Desenha fundo
+
         x0 = surface.get_width() - box_w - pad
         y0 = pad
         h = max(120, 16 * len(lines))
-        
         pygame.draw.rect(surface, (20, 20, 30), pygame.Rect(x0, y0, box_w, h))
         pygame.draw.rect(surface, (80, 200, 80), pygame.Rect(x0, y0, box_w, 20))
-        
-        # Desenha linhas de texto
         yy = y0 + 4
         for line in lines:
-            text_surf = self.small_font.render(line, True, (220, 220, 220))
-            surface.blit(text_surf, (x0 + 6, yy))
+            surface.blit(self.small_font.render(line, True, (220, 220, 220)), (x0 + 6, yy))
             yy += 16
 
 

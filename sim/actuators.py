@@ -106,55 +106,46 @@ class Locomotion:
 
 
 class EnergyModel:
+    """Modelo energético baseado em 'energy' separado do tamanho/massa inercial.
+
+    Regras solicitadas:
+    - Agente morre quando a energia chega a 0.
+    - Agente se reproduz quando atinge energia máxima (split_energy).
+    - Tamanho/corpo (raio) é fixo; massa inercial (m) permanece constante.
     """
-    Sistema de energia para agentes.
-    Gerencia consumo energético e limites de vida/reprodução.
-    """
-    
+
+    __slots__ = ("loss_idle", "loss_move", "death_energy", "split_energy")
+
     def __init__(self, loss_idle: float = 0.01, loss_move: float = 5.0,
-                 death_mass: float = 50.0, split_mass: float = 150.0):
-        self.loss_idle = loss_idle      # Perda por segundo parado
-        self.loss_move = loss_move      # Perda por segundo movendo
-        self.death_mass = death_mass    # Massa mínima para viver
-        self.split_mass = split_mass    # Massa para reproduzir
-    
+                 death_energy: float = 0.0, split_energy: float = 150.0):
+        self.loss_idle = loss_idle
+        self.loss_move = loss_move
+        self.death_energy = death_energy  # normalmente 0 (morre ao zerar)
+        self.split_energy = split_energy
+
     def apply(self, agent: 'Agent', dt: float, params: 'Params'):
+        """Aplicar consumo energético.
+
+        Consumo:
+          idle: loss_idle * dt
+          movimento: loss_move * dt (se velocidade > 1)
         """
-        Aplica modelo energético ao agente.
-        
-        IMPORTANTE: Perdas são lineares no tempo simulado, não no FPS.
-        
-        Args:
-            agent: Agente afetado
-            dt: Delta tempo FÍSICO (já com time_scale aplicado)
-            params: Parâmetros da simulação
-        """
-        # Determina tipo de perda baseado na velocidade
         speed = agent.speed()
         if speed > 1.0:
             energy_loss = self.loss_move * dt
         else:
             energy_loss = self.loss_idle * dt
-        
-        # Aplica perda energética (diminui massa)
-        new_mass = agent.m - energy_loss
-        agent.set_mass(max(new_mass, self.death_mass))
-    
+        agent.energy = max(0.0, agent.energy - energy_loss)
+
+    # --- Queries ---
     def should_die(self, agent: 'Agent') -> bool:
-        """Verifica se agente deve morrer por falta de energia."""
-        return agent.m <= self.death_mass
-    
+        return agent.energy <= self.death_energy
+
     def can_reproduce(self, agent: 'Agent') -> bool:
-        """Verifica se agente pode se reproduzir."""
-        return agent.m >= self.split_mass
-    
+        return agent.energy >= self.split_energy
+
     def prepare_reproduction(self, agent: 'Agent') -> float:
-        """
-        Prepara reprodução dividindo massa do agente.
-        
-        Returns:
-            Massa do filho
-        """
-        child_mass = agent.m / 2.0
-        agent.set_mass(child_mass)
-        return child_mass
+        """Divide energia do agente em dois e retorna energia do filho."""
+        child_energy = agent.energy * 0.5
+        agent.energy = child_energy
+        return child_energy

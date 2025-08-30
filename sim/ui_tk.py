@@ -91,13 +91,14 @@ class SimulationUI:
             'world_h': tk.DoubleVar(value=self.params.get('world_h', 700.0)),
             'substrate_radius': tk.DoubleVar(value=self.params.get('substrate_radius', 400.0)),
             
-            # Bactérias
+            # Bactérias (energia)
             'bacteria_count': tk.IntVar(value=self.params.get('bacteria_count', 150)),
-            'bacteria_initial_mass': tk.DoubleVar(value=self.params.get('bacteria_initial_mass', 100.0)),
+            'bacteria_initial_energy': tk.DoubleVar(value=self.params.get('bacteria_initial_energy', 100.0)),
             'bacteria_energy_loss_idle': tk.DoubleVar(value=self.params.get('bacteria_energy_loss_idle', 0.01)),
             'bacteria_energy_loss_move': tk.DoubleVar(value=self.params.get('bacteria_energy_loss_move', 5.0)),
-            'bacteria_death_mass': tk.DoubleVar(value=self.params.get('bacteria_death_mass', 50.0)),
-            'bacteria_split_mass': tk.DoubleVar(value=self.params.get('bacteria_split_mass', 150.0)),
+            'bacteria_death_energy': tk.DoubleVar(value=self.params.get('bacteria_death_energy', 0.0)),
+            'bacteria_split_energy': tk.DoubleVar(value=self.params.get('bacteria_split_energy', 150.0)),
+            'bacteria_body_size': tk.DoubleVar(value=self.params.get('bacteria_body_size', 9.0)),
             'bacteria_show_vision': tk.BooleanVar(value=self.params.get('bacteria_show_vision', False)),
             'bacteria_vision_radius': tk.DoubleVar(value=self.params.get('bacteria_vision_radius', 120.0)),
             'bacteria_retina_count': tk.IntVar(value=self.params.get('bacteria_retina_count', 18)),
@@ -113,14 +114,15 @@ class SimulationUI:
             'bacteria_mutation_rate': tk.DoubleVar(value=self.params.get('bacteria_mutation_rate', 0.05)),
             'bacteria_mutation_strength': tk.DoubleVar(value=self.params.get('bacteria_mutation_strength', 0.08)),
             
-            # Predadores
+            # Predadores (energia)
             'predators_enabled': tk.BooleanVar(value=self.params.get('predators_enabled', False)),
             'predator_count': tk.IntVar(value=self.params.get('predator_count', 0)),
-            'predator_initial_mass': tk.DoubleVar(value=self.params.get('predator_initial_mass', 100.0)),
+            'predator_initial_energy': tk.DoubleVar(value=self.params.get('predator_initial_energy', 100.0)),
             'predator_energy_loss_idle': tk.DoubleVar(value=self.params.get('predator_energy_loss_idle', 0.01)),
             'predator_energy_loss_move': tk.DoubleVar(value=self.params.get('predator_energy_loss_move', 5.0)),
-            'predator_death_mass': tk.DoubleVar(value=self.params.get('predator_death_mass', 50.0)),
-            'predator_split_mass': tk.DoubleVar(value=self.params.get('predator_split_mass', 150.0)),
+            'predator_death_energy': tk.DoubleVar(value=self.params.get('predator_death_energy', 0.0)),
+            'predator_split_energy': tk.DoubleVar(value=self.params.get('predator_split_energy', 150.0)),
+            'predator_body_size': tk.DoubleVar(value=self.params.get('predator_body_size', 14.0)),
             'predator_show_vision': tk.BooleanVar(value=self.params.get('predator_show_vision', False)),
             'predator_vision_radius': tk.DoubleVar(value=self.params.get('predator_vision_radius', 120.0)),
             'predator_retina_count': tk.IntVar(value=self.params.get('predator_retina_count', 18)),
@@ -135,6 +137,8 @@ class SimulationUI:
             'predator_hidden_layers': tk.IntVar(value=self.params.get('predator_hidden_layers', 2)),
             'predator_mutation_rate': tk.DoubleVar(value=self.params.get('predator_mutation_rate', 0.05)),
             'predator_mutation_strength': tk.DoubleVar(value=self.params.get('predator_mutation_strength', 0.08)),
+            # Física global
+            'agents_inertia': tk.DoubleVar(value=self.params.get('agents_inertia', 1.0)),
             
             # UI
             'show_selected_details': tk.BooleanVar(value=self.params.get('show_selected_details', True)),
@@ -167,12 +171,8 @@ class SimulationUI:
     
     def build_simulation_tab(self):
         """Aba de controles gerais da simulação."""
-        	# Nota: todo o corpo precisa ter 8 espaços (ou um tab + 4 espaços) para ficar dentro do método.
-        # Se este comentário aparecer desalinhado, verifique caracteres de tab.
-        # Construção da aba principal de simulação
         tab = ttk.Frame(self.notebook, padding=6)
         self.notebook.add(tab, text="Simulação")
-
         row = 0
         # Controles de tempo
         ttk.Label(tab, text="Escala de tempo (x):").grid(row=row, column=0, sticky='w')
@@ -191,6 +191,9 @@ class SimulationUI:
         row += 1
         ttk.Checkbutton(tab, text="Renderização simples", variable=self.control_vars['simple_render']).grid(row=row, column=0, sticky='w')
         ttk.Checkbutton(tab, text="Reutilizar grid espacial", variable=self.control_vars['reuse_spatial_grid']).grid(row=row, column=1, sticky='w')
+        row += 1
+        ttk.Label(tab, text="Inércia global:").grid(row=row, column=0, sticky='w')
+        ttk.Spinbox(tab, from_=0.1, to=10.0, increment=0.1, textvariable=self.control_vars['agents_inertia'], width=8).grid(row=row, column=1, sticky='w')
         row += 1
         # Botões de controle
         ttk.Button(tab, text="Aplicar Parâmetros", command=self.apply_simulation_params).grid(row=row, column=0, pady=6)
@@ -249,310 +252,122 @@ class SimulationUI:
         ttk.Button(tab, text="Aplicar Parâmetros", command=self.apply_substrate_params).grid(row=row, column=0, columnspan=2, pady=6)
     
     def build_bacteria_tab(self):
-        """Aba de controles das bactérias."""
-        # Frame scrollável
+        """Aba de controles das bactérias (energia)."""
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Bactérias")
-        
         canvas = tk.Canvas(tab)
         scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        scrollable = ttk.Frame(canvas)
+        scrollable.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
-        
         canvas.grid(row=0, column=0, sticky='nsew')
         scrollbar.grid(row=0, column=1, sticky='ns')
         tab.rowconfigure(0, weight=1)
         tab.columnconfigure(0, weight=1)
-        
-        # Conteúdo da aba
-        row = 0
-        
+        r = 0
         # População
-        ttk.Label(scrollable_frame, text="Quantidade inicial:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0, to=1000, textvariable=self.control_vars['bacteria_count'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Mínimo:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0, to=1000, textvariable=self.control_vars['bacteria_min_limit'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Máximo:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1, to=10000, textvariable=self.control_vars['bacteria_max_limit'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Energia
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="ENERGIA:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Perda (idle):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=100.0, increment=0.001, textvariable=self.control_vars['bacteria_energy_loss_idle'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Perda (movimento):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=100.0, increment=0.1, textvariable=self.control_vars['bacteria_energy_loss_move'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa inicial:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1.0, to=500.0, increment=1.0, textvariable=self.control_vars['bacteria_initial_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa para morrer:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1000.0, increment=1.0, textvariable=self.control_vars['bacteria_death_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa para dividir:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1000.0, increment=5.0, textvariable=self.control_vars['bacteria_split_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Visão
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="VISÃO:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Raio visão:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=10.0, to=500.0, increment=5.0, textvariable=self.control_vars['bacteria_vision_radius'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Número de retinas:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=3, to=50, textvariable=self.control_vars['bacteria_retina_count'], width=8).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Campo de visão (°):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=10.0, to=360.0, increment=10.0, textvariable=self.control_vars['bacteria_retina_fov_degrees'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver comida:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['bacteria_retina_see_food']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver bactérias:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['bacteria_retina_see_bacteria']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver predadores:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['bacteria_retina_see_predators']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Movimento
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="MOVIMENTO:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Velocidade máx:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=2000.0, increment=10.0, textvariable=self.control_vars['bacteria_max_speed'], width=12).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Rotação máx (°/s):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1.0, to=720.0, increment=5.0, textvariable=self.control_vars['bacteria_max_turn_deg'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Rede Neural
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="REDE NEURAL:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Camadas ocultas:").grid(row=row, column=0, sticky='w')
-        layers_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=5, textvariable=self.control_vars['bacteria_hidden_layers'], width=6)
-        layers_spinbox.grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Neurônios por camada
+        ttk.Label(scrollable, text="Quantidade inicial:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0, to=2000, textvariable=self.control_vars['bacteria_count'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Mínimo:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0, to=1000, textvariable=self.control_vars['bacteria_min_limit'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Máximo:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1, to=20000, textvariable=self.control_vars['bacteria_max_limit'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="ENERGIA:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Perda (idle):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=10.0, increment=0.001, textvariable=self.control_vars['bacteria_energy_loss_idle'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Perda (movimento):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=100.0, increment=0.1, textvariable=self.control_vars['bacteria_energy_loss_move'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia inicial:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=10000.0, increment=1.0, textvariable=self.control_vars['bacteria_initial_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia morte:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=1000.0, increment=1.0, textvariable=self.control_vars['bacteria_death_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia dividir:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=20000.0, increment=5.0, textvariable=self.control_vars['bacteria_split_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Tamanho corpo (raio):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1.0, to=100.0, increment=0.5, textvariable=self.control_vars['bacteria_body_size'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="VISÃO:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Raio visão:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=10.0, to=1000.0, increment=5.0, textvariable=self.control_vars['bacteria_vision_radius'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Número de retinas:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=3, to=64, increment=1, textvariable=self.control_vars['bacteria_retina_count'], width=8).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Campo de visão (°):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=10.0, to=360.0, increment=10.0, textvariable=self.control_vars['bacteria_retina_fov_degrees'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver comida:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['bacteria_retina_see_food']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver bactérias:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['bacteria_retina_see_bacteria']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver predadores:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['bacteria_retina_see_predators']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="MOVIMENTO:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Velocidade máx:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=5000.0, increment=10.0, textvariable=self.control_vars['bacteria_max_speed'], width=12).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Rotação máx (°/s):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1.0, to=1080.0, increment=5.0, textvariable=self.control_vars['bacteria_max_turn_deg'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="REDE NEURAL:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Camadas ocultas:").grid(row=r, column=0, sticky='w'); layers_spin = ttk.Spinbox(scrollable, from_=1, to=5, textvariable=self.control_vars['bacteria_hidden_layers'], width=6); layers_spin.grid(row=r, column=1, sticky='w'); r += 1
         self.bacteria_neuron_entries = []
         for i in range(1, 6):
-            ttk.Label(scrollable_frame, text=f"Neurônios camada {i}:").grid(row=row, column=0, sticky='w')
-            entry = ttk.Entry(scrollable_frame, textvariable=self.control_vars[f'bacteria_neurons_layer_{i}'], width=8)
-            entry.grid(row=row, column=1, sticky='w')
-            self.bacteria_neuron_entries.append(entry)
-            row += 1
-        
-        # Bind para atualizar entradas de neurônios
-        def update_bacteria_neuron_entries():
+            ttk.Label(scrollable, text=f"Neurônios camada {i}:").grid(row=r, column=0, sticky='w')
+            ent = ttk.Entry(scrollable, textvariable=self.control_vars[f'bacteria_neurons_layer_{i}'], width=8)
+            ent.grid(row=r, column=1, sticky='w')
+            self.bacteria_neuron_entries.append(ent)
+            r += 1
+        def _upd():
             layers = self.control_vars['bacteria_hidden_layers'].get()
-            for i, entry in enumerate(self.bacteria_neuron_entries):
-                if i < layers:
-                    entry.configure(state='normal')
-                else:
-                    entry.configure(state='disabled')
-        
-        self.control_vars['bacteria_hidden_layers'].trace_add('write', lambda *a: update_bacteria_neuron_entries())
-        update_bacteria_neuron_entries()
-        
-        ttk.Label(scrollable_frame, text="Taxa de mutação:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1.0, increment=0.001, textvariable=self.control_vars['bacteria_mutation_rate'], width=8).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Força de mutação:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=5.0, increment=0.01, textvariable=self.control_vars['bacteria_mutation_strength'], width=8).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Button(scrollable_frame, text="Aplicar Parâmetros", command=self.apply_bacteria_params).grid(row=row, column=0, columnspan=2, pady=6)
+            for idx, ent in enumerate(self.bacteria_neuron_entries):
+                ent.configure(state='normal' if idx < layers else 'disabled')
+        self.control_vars['bacteria_hidden_layers'].trace_add('write', lambda *a: _upd())
+        _upd()
+        ttk.Label(scrollable, text="Taxa de mutação:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=1.0, increment=0.001, textvariable=self.control_vars['bacteria_mutation_rate'], width=8).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Força de mutação:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=5.0, increment=0.01, textvariable=self.control_vars['bacteria_mutation_strength'], width=8).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Button(scrollable, text="Aplicar Parâmetros", command=self.apply_bacteria_params).grid(row=r, column=0, columnspan=2, pady=6)
     
     def build_predator_tab(self):
-        """Aba de controles dos predadores.""" 
-        # Frame scrollável (similar ao das bactérias)
+        """Aba de controles dos predadores (energia)."""
         tab = ttk.Frame(self.notebook)
         self.notebook.add(tab, text="Predadores")
-        
         canvas = tk.Canvas(tab)
-        scrollbar = ttk.Scrollbar(tab, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        scrollbar = ttk.Scrollbar(tab, orient='vertical', command=canvas.yview)
+        scrollable = ttk.Frame(canvas)
+        scrollable.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=scrollable, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
-        
         canvas.grid(row=0, column=0, sticky='nsew')
         scrollbar.grid(row=0, column=1, sticky='ns')
         tab.rowconfigure(0, weight=1)
         tab.columnconfigure(0, weight=1)
-        
-        # Conteúdo da aba
-        row = 0
-        
-        # Habilitar predadores
-        ttk.Checkbutton(scrollable_frame, text="Habilitar predadores", variable=self.control_vars['predators_enabled']).grid(row=row, column=0, columnspan=2, sticky='w')
-        row += 1
-        
-        # População
-        ttk.Label(scrollable_frame, text="Quantidade inicial:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0, to=1000, textvariable=self.control_vars['predator_count'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Mínimo:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0, to=1000, textvariable=self.control_vars['predator_min_limit'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Máximo:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1, to=10000, textvariable=self.control_vars['predator_max_limit'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Energia
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="ENERGIA:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Perda (idle):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=100.0, increment=0.001, textvariable=self.control_vars['predator_energy_loss_idle'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Perda (movimento):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=100.0, increment=0.1, textvariable=self.control_vars['predator_energy_loss_move'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa inicial:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1.0, to=500.0, increment=1.0, textvariable=self.control_vars['predator_initial_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa para morrer:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1000.0, increment=1.0, textvariable=self.control_vars['predator_death_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Massa para dividir:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1000.0, increment=5.0, textvariable=self.control_vars['predator_split_mass'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Visão
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="VISÃO:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Raio visão:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=10.0, to=500.0, increment=5.0, textvariable=self.control_vars['predator_vision_radius'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver comida:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['predator_retina_see_food']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver bactérias:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['predator_retina_see_bacteria']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Ver predadores:").grid(row=row, column=0, sticky='w')
-        ttk.Checkbutton(scrollable_frame, variable=self.control_vars['predator_retina_see_predators']).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Quantidade de retinas:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=3, to=36, increment=1, textvariable=self.control_vars['predator_retina_count'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="FOV (graus):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=30, to=360, increment=10, textvariable=self.control_vars['predator_retina_fov_degrees'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Movimento
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="MOVIMENTO:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Velocidade máx:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=2000.0, increment=10.0, textvariable=self.control_vars['predator_max_speed'], width=12).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Rotação máx (°/s):").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=1.0, to=720.0, increment=5.0, textvariable=self.control_vars['predator_max_turn_deg'], width=10).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Rede Neural
-        ttk.Separator(scrollable_frame, orient='horizontal').grid(row=row, column=0, columnspan=2, sticky='ew', pady=6)
-        row += 1
-        ttk.Label(scrollable_frame, text="REDE NEURAL:").grid(row=row, column=0, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Camadas ocultas:").grid(row=row, column=0, sticky='w')
-        layers_spinbox = ttk.Spinbox(scrollable_frame, from_=1, to=5, textvariable=self.control_vars['predator_hidden_layers'], width=6)
-        layers_spinbox.grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        # Neurônios por camada
+        r = 0
+        ttk.Checkbutton(scrollable, text="Habilitar predadores", variable=self.control_vars['predators_enabled']).grid(row=r, column=0, columnspan=2, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Quantidade inicial:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0, to=500, textvariable=self.control_vars['predator_count'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Mínimo:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0, to=500, textvariable=self.control_vars['predator_min_limit'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Máximo:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1, to=2000, textvariable=self.control_vars['predator_max_limit'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="ENERGIA:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Perda (idle):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=10.0, increment=0.001, textvariable=self.control_vars['predator_energy_loss_idle'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Perda (movimento):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=100.0, increment=0.1, textvariable=self.control_vars['predator_energy_loss_move'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia inicial:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=20000.0, increment=1.0, textvariable=self.control_vars['predator_initial_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia morte:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=2000.0, increment=1.0, textvariable=self.control_vars['predator_death_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Energia dividir:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=40000.0, increment=10.0, textvariable=self.control_vars['predator_split_energy'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Tamanho corpo (raio):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1.0, to=300.0, increment=0.5, textvariable=self.control_vars['predator_body_size'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="VISÃO:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Raio visão:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=10.0, to=1500.0, increment=10.0, textvariable=self.control_vars['predator_vision_radius'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver comida:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['predator_retina_see_food']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver bactérias:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['predator_retina_see_bacteria']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Ver predadores:").grid(row=r, column=0, sticky='w'); ttk.Checkbutton(scrollable, variable=self.control_vars['predator_retina_see_predators']).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Qtd retinas:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=3, to=64, increment=1, textvariable=self.control_vars['predator_retina_count'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="FOV (graus):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=30, to=360, increment=10, textvariable=self.control_vars['predator_retina_fov_degrees'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="MOVIMENTO:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Velocidade máx:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=5000.0, increment=10.0, textvariable=self.control_vars['predator_max_speed'], width=12).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Rotação máx (°/s):").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=1.0, to=1080.0, increment=5.0, textvariable=self.control_vars['predator_max_turn_deg'], width=10).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Separator(scrollable, orient='horizontal').grid(row=r, column=0, columnspan=2, sticky='ew', pady=4); r += 1
+        ttk.Label(scrollable, text="REDE NEURAL:").grid(row=r, column=0, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Camadas ocultas:").grid(row=r, column=0, sticky='w'); layers_spin = ttk.Spinbox(scrollable, from_=1, to=5, textvariable=self.control_vars['predator_hidden_layers'], width=6); layers_spin.grid(row=r, column=1, sticky='w'); r += 1
         self.predator_neuron_entries = []
         for i in range(1, 6):
-            ttk.Label(scrollable_frame, text=f"Neurônios camada {i}:").grid(row=row, column=0, sticky='w')
-            entry = ttk.Entry(scrollable_frame, textvariable=self.control_vars[f'predator_neurons_layer_{i}'], width=8)
-            entry.grid(row=row, column=1, sticky='w')
-            self.predator_neuron_entries.append(entry)
-            row += 1
-        
-        # Bind para atualizar entradas de neurônios
-        def update_predator_neuron_entries():
+            ttk.Label(scrollable, text=f"Neurônios camada {i}:").grid(row=r, column=0, sticky='w')
+            ent = ttk.Entry(scrollable, textvariable=self.control_vars[f'predator_neurons_layer_{i}'], width=8)
+            ent.grid(row=r, column=1, sticky='w')
+            self.predator_neuron_entries.append(ent)
+            r += 1
+        def _upd_p():
             layers = self.control_vars['predator_hidden_layers'].get()
-            for i, entry in enumerate(self.predator_neuron_entries):
-                if i < layers:
-                    entry.configure(state='normal')
-                else:
-                    entry.configure(state='disabled')
-        
-        self.control_vars['predator_hidden_layers'].trace_add('write', lambda *a: update_predator_neuron_entries())
-        update_predator_neuron_entries()
-        
-        ttk.Label(scrollable_frame, text="Taxa de mutação:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=1.0, increment=0.001, textvariable=self.control_vars['predator_mutation_rate'], width=8).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Label(scrollable_frame, text="Força de mutação:").grid(row=row, column=0, sticky='w')
-        ttk.Spinbox(scrollable_frame, from_=0.0, to=5.0, increment=0.01, textvariable=self.control_vars['predator_mutation_strength'], width=8).grid(row=row, column=1, sticky='w')
-        row += 1
-        
-        ttk.Button(scrollable_frame, text="Aplicar Parâmetros", command=self.apply_predator_params).grid(row=row, column=0, columnspan=2, pady=6)
+            for idx, ent in enumerate(self.predator_neuron_entries):
+                ent.configure(state='normal' if idx < layers else 'disabled')
+        self.control_vars['predator_hidden_layers'].trace_add('write', lambda *a: _upd_p())
+        _upd_p()
+        ttk.Label(scrollable, text="Taxa de mutação:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=1.0, increment=0.001, textvariable=self.control_vars['predator_mutation_rate'], width=8).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Label(scrollable, text="Força de mutação:").grid(row=r, column=0, sticky='w'); ttk.Spinbox(scrollable, from_=0.0, to=5.0, increment=0.01, textvariable=self.control_vars['predator_mutation_strength'], width=8).grid(row=r, column=1, sticky='w'); r += 1
+        ttk.Button(scrollable, text="Aplicar Parâmetros", command=self.apply_predator_params).grid(row=r, column=0, columnspan=2, pady=6)
     
     def build_help_tab(self):
         """Aba de ajuda/instruções."""
@@ -700,8 +515,8 @@ DICAS:
         try:
             # Lista de parâmetros de bactéria (exceto neurônios que precisam lógica especial)
             bacteria_params = [
-                'bacteria_count', 'bacteria_initial_mass', 'bacteria_energy_loss_idle', 'bacteria_energy_loss_move',
-                'bacteria_death_mass', 'bacteria_split_mass', 'bacteria_show_vision',
+                'bacteria_count', 'bacteria_initial_energy', 'bacteria_energy_loss_idle', 'bacteria_energy_loss_move',
+                'bacteria_death_energy', 'bacteria_split_energy', 'bacteria_show_vision', 'bacteria_body_size',
                 'bacteria_vision_radius', 'bacteria_retina_count', 'bacteria_retina_fov_degrees',
                 'bacteria_retina_see_food', 'bacteria_retina_see_bacteria',
                 'bacteria_retina_see_predators', 'bacteria_max_speed', 'bacteria_min_limit',
@@ -735,8 +550,8 @@ DICAS:
         try:
             # Lista de parâmetros de predador
             predator_params = [
-                'predators_enabled', 'predator_count', 'predator_initial_mass', 'predator_energy_loss_idle',
-                'predator_energy_loss_move', 'predator_death_mass', 'predator_split_mass',
+                'predators_enabled', 'predator_count', 'predator_initial_energy', 'predator_energy_loss_idle',
+                'predator_energy_loss_move', 'predator_death_energy', 'predator_split_energy', 'predator_body_size',
                 'predator_show_vision', 'predator_vision_radius', 'predator_retina_see_food',
                 'predator_retina_count', 'predator_retina_fov_degrees',
                 'predator_retina_see_bacteria', 'predator_retina_see_predators',

@@ -27,35 +27,26 @@ class InteractionSystem:
     
     def apply(self, bacteria: List['Bacteria'], predators: List['Predator'], 
               foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params'):
-        """
-        Aplica interações por um frame.
-        
-        Args:
-            bacteria: Lista de bactérias
-            predators: Lista de predadores
-            foods: Lista de comida
-            spatial_hash: Hash espacial para otimização
-            params: Parâmetros da simulação
-        """
+        """Aplica interações por um frame."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
-        
-        # Bactérias comem comida
+
+        # Bactérias comem comida (ganham energia)
         self._bacteria_eat_food(bacteria, foods, spatial_hash, params)
-        
+
         # Predadores comem bactérias
         if predators:
             self._predators_eat_bacteria(predators, bacteria, spatial_hash, params)
-        
+
         # Remove comida consumida
         foods[:] = [f for f in foods if f not in self._foods_to_remove]
-        
+
         # Remove bactérias predadas
         bacteria[:] = [b for b in bacteria if b not in self._agents_to_remove]
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
                           spatial_hash: 'SpatialHash', params: 'Params'):
-        """Processa bactérias comendo comida."""
+        """Processa bactérias comendo comida (energia += food.energy)."""
         for bacterium in bacteria:
             if spatial_hash:
                 # Usa spatial hash para encontrar comida próxima
@@ -78,8 +69,8 @@ class InteractionSystem:
                 dy = bacterium.y - food.y
                 r_sum = bacterium.r + food.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
-                    # Bactéria come comida
-                    bacterium.set_mass(bacterium.m + food.mass)
+                    # Bactéria come comida -> ganha energia
+                    bacterium.energy += food.energy
                     self._foods_to_remove.add(food)
                     break  # Uma comida por frame por bactéria
     
@@ -114,8 +105,8 @@ class InteractionSystem:
                 dy = predator.y - bacterium.y
                 r_sum = predator.r + bacterium.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
-                    # Predador come bactéria
-                    predator.m += bacterium.m * 0.7  # Eficiência 70%
+                    # Predador come bactéria -> ganha parte da energia
+                    predator.energy += bacterium.energy * 0.7
                     # Rechecar mínimo antes de remover
                     if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
                         break
@@ -207,67 +198,50 @@ class DeathSystem:
         """
         # Processa morte de bactérias
         bacteria_survivors = self._process_deaths(
-            bacteria, 
+            bacteria,
             params.get('bacteria_min_limit', 10),
-            params.get('bacteria_death_mass', 50.0),
+            params.get('bacteria_death_energy', 0.0),
             params
         )
         
         # Processa morte de predadores
         predator_survivors = self._process_deaths(
             predators,
-            params.get('predator_min_limit', 0), 
-            params.get('predator_death_mass', 50.0),
+            params.get('predator_min_limit', 0),
+            params.get('predator_death_energy', 0.0),
             params
         )
         
         return bacteria_survivors, predator_survivors
     
-    def _process_deaths(self, agents: List['Agent'], min_limit: int, 
-                       death_mass: float, params: 'Params') -> List['Agent']:
-        """
-        Processa morte de um tipo específico de agente.
-        """
+    def _process_deaths(self, agents: List['Agent'], min_limit: int,
+                       death_energy: float, params: 'Params') -> List['Agent']:
+        """Processa morte de um tipo específico de agente."""
         if not agents:
             return agents
 
         current_count = len(agents)
+        death_candidates = [a for a in agents if a.should_die(params)]
 
-        # Identifica candidatos à morte
-        death_candidates = [agent for agent in agents if agent.should_die(params)]  # type_code já padroniza
-        
-        # Se estamos no limite mínimo, não mata ninguém
+        # Limite mínimo preservado
         if current_count <= min_limit:
-            # Clamp massa para evitar morte
-            for agent in death_candidates:
-                agent.set_mass(max(agent.m, death_mass))
+            for a in death_candidates:
+                a.energy = max(a.energy, death_energy + 0.001)
             return agents
-        
-        # Calcula quantas mortes são permitidas
-        deaths_available = min(
-            current_count - min_limit,  # Não pode ficar abaixo do mínimo
-            self.max_deaths_per_step,   # Limite por frame
-            len(death_candidates)       # Não pode matar mais que os candidatos
-        )
-        
+
+        deaths_available = min(current_count - min_limit,
+                                self.max_deaths_per_step,
+                                len(death_candidates))
         if deaths_available <= 0:
-            # Clamp massa dos candidatos
-            for agent in death_candidates:
-                agent.set_mass(max(agent.m, death_mass))
+            for a in death_candidates:
+                a.energy = max(a.energy, death_energy + 0.001)
             return agents
-        
-        # Seleciona agentes para morrer (os com menor massa primeiro)
-        death_candidates.sort(key=lambda a: a.m)
+
+        death_candidates.sort(key=lambda a: a.energy)
         agents_to_kill = death_candidates[:deaths_available]
-        
-        # Clamp massa dos que não vão morrer
-        for agent in death_candidates[deaths_available:]:
-            agent.set_mass(max(agent.m, death_mass))
-        
-        # Retorna sobreviventes
-        survivors = [agent for agent in agents if agent not in agents_to_kill]
-        
-        return survivors
+        for a in death_candidates[deaths_available:]:
+            a.energy = max(a.energy, death_energy + 0.001)
+        return [a for a in agents if a not in agents_to_kill]
 
 
 class CollisionSystem:
