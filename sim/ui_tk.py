@@ -6,9 +6,10 @@ import os
 import sys
 import threading
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 import math
 import csv
+import json
 
 from .controllers import Params
 from .engine import Engine
@@ -29,6 +30,9 @@ class SimulationUI:
         self.engine = engine
         self.pygame_view = pygame_view
         self._ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
+        # Modo de agente único carregado via importação
+    # Protótipo atual carregado (para inserção com botão direito)
+    # Agora suportamos múltiplos protótipos dentro de engine.loaded_agent_prototypes
 
         # Tkinter root
         self.root = tk.Tk()
@@ -204,6 +208,10 @@ class SimulationUI:
         ttk.Button(tab, text="Aplicar TODOS os Parâmetros", command=self.apply_all_params).grid(row=row, column=0, columnspan=2, pady=6)
         row += 1
         ttk.Button(tab, text="Salvar", command=self.save_ui_params).grid(row=row, column=0, columnspan=2, pady=6)
+        row += 1
+        # Exportar / Carregar agente
+        ttk.Button(tab, text="Exportar Agente", command=self.open_export_agent_window).grid(row=row, column=0, pady=6)
+        ttk.Button(tab, text="Carregar Agente", command=self.open_load_agent_window).grid(row=row, column=1, pady=6)
     
     def build_substrate_tab(self):
         """Aba de controles do substrato (comida/mundo)."""
@@ -598,20 +606,14 @@ DICAS:
         print("População resetada")
     
     def start_simulation(self):
-        """Inicia simulação aplicando todos os parâmetros."""
+        """Inicia simulação aplicando parâmetros e inicializando população se ainda não estiver rodando."""
         try:
-            # Aplica todos os parâmetros
-            self.apply_simulation_params()
-            self.apply_substrate_params() 
-            self.apply_bacteria_params()
-            self.apply_predator_params()
-            
-            # Reseta e inicia
-            self.reset_population()
-            self.engine.start()
-            
-            print("Simulação iniciada")
-            
+            self.apply_all_params()
+            if not self.engine.running:
+                self.engine.start()
+                print("Simulação iniciada")
+            else:
+                print("Simulação já em execução")
         except Exception as e:
             print(f"Erro ao iniciar simulação: {e}")
     
@@ -699,3 +701,135 @@ DICAS:
             print(f"Parâmetros UI carregados de {self._ui_params_csv}")
         except Exception as e:
             print(f"Erro ao carregar parâmetros UI: {e}")
+
+    # --------------------- Exportar / Carregar Agente ---------------------
+    def open_export_agent_window(self):
+        """Abre janela para exportar agente selecionado."""
+        agent = self.engine.selected_agent
+        if agent is None:
+            messagebox.showinfo("Exportar Agente", "Selecione um agente na área da simulação primeiro (clique sobre ele)."); return
+        win = tk.Toplevel(self.root)
+        win.title("Exportar Agente")
+        ttk.Label(win, text="Nome do agente:").grid(row=0, column=0, padx=6, pady=6)
+        name_var = tk.StringVar(value="agente")
+        entry = ttk.Entry(win, textvariable=name_var, width=28)
+        entry.grid(row=0, column=1, padx=6, pady=6)
+        status_var = tk.StringVar(value="")
+        ttk.Label(win, textvariable=status_var, foreground="gray").grid(row=2, column=0, columnspan=2, padx=6, pady=(0,6))
+
+        def do_export():
+            name = name_var.get().strip()
+            if not name:
+                status_var.set("Informe um nome."); return
+            try:
+                path = self._export_selected_agent(agent, name)
+                status_var.set(f"Exportado: {os.path.basename(path)}")
+            except Exception as e:
+                status_var.set(f"Erro: {e}")
+        ttk.Button(win, text="Exportar", command=do_export).grid(row=1, column=0, columnspan=2, pady=6)
+        entry.focus_set()
+
+    def _export_selected_agent(self, agent, name: str) -> str:
+        """Exporta agente para CSV (key,value). Retorna caminho."""
+        # Pasta 'agents' no root do projeto (um nível acima de sim/)
+        agents_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'agents'))
+        os.makedirs(agents_dir, exist_ok=True)
+        # Evita sobrescrever código fonte .py; cria sufixo .agent.csv
+        filename = f"{name}.agent.csv"
+        path = os.path.join(agents_dir, filename)
+        brain = getattr(agent, 'brain', None)
+        sensor = getattr(agent, 'sensor', None)
+        locomotion = getattr(agent, 'locomotion', None)
+        energy_model = getattr(agent, 'energy_model', None)
+        rows = []
+        def add(k,v): rows.append({'key':k,'value':v})
+        # Metadados básicos
+        add('type', 'predator' if getattr(agent, 'is_predator', False) else 'bacteria')
+        add('x', agent.x); add('y', agent.y); add('r', agent.r)
+        add('angle', agent.angle); add('vx', agent.vx); add('vy', agent.vy)
+        add('energy', getattr(agent, 'energy', 0.0)); add('age', getattr(agent, 'age', 0.0))
+        # Cérebro
+        if brain is not None and hasattr(brain, 'sizes'):
+            add('brain_sizes', json.dumps(brain.sizes))
+            add('brain_version', getattr(brain, 'version', 0))
+            for idx, (W,B) in enumerate(zip(brain.weights, brain.biases)):
+                # Converte listas/arrays para lista nativa
+                try:
+                    import numpy as np
+                    if hasattr(W, 'tolist'): w_list = W.tolist()
+                    else: w_list = list(W)
+                    if hasattr(B, 'tolist'): b_list = B.tolist()
+                    else: b_list = list(B)
+                except Exception:
+                    w_list = list(W); b_list = list(B)
+                add(f'brain_weight_{idx}', json.dumps(w_list))
+                add(f'brain_bias_{idx}', json.dumps(b_list))
+        # Sensor
+        if sensor is not None:
+            for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators']:
+                if hasattr(sensor, attr):
+                    add(f'sensor_{attr}', getattr(sensor, attr))
+        # Locomotion
+        if locomotion is not None:
+            for attr in ['max_speed','max_turn']:
+                if hasattr(locomotion, attr):
+                    add(f'locomotion_{attr}', getattr(locomotion, attr))
+        # Energy model
+        if energy_model is not None:
+            for attr in ['loss_idle','loss_move','death_energy','split_energy']:
+                if hasattr(energy_model, attr):
+                    add(f'energy_{attr}', getattr(energy_model, attr))
+        # Última saída e ativações (debug)
+        add('last_brain_output', json.dumps(getattr(agent, 'last_brain_output', [])))
+        add('last_brain_activations', json.dumps(getattr(agent, 'last_brain_activations', [])))
+        # Escreve CSV
+        with open(path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.DictWriter(f, fieldnames=['key','value'])
+            writer.writeheader(); writer.writerows(rows)
+        print(f"Agente exportado para {path}")
+        return path
+
+    def open_load_agent_window(self):
+        """Abre janela listando agentes exportados para carregar."""
+        agents_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'agents'))
+        os.makedirs(agents_dir, exist_ok=True)
+        files = [f for f in os.listdir(agents_dir) if f.endswith('.agent.csv')]
+        if not files:
+            messagebox.showinfo("Carregar Agente", "Nenhum arquivo .agent.csv encontrado na pasta 'agents'."); return
+        win = tk.Toplevel(self.root)
+        win.title("Carregar Agente")
+        ttk.Label(win, text="Escolha o agente exportado:").pack(padx=6, pady=6)
+        listbox = tk.Listbox(win, height=min(12, len(files)), width=40)
+        for f in files: listbox.insert(tk.END, f)
+        listbox.pack(padx=6, pady=6, fill='both')
+        status_var = tk.StringVar(value="")
+        ttk.Label(win, textvariable=status_var, foreground='gray').pack(padx=6, pady=(0,6))
+
+        def do_load():
+            sel = listbox.curselection()
+            if not sel:
+                status_var.set("Selecione um arquivo."); return
+            filename = files[sel[0]]
+            path = os.path.join(agents_dir, filename)
+            try:
+                self._load_agent_from_csv(path)
+                status_var.set("Carregado com sucesso.")
+            except Exception as e:
+                status_var.set(f"Erro: {e}")
+        ttk.Button(win, text="Carregar", command=do_load).pack(padx=6, pady=6)
+        def on_double(event): do_load()
+        listbox.bind('<Double-1>', on_double)
+
+    def _load_agent_from_csv(self, path: str):
+        """Carrega CSV e registra protótipo para inserção múltipla via clique direito."""
+        data = {}
+        with open(path, 'r', encoding='utf-8') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                data[row['key']] = row['value']
+        # Nome do protótipo baseado no arquivo
+        base = os.path.basename(path)
+        name = base.replace('.agent.csv','').replace('.csv','')
+        self.engine.loaded_agent_prototypes[name] = data
+        self.engine.current_agent_prototype = name
+        print(f"Protótipo '{name}' carregado. Clique direito no substrato para inserir instâncias.")

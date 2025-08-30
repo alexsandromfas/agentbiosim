@@ -78,6 +78,9 @@ class Engine:
 
         # Estado para debugging
         self.selected_agent = None
+        # Protótipos de agentes carregados via UI (dict name->data dict)
+        self.loaded_agent_prototypes = {}
+        self.current_agent_prototype = None  # nome da chave ativa
     
     def start(self):
         """Inicia a simulação."""
@@ -341,8 +344,81 @@ class Engine:
             simple = kwargs.get('simple', False)
             self.renderer = SimpleRenderer() if simple else EllipseRenderer()
         
+        elif command == 'spawn_loaded_agent':
+            name = kwargs.get('prototype_name') or self.current_agent_prototype
+            world_x = kwargs.get('world_x', 0)
+            world_y = kwargs.get('world_y', 0)
+            if name and name in self.loaded_agent_prototypes:
+                self._spawn_agent_from_prototype(self.loaded_agent_prototypes[name], world_x, world_y)
+            else:
+                print("Protótipo não encontrado para spawn.")
+        
         else:
             print(f"Comando desconhecido: {command}")
+
+    def _spawn_agent_from_prototype(self, data: dict, world_x: float, world_y: float):
+        """Cria e insere um agente a partir de um dicionário de dados carregados."""
+        try:
+            agent_type = data.get('type','bacteria')
+            from .brain import NeuralNet
+            from .sensors import RetinaSensor
+            from .actuators import Locomotion, EnergyModel
+            from .entities import Bacteria, Predator
+            import json as _json
+            import math as _math
+            # Cérebro
+            sizes = _json.loads(data.get('brain_sizes','[]'))
+            brain = NeuralNet(sizes if sizes else [1,2], init_std=0.01)
+            weights=[]; biases=[]; idx=0
+            while True:
+                w_key=f'brain_weight_{idx}'; b_key=f'brain_bias_{idx}'
+                if w_key not in data or b_key not in data: break
+                weights.append(_json.loads(data[w_key])); biases.append(_json.loads(data[b_key])); idx+=1
+            if weights and biases:
+                brain.weights = weights; brain.biases = biases
+            # Sensor
+            def _f(k, default=0.0):
+                try: return float(data.get(k, default))
+                except Exception: return default
+            def _i(k, default=0):
+                try: return int(float(data.get(k, default)))
+                except Exception: return default
+            def _b(k, default=False):
+                v = data.get(k, str(default)); return v in ('1','True','true','YES','yes')
+            sensor = RetinaSensor(
+                retina_count=_i('sensor_retina_count',18),
+                vision_radius=_f('sensor_vision_radius',120.0),
+                fov_degrees=_f('sensor_fov_degrees',180.0),
+                skip=_i('sensor_skip',0),
+                see_food=_b('sensor_see_food',True),
+                see_bacteria=_b('sensor_see_bacteria',False),
+                see_predators=_b('sensor_see_predators',False)
+            )
+            locomotion = Locomotion(max_speed=_f('locomotion_max_speed',300.0), max_turn=_f('locomotion_max_turn', _math.pi))
+            energy_model = EnergyModel(
+                loss_idle=_f('energy_loss_idle',0.01),
+                loss_move=_f('energy_loss_move',5.0),
+                death_energy=_f('energy_death_energy',0.0),
+                split_energy=_f('energy_split_energy',150.0)
+            )
+            r = _f('r', 9.0)
+            angle = _f('angle', 0.0)
+            if agent_type == 'predator':
+                agent = Predator(world_x, world_y, r, brain, sensor, locomotion, energy_model, angle)
+            else:
+                agent = Bacteria(world_x, world_y, r, brain, sensor, locomotion, energy_model, angle)
+            # Ajustes adicionais
+            agent.energy = _f('energy', 0.0)
+            agent.age = _f('age', 0.0)
+            # Inserção
+            if agent.is_predator:
+                self.entities['predators'].append(agent)
+            else:
+                self.entities['bacteria'].append(agent)
+            self.all_agents.append(agent)
+            self.selected_agent = agent
+        except Exception as e:
+            print(f"Falha ao spawnar protótipo: {e}")
     
     def _initialize_population(self):
         """Inicializa população baseada nos parâmetros."""

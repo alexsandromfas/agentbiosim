@@ -148,8 +148,15 @@ class PygameView:
             self.engine.send_command('add_bacteria', world_x=world_x, world_y=world_y)
         
         elif event.button == 3:  # Botão direito - inicia pan
-            self.dragging = True
-            self.drag_last_pos = event.pos
+            # Se existir protótipo carregado, insere instância no local do clique
+            if getattr(self.engine, 'current_agent_prototype', None) and \
+               self.engine.current_agent_prototype in getattr(self.engine, 'loaded_agent_prototypes', {}):
+                world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
+                self.engine.send_command('spawn_loaded_agent', world_x=world_x, world_y=world_y)
+            else:
+                # Comportamento original: iniciar pan
+                self.dragging = True
+                self.drag_last_pos = event.pos
     
     def _handle_mouse_up(self, event):
         """Trata soltar do mouse."""
