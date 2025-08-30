@@ -29,7 +29,7 @@ class Params:
             'world_w': 1000.0,  # Largura do substrato (retangular)
             'world_h': 700.0,   # Altura do substrato (retangular)
             'substrate_radius': 400.0,  # Raio do substrato (circular)
-            'max_deaths_per_step': 1,
+            'max_deaths_per_step': 5,
             
             # Performance
             'retina_skip': 0,

@@ -39,10 +39,11 @@ class SectionStats:
 
 class Profiler:
     def __init__(self):
-        self.enabled: bool = True
-        self.sections: Dict[str, SectionStats] = {}
-        self._stack: List[Tuple[str, float]] = []  # (name, start_time)
-        self.total_wall: float = 0.0  # acumulado (externo pode somar)
+        # Desabilitado por padrão para evitar overhead/memória em execuções normais
+        self.enabled = False  # type: bool
+        self.sections = {}    # type: Dict[str, SectionStats]
+        self._stack = []      # type: List[Tuple[str, float]]  # (name, start_time)
+        self.total_wall = 0.0  # type: float  # acumulado (externo pode somar)
 
     @contextmanager
     def section(self, name: str):

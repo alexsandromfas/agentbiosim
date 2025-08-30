@@ -64,9 +64,10 @@ def run_benchmark(sim_seconds: float = 30.0, fps: int = 60, label: str | None = 
     engine.start()
     print('Benchmark iniciado', flush=True)
 
+    # Habilita profiler apenas durante benchmark
+    prev_prof_enabled = profiler.enabled
+    profiler.enabled = True
     if disable_activations:
-        # Desativa ativações de debug (reduz overhead)
-        profiler.enabled = True  # continua coletando seções externas
         params.set('disable_brain_activations', True, validate=False)
 
     dt_real = 1.0 / fps
@@ -97,6 +98,8 @@ def run_benchmark(sim_seconds: float = 30.0, fps: int = 60, label: str | None = 
     print(f"Comidas finais: {len(engine.entities['foods'])}")
     print()
     print(profiler.report())
+    # Restaura estado original do profiler
+    profiler.enabled = prev_prof_enabled
     print('Benchmark concluido', flush=True)
 
     avg_agents = (sum_agents / steps) if steps else 0.0

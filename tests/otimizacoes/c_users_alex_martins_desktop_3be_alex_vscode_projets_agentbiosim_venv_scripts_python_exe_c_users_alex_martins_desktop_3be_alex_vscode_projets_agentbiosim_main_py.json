@@ -1,0 +1,179 @@
+{
+  "label": "& \"C:/Users/Alex Martins/Desktop/3be/Alex/VSCODE PROJETS/agentbiosim/.venv/Scripts/python.exe\" \"c:/Users/Alex Martins/Desktop/3be/Alex/VSCODE PROJETS/agentbiosim/main.py\"",
+  "slug": "c_users_alex_martins_desktop_3be_alex_vscode_projets_agentbiosim_venv_scripts_python_exe_c_users_alex_martins_desktop_3be_alex_vscode_projets_agentbiosim_main_py",
+  "timestamp": "2025-08-30T17:40:40.130774Z",
+  "seconds_requested": 30.0,
+  "fps_target": 60,
+  "steps": 1801,
+  "sim_time_s": 30.016666666666243,
+  "wall_s": 8.499776299999212,
+  "initial": {
+    "bacteria": 100,
+    "predators": 100
+  },
+  "final": {
+    "bacteria": 11,
+    "predators": 5,
+    "foods": 99
+  },
+  "avg_agents": 82.38534147695725,
+  "ms_per_agent_step": 0.05728538510270672,
+  "params_snapshot": {
+    "time_scale": 1.0,
+    "fps": 60,
+    "paused": false,
+    "use_spatial": true,
+    "substrate_shape": "rectangular",
+    "world_w": 1000.0,
+    "world_h": 700.0,
+    "substrate_radius": 400.0,
+    "max_deaths_per_step": 5,
+    "retina_skip": 0,
+    "simple_render": false,
+    "reuse_spatial_grid": true,
+    "food_target": 100,
+    "food_min_r": 4.5,
+    "food_max_r": 5.0,
+    "food_replenish_interval": 0.1,
+    "bacteria_count": 100,
+    "bacteria_min_r": 6.0,
+    "bacteria_max_r": 12.0,
+    "bacteria_min_limit": 10,
+    "bacteria_max_limit": 300,
+    "bacteria_initial_energy": 100.0,
+    "bacteria_energy_loss_idle": 0.01,
+    "bacteria_energy_loss_move": 5.0,
+    "bacteria_death_energy": 50.0,
+    "bacteria_split_energy": 150.0,
+    "bacteria_body_size": 9.0,
+    "bacteria_max_speed": 300.0,
+    "bacteria_max_turn": 3.141592653589793,
+    "bacteria_vision_radius": 120.0,
+    "bacteria_vision_mode": "frontal",
+    "bacteria_retina_count": 18,
+    "bacteria_retina_fov_degrees": 180.0,
+    "bacteria_show_vision": false,
+    "bacteria_retina_see_food": true,
+    "bacteria_retina_see_bacteria": false,
+    "bacteria_retina_see_predators": false,
+    "bacteria_hidden_layers": 4,
+    "bacteria_neurons_layer_1": 20,
+    "bacteria_neurons_layer_2": 20,
+    "bacteria_neurons_layer_3": 20,
+    "bacteria_neurons_layer_4": 20,
+    "bacteria_neurons_layer_5": 0,
+    "bacteria_mutation_rate": 0.05,
+    "bacteria_mutation_strength": 0.08,
+    "bacteria_structural_jitter": 0,
+    "predators_enabled": true,
+    "predator_count": 100,
+    "predator_min_r": 10.0,
+    "predator_max_r": 18.0,
+    "predator_min_limit": 0,
+    "predator_max_limit": 100,
+    "predator_initial_energy": 100.0,
+    "predator_energy_loss_idle": 0.01,
+    "predator_energy_loss_move": 5.0,
+    "predator_death_energy": 50.0,
+    "predator_split_energy": 150.0,
+    "predator_body_size": 14.0,
+    "predator_max_speed": 300.0,
+    "predator_max_turn": 3.141592653589793,
+    "predator_vision_radius": 120.0,
+    "predator_vision_mode": "frontal",
+    "predator_retina_count": 18,
+    "predator_retina_fov_degrees": 180.0,
+    "predator_show_vision": false,
+    "predator_retina_see_food": true,
+    "predator_retina_see_bacteria": true,
+    "predator_retina_see_predators": false,
+    "predator_hidden_layers": 2,
+    "predator_neurons_layer_1": 16,
+    "predator_neurons_layer_2": 8,
+    "predator_neurons_layer_3": 0,
+    "predator_neurons_layer_4": 0,
+    "predator_neurons_layer_5": 0,
+    "predator_mutation_rate": 0.05,
+    "predator_mutation_strength": 0.08,
+    "predator_structural_jitter": 0,
+    "agents_inertia": 1.0,
+    "show_selected_details": true,
+    "bacteria_split_mass": 1000000000.0,
+    "predator_split_mass": 1000000000.0
+  },
+  "sections": {
+    "spatial_hash": {
+      "total": 0.3232607999598258,
+      "calls": 1801,
+      "min": 9.620000128052197e-05,
+      "max": 0.0008616000013716985
+    },
+    "food_control": {
+      "total": 0.007449000026099384,
+      "calls": 1801,
+      "min": 1.3000008038943633e-06,
+      "max": 0.00016030000006139744
+    },
+    "agent_sensor": {
+      "total": 5.915329900017241,
+      "calls": 3602,
+      "min": 0.00019869999960064888,
+      "max": 0.007746700001007412
+    },
+    "agent_brain_forward": {
+      "total": 0.2690903999427974,
+      "calls": 3602,
+      "min": 1.720000000204891e-05,
+      "max": 0.0015139000006456627
+    },
+    "agent_brain_activations": {
+      "total": 0.09797659996547736,
+      "calls": 3602,
+      "min": 1.1100000847363845e-05,
+      "max": 0.00034950000008393545
+    },
+    "agent_locomotion": {
+      "total": 0.16350429993508442,
+      "calls": 148560,
+      "min": 5.999991117278114e-07,
+      "max": 0.00014709999959450215
+    },
+    "agent_energy": {
+      "total": 0.06156299954272981,
+      "calls": 148560,
+      "min": 1.9999970390927047e-07,
+      "max": 0.00012090000018361025
+    },
+    "agents_update": {
+      "total": 7.128090999971391,
+      "calls": 1801,
+      "min": 0.0008239999988290947,
+      "max": 0.01452919999974256
+    },
+    "interaction": {
+      "total": 0.397627900043517,
+      "calls": 1801,
+      "min": 3.529999958118424e-05,
+      "max": 0.004864000000452506
+    },
+    "reproduction": {
+      "total": 0.0351602999617171,
+      "calls": 1801,
+      "min": 4.19999923906289e-06,
+      "max": 0.00031680000029155053
+    },
+    "death": {
+      "total": 0.015033300009235973,
+      "calls": 1801,
+      "min": 3.200000719516538e-06,
+      "max": 5.250000140222255e-05
+    },
+    "collision": {
+      "total": 0.5365765999868017,
+      "calls": 1801,
+      "min": 3.340000148455147e-05,
+      "max": 0.0026235999994241865
+    }
+  },
+  "note_overlap": "Somas de seções se sobrepõem (nested); usar wall_s para % real."
+}
