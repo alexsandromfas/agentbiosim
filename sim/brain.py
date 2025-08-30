@@ -41,28 +41,24 @@ class NeuralNet:
     Rede neural feedforward simples sem dependências externas.
     Suporta mutações estruturais controladas.
     """
-    
     def __init__(self, sizes: List[int], init_std: float = 1.0, random_biases: bool = True):
-        """
-        Args:
-            sizes: [input_size, hidden1_size, hidden2_size, ..., output_size]
-            init_std: Desvio padrão para inicialização dos pesos
-        """
+        """sizes: [input, hidden..., output]; init_std controla escala inicial."""
         self.sizes = list(sizes)
-        self.weights = []  # List[np.ndarray] - [layer] shape (out, in)
-        self.biases = []   # List[np.ndarray] - [layer] shape (out,)
+        self.version = 0  # incrementado em mutações/alterações estruturais
+        self.weights: List[np.ndarray] = []
+        self.biases: List[np.ndarray] = []
         for i in range(1, len(self.sizes)):
             rows = self.sizes[i]
-            cols = self.sizes[i-1]
+            cols = self.sizes[i - 1]
             fan_in = cols
             std = init_std / math.sqrt(fan_in if fan_in > 0 else 1)
-            w = np.random.normal(0, std, (rows, cols))
-            self.weights.append(w)
+            w = np.random.normal(0, std, (rows, cols)).astype(np.float32)
             if random_biases:
-                bias_std = std * 0.5
-                b = np.random.normal(0, bias_std, (rows,))
+                b_std = std * 0.5
+                b = np.random.normal(0, b_std, (rows,)).astype(np.float32)
             else:
-                b = np.zeros((rows,))
+                b = np.zeros((rows,), dtype=np.float32)
+            self.weights.append(w)
             self.biases.append(b)
     
     def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
@@ -150,13 +146,14 @@ class NeuralNet:
     def copy(self) -> 'NeuralNet':
         """Cria cópia profunda da rede."""
         new_net = NeuralNet(self.sizes, init_std=0.01)
-        new_weights = []
+        new_net.version = self.version  # herda versão; mutação posterior incrementa
+        new_weights: List[np.ndarray] = []
         for layer in self.weights:
             if isinstance(layer, list):
                 new_weights.append(np.array(layer, dtype=np.float32))
             else:
                 new_weights.append(layer.copy())
-        new_biases = []
+        new_biases: List[np.ndarray] = []
         for b in self.biases:
             if isinstance(b, list):
                 new_biases.append(np.array(b, dtype=np.float32))
@@ -228,6 +225,8 @@ class NeuralNet:
         # Mutações estruturais leves (se habilitado)
         if structural_jitter > 0:
             self._apply_structural_mutations()
+        # Incrementa versão sempre que mutação é chamada (simplificação; evita rastrear se algo mudou)
+        self.version += 1
     
     def _apply_structural_mutations(self):
         """
@@ -328,3 +327,103 @@ class NeuralNet:
                     new_next_weights.append(neuron_weights[:new_size])
             
             self.weights[next_weight_layer_idx] = new_next_weights
+        # Alteração estrutural implica nova versão
+        self.version += 1
+
+# ============================================================
+# Multi-brain batching utilities
+# ============================================================
+from typing import Sequence, Tuple, Dict, Any
+
+# Cache simples: chave = (tuple(sizes), tuple(versions)) -> (weights_stack_list, biases_stack_list)
+_multi_brain_cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], Tuple[list, list]] = {}
+
+def _ensure_array_layers(brain: NeuralNet):
+    """Converte listas internas em np.ndarray in-place (caso legado)."""
+    for i, W in enumerate(brain.weights):
+        if isinstance(W, list):
+            brain.weights[i] = np.array(W, dtype=np.float32)
+    for i, b in enumerate(brain.biases):
+        if isinstance(b, list):
+            brain.biases[i] = np.array(b, dtype=np.float32)
+
+def _build_stacks(brains: Sequence[NeuralNet]):
+    sizes_key = tuple(brains[0].sizes)
+    versions_key = tuple(b.version for b in brains)
+    cache_key = (sizes_key, versions_key)
+    cached = _multi_brain_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    # (Re)construir pilhas
+    weight_stacks = []
+    bias_stacks = []
+    for layer_idx in range(len(brains[0].weights)):
+        layer_weights = []
+        layer_biases = []
+        for b in brains:
+            _ensure_array_layers(b)
+            layer_weights.append(b.weights[layer_idx])  # (out,in)
+            layer_biases.append(b.biases[layer_idx])    # (out,)
+        weight_stacks.append(np.stack(layer_weights, axis=0))  # (B,out,in)
+        bias_stacks.append(np.stack(layer_biases, axis=0))      # (B,out)
+    _multi_brain_cache[cache_key] = (weight_stacks, bias_stacks)
+    return weight_stacks, bias_stacks
+
+def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.ndarray:
+    """Executa forward para vários cérebros (mesma arquitetura) com seus próprios pesos.
+
+    brains: sequência de NeuralNet (mesmo sizes)
+    inputs: shape (B, input_size)
+    return: shape (B, output_size)
+    """
+    if not brains:
+        return np.empty((0, 0), dtype=np.float32)
+    # Verifica arquitetura homogênea
+    base_sizes = brains[0].sizes
+    for b in brains[1:]:
+        if b.sizes != base_sizes:
+            # Fallback: processa individualmente (arquitetura divergente)
+            outputs = [b.forward(inp) for b, inp in zip(brains, inputs)]
+            return np.array(outputs, dtype=np.float32)
+    weight_stacks, bias_stacks = _build_stacks(brains)
+    x = inputs.astype(np.float32)
+    num_layers = len(weight_stacks)
+    for layer_idx in range(num_layers):
+        W = weight_stacks[layer_idx]      # (B,out,in)
+        b = bias_stacks[layer_idx]        # (B,out)
+        # x: (B,in)
+        x = np.einsum('boi,bi->bo', W, x) + b
+        if layer_idx < num_layers - 1:
+            x = np.tanh(x)
+    return x
+
+def activations_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> list:
+    """Retorna ativações por camada (lista) shape (B, layer_size) cada."""
+    if not brains:
+        return []
+    base_sizes = brains[0].sizes
+    for b in brains[1:]:
+        if b.sizes != base_sizes:
+            # Fallback: calcula separadamente
+            per = []
+            for b_, inp in zip(brains, inputs):
+                acts = b_.activations(inp.tolist())
+                # acts é lista de listas; converter para numpy e pad
+                per.append([np.array(a, dtype=np.float32) for a in acts])
+            # Transpor estrutura para camada->B
+            layer_lists = []
+            for layer_idx in range(len(per[0])):
+                layer_lists.append(np.stack([per_b[layer_idx] for per_b in per], axis=0))
+            return layer_lists
+    weight_stacks, bias_stacks = _build_stacks(brains)
+    x = inputs.astype(np.float32)
+    activations = []
+    num_layers = len(weight_stacks)
+    for layer_idx in range(num_layers):
+        W = weight_stacks[layer_idx]
+        b = bias_stacks[layer_idx]
+        x = np.einsum('boi,bi->bo', W, x) + b
+        if layer_idx < num_layers - 1:
+            x = np.tanh(x)
+        activations.append(x.copy())
+    return activations

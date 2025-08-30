@@ -21,13 +21,22 @@ def update_agents_batch(agents, dt, world, scene, params):
     # 2. Forward em lote
     with profile_section('agent_brain_forward'):
         inputs_np = np.array(sensor_inputs_list, dtype=np.float32)
-        outputs_np = agents[0].brain.forward_batch(inputs_np)
+        try:
+            from .brain import forward_many_brains
+            outputs_np = forward_many_brains([a.brain for a in agents], inputs_np)
+        except Exception:
+            # Fallback de segurança
+            outputs_np = np.array([a.brain.forward(inp.tolist()) for a, inp in zip(agents, inputs_np)], dtype=np.float32)
 
     # 3. Activations opcionais
     activations_batch = None
     if profiler.enabled and not params.get('disable_brain_activations', False):
         with profile_section('agent_brain_activations'):
-            activations_batch = agents[0].brain.activations_batch(inputs_np)
+            try:
+                from .brain import activations_many_brains
+                activations_batch = activations_many_brains([a.brain for a in agents], inputs_np)
+            except Exception:
+                activations_batch = None
 
     # 4. Distribuição + atuação + energia
     for idx, agent in enumerate(agents):
