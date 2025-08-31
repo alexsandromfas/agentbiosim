@@ -5,6 +5,7 @@ Cria Params, Engine, UI; conecta sinais/comandos.
 """
 import sys
 import os
+import argparse
 
 # Adiciona diretório atual ao path para imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -12,21 +13,66 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sim.controllers import Params
 from sim.engine import Engine
 from sim.game import PygameView
-from sim.ui_tk import SimulationUI
+# Integração UI: preferir PyQt6 (ui.py) com fallback para Tkinter (ui_tk.py)
+try:
+    from sim.ui import SimulationUI as QtSimulationUI
+    _HAS_QT = True
+except Exception:
+    QtSimulationUI = None  # type: ignore
+    _HAS_QT = False
+try:
+    from sim.ui_tk import SimulationUI as TkSimulationUI
+    _HAS_TK = True
+except Exception:
+    TkSimulationUI = None  # type: ignore
+    _HAS_TK = False
 from sim.world import World, Camera
 
 
-def main():
+def main(argv=None):
+    """Função principal - inicializa engine e UI.
+
+    Opções de linha de comando:
+        --ui qt    Força interface PyQt6
+        --ui tk    Força interface Tkinter
+        (padrão: tenta qt, fallback tk)
     """
-    Função principal - bootstraps toda aplicação.
-    """
+    argv = argv or sys.argv[1:]
+    parser = argparse.ArgumentParser(description="AgentBioSim")
+    parser.add_argument('--ui', choices=['qt','tk'], help='Escolhe backend de interface (qt ou tk).')
+    args = parser.parse_args(argv)
+
+    requested_ui = args.ui
+
+    # Seleção de backend
+    backend = None
+    if requested_ui == 'qt':
+        if not _HAS_QT:
+            print("[WARN] PyQt6 não disponível; abortando.")
+            return 1
+        backend = 'qt'
+    elif requested_ui == 'tk':
+        if not _HAS_TK:
+            print("[WARN] Tkinter UI não disponível.")
+            return 1
+        backend = 'tk'
+    else:
+        # Auto: preferir qt
+        if _HAS_QT:
+            backend = 'qt'
+        elif _HAS_TK:
+            backend = 'tk'
+        else:
+            print("Nenhuma UI disponível (PyQt6 ou Tkinter). Instale PyQt6 ou habilite Tk.")
+            return 1
+
     try:
-        print("Inicializando simulação...")
-        
-        # 1. Cria configuração central
+        print(f"Inicializando simulação... (UI={backend})")
+
+        # 1. Config
         params = Params()
-        
-        # 2. Cria mundo e câmera
+
+        # 2. Mundo / câmera
         world = World(
             width=params.get('world_w', 1000.0),
             height=params.get('world_h', 700.0),
@@ -34,37 +80,45 @@ def main():
             radius=params.get('substrate_radius', 350.0)
         )
         camera = Camera()
-        
-        # 3. Cria engine headless
+
+        # 3. Engine headless
         engine = Engine(world, camera, params)
-        
-        # 4. Cria view Pygame
+
+        # 4. View Pygame
         pygame_view = PygameView(engine, screen_width=800, screen_height=600)
-        
-        # 5. Cria interface Tkinter 
-        ui = SimulationUI(params, engine, pygame_view)
-        
-        # 6. Conecta callbacks entre componentes
+
+        # 5. UI conforme backend
+        if backend == 'qt':
+            from PyQt6.QtWidgets import QApplication  # local import para evitar custo se tk
+            app = QApplication.instance() or QApplication([])
+            ui = QtSimulationUI(params, engine, pygame_view)  # type: ignore
+        else:
+            ui = TkSimulationUI(params, engine, pygame_view)  # type: ignore
+
+        # 6. Conexões
         setup_connections(params, engine, pygame_view, ui)
-        
+
         print("Configuração concluída. Iniciando interface...")
-        
-        # 7. Inicia aplicação
-        ui.run()
-        
+
+        # 7. Run loop
+        if backend == 'qt':
+            ui.run()  # chama show() + exec()
+        else:
+            ui.run()
+
     except KeyboardInterrupt:
         print("\nSimulação interrompida pelo usuário")
-        
     except Exception as e:
         print(f"Erro crítico: {e}")
         import traceback
         traceback.print_exc()
-        
+        return 2
     finally:
         print("Simulação encerrada")
+    return 0
 
 
-def setup_connections(params: Params, engine: Engine, pygame_view: PygameView, ui: SimulationUI):
+def setup_connections(params: Params, engine: Engine, pygame_view: PygameView, ui):
     """
     Conecta callbacks e sinais entre componentes principais.
     """
@@ -98,4 +152,4 @@ def setup_connections(params: Params, engine: Engine, pygame_view: PygameView, u
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())

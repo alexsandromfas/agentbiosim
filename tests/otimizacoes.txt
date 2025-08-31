@@ -1,0 +1,226 @@
+
+Buscando e lendo os arquivos principais para analisar oportunidades de otimização. Lendo os arquivos para mapear arquitetura e gargalos. Segue auditoria detalhada (focada em suportar “milhares → dezenas de milhares” de organismos) organizada por níveis e áreas. Use como mapa de otimização.
+
+CHECKLIST MACRO
+1. Definir metas e medir (profiling)
+2. Reduzir complexidade algorítmica (interações, colisões, sensoriamento)
+3. Vetorizar (NumPy) e/ou JIT (Numba) hotspots
+4. Reestruturar dados (SoA / ECS leve / __slots__)
+5. Minimizar alocações e dicionário lookups
+6. Tornar sensores e NN batched
+7. Tornar spatial hash incremental e mais barato
+8. Desacoplar renderização (headless rápido) e reduzir custo visual
+9. Paralelizar onde fizer sentido (após eliminar gargalos de Python puro)
+10. Planejar tiers de precisão (qualidade adaptativa)
+
+DETALHES POR ÁREA
+
+1. Medição e Metas
+- Definir alvos: ex: 10k agentes @ 60 steps/s headless; 50k @ 10–20 steps/s.
+- Ferramentas: cProfile + snakeviz (mapa geral), line_profiler (loops), scalene (CPU vs memória vs GIL), py-spy / perf.
+- Benchmarks automatizados (script) variando população (1k, 5k, 10k, 20k).
+- Registrar métricas chave: ms/substep, % tempo em sensor, NN, colisão, interação, spatial hash rebuild, render.
+
+2. Arquitetura de Dados
+- Trocar “objeto por agente” (AoS) para arrays paralelos (SoA): pos_x, pos_y, vx, vy, angle, mass, radius, is_predator, etc.
+- Usar dataclasses(slots=True) ou classes com __slots__ se manter orientação a objetos (reduz overhead de atributo dinâmico).
+- Agrupar listas: hoje bacteria + predators separados – para loops vetorizados manter arrays por tipo ou um bloco com máscaras booleanas.
+- Eliminar hasattr / getattr em loops críticos (substituir por flags/máscaras pré-calculadas).
+
+3. Acesso a Parâmetros
+- Cache de parâmetros por frame (ler params.get só uma vez / copiar para struct imutável).
+- Param tuning dinâmico custoso (retina reconfig a cada frame) → só recalcular quando detectar mudança (flag dirty).
+
+4. Loop de Simulação
+- Substeps adaptativos: hoje até 8. Ajustar dinamicamente apenas se world_dt > threshold.
+- Early exit: pular sistemas desnecessários (sem predadores → pula etapa predatória).
+- Delta accumulation (fixed timestep clássico) pode ser simplificado para reduzir overhead de múltiplos loops.
+
+5. Sensores (Retina)
+- Pré-computar senos/cossenos relativos dos raios (array de offsets) e só rotacionar via cos/sin(angle) combinação linear.
+- Raycast atual consulta grande região e testa todos candidatos; otimizar:
+  - Percorrer células do grid ao longo do raio (DDA / grid traversal).
+  - Converter para “cone query coarse + refino”.
+- Usar dist² em vez de hypot (evita sqrt).
+- Batch de todos os raios de todos os agentes de um tipo com NumPy (matriz de direções).
+- Skip adaptativo: aumentar skip automaticamente quando população > limiar (ex: retina_skip = f(N)).
+- Opcional: campo de potencial (grid de ocupação / densidade) atualizado raramente e amostrado pelos agentes em vez de N raycasts.
+
+6. Spatial Hash
+- Hoje reconstrói (limpa + reinsere) todo frame. Melhor: atualização incremental (mover agente → se mudou de célula, atualizar).
+- Guardar quais células cada objeto ocupa (lista) para remoção rápida.
+- Ajustar cell_size dinamicamente com base na densidade (ou escolher fixo otimizado).
+- Evitar armazenar objetos duplicados em muitos buckets grandes (limite máximo de células ocupadas por entidade).
+- Estatísticas para detectar quando grid perde eficiência e sugerir rebuild.
+
+7. Interações (Comer / Predação)
+- Substituir math.hypot por comparação de dist².
+- Ordenar agentes por célula → processar localmente reduzindo re-checks.
+- Evitar criação de listas temporárias (list comprehensions em hotspots) – iterar diretamente sobre sets / arrays.
+- Ingerir múltiplas comidas por frame opcionalmente via acumulação em vez de loop break (parâmetro).
+- Pool de objetos Food (reuso) para minimizar GC.
+
+8. Reprodução e Morte
+- Contadores incrementais de populações (evitar sum(...) todo frame).
+- Batch reproduction: marcar e processar em bloco.
+- Mutação: mover loops de mutação de pesos para NumPy / Numba.
+- Limitar mutações estruturais ou desativar em modo de alta escala.
+- Pool para objetos Agent (realloc custoso em grande escala).
+
+9. Colisões
+- Hoje broad-phase = spatial hash + query_ball raio 2r; otimizar:
+  - “Sweep & prune” adicional em eixos para células lotadas.
+  - Limite máximo de interações de colisão por agente por frame.
+  - Separar grupos por tipo (se física idêntica não muda, mas reduz candidatos).
+  - Dist² de novo para evitar sqrt.
+- Considerar ignorar colisão agente–agente ou tornar probabilística acima de certa densidade (modo fast).
+
+10. Física / Locomoção
+- Vetorizar atualização de posições (x += vx*dt) para todos de uma vez (NumPy).
+- Normalização de ângulo: usar função vetorizada (angle = ((angle+pi) % (2pi)) - pi).
+- Reduzir chamadas trigonométricas (pré-computar cos/sin(angle) uma vez por update; reutilizar sensor e locomotion).
+
+11. Rede Neural
+- Atual forward é Python puro triplo loop O(sum(layer_in * layer_out)); migrar para:
+  - NumPy dot + tanh para cada camada.
+  - Batch: inputs shape (N, input_size).
+  - Para saída (speed, steer) extrair vetores.
+- Mutação: operar vetorizado sobre arrays de pesos.
+- Alternativa: PyTorch / JAX (GPU opcional) se N grande (custo de introdução vs ganho).
+- Se redes pequenas, Numba @njit(parallel=True, fastmath=True) pode ser suficiente (mantém leve sem dependência grande).
+- Congelar arquitetura (evitar resize_input frequente) em modo performance.
+
+12. Estrutura ECS (opcional mais profundo)
+- Migrar para um mini-ECS: componentes são arrays; sistemas recebem slices.
+- Facilita paralelismo e JIT.
+
+13. Paralelismo
+- Após vetorização, CPU pode ainda ser gargalo de sensores/NN:
+  - Numba parallel loops.
+  - Multiprocessing segmentando agentes (cuidado com overhead de cópia; usar shared memory / NumPy arrays).
+  - Threads só ajudam se liberar GIL (NumPy / Numba nativo).
+- Pipeline: enquanto frame t renderiza, frame t+1 simula (double buffering) se latência visual aceitável.
+
+14. GPU
+- Se for usar PyTorch:
+  - Agrupar estados em tensores (pos, vel, massa).
+  - Redes neurais batched no GPU.
+  - Sensoriamento ainda é difícil sem reformulação (raycast → transformar em amostragem de grid ou textura de ocupação).
+- Alternativa: OpenCL / CuPy para cálculos de distância e raycasts massivos (se mantiver abordagem geométrica atual).
+
+15. Memória & GC
+- Ativar object pools (Food, Agents) para reduzir churn.
+- Reutilizar listas (clear() em vez de recriar).
+- Evitar grandes estruturas temporárias a cada frame (ex: não construir dicionários novos).
+- __slots__ reduz dicionário de atributos (economia significativa com >50k objetos).
+
+16. Criação Inicial de Entidades
+- Rotina atual tenta até 300 vezes random evitando overlap O(n) → escalabilidade ruim.
+- Estratégias:
+  - Geração Poisson disk (mais uniforme e conhecida complexidade) usando grid auxiliar.
+  - Inserção sem overlap relaxado (aceitar pequena interpenetração e resolver via passo de colisão inicial).
+  - Preencher em espiral ou amostragem de grid com jitter.
+
+17. Raycast Refinements
+- Substituir ray_circle_intersect + varredura por:
+  - Voxel traversal (Bresenham contínuo) parando ao encontrar primeiro ocupante.
+  - Limite de hits por raio; truncar early se densidade alta (retornar ativação média aproximada).
+  - Pré bucket por tipo (foods, bacteria) para filtrar antes.
+
+18. Energia e Regras
+- Simplificar custo energético (expressão vetorizada).
+- Calcular speed² e reutilizar (já usado em energia e talvez em outras métricas).
+
+19. Renderização
+- Modo headless (flag) que pula qualquer pygame.*.
+- Desenhar só subset (amostragem) quando N > threshold.
+- Desabilitar raios de visão por padrão em populações grandes.
+- Update HUD a cada X frames (throttle).
+- Evitar criar novas fonts/Surfaces dentro de loops.
+- Double buffer e/ou render assíncrono (thread) lendo estado estável.
+
+20. Log / Debug
+- Condicionar prints (ex: reprodução erro) a modo debug.
+- Coletar estatísticas em buffers circulares, exportar periodicamente (reduz IO).
+
+21. Configurações Adaptativas (Auto-tuning)
+- Ao ultrapassar limites de FPS alvo, aumentar retina_skip, reduzir retina_count, diminuir max_turn ou time_scale, desligar colisões detalhadas.
+- Heurística simples: se ms/frame > limite, aplicar próxima “degradação”.
+
+22. Estrutura de Mutação Genética
+- Mutação estrutural = alocação de novos arrays → caro. Para escala, fixar topologia ou permitir apenas mutação de pesos.
+- Se mantiver estrutural: postergar (batch a cada N segundos).
+
+23. Distâncias
+- Substituir math.hypot em loops críticos por dist2 = dx*dx+dy*dy e comparar com (r_sum*r_sum).
+- Sqrt usado somente em conversão final de massa→raio (ok esporádico).
+
+24. Colisões Avançadas (opcionais)
+- Introduzir “soft overlap” (força repulsiva contínua) evitando resolução discreta de pares.
+- Ou desligar completamente colisões entre bactérias para larga escala (ganho grande).
+
+25. Mutação de Pesos
+- Aplicar ruído gaussiano em blocos: W += mask * N(0,strength) onde mask ~ Bernoulli(rate) (NumPy vectorizado).
+
+26. Organização de Código
+- Criar módulo “core_arrays.py” para versão vetorizada e manter versão OO para debug.
+- Interface Engine escolhe backend (OO vs Vetorizado) por flag (facilita migração incremental).
+
+27. Ferramentas Técnicas
+- Introduzir NumPy primeiro (maior ROI).
+- Depois Numba para funções: forward NN, sense retina, colisão por lote.
+- (Opcional) Cython só se Numba não atingir a meta.
+- Considerar Rust (pyo3) para raycasting/collision se ainda for gargalo extremo.
+
+28. Testes
+- Testes unitários de equivalência entre implementação antiga e otimizada (mesmas saídas dentro de tolerância).
+- Bench script automatizado para regressão de performance (falhar se tempo > baseline * 1.2).
+
+29. Estratégia de Migração
+- Etapa 1: Profiling baseline + quick wins (dist², remover hypot, cache params, desligar prints).
+- Etapa 2: NumPy para locomotion + energia + NN.
+- Etapa 3: Vetorizar retina (pré-cálculo direções).
+- Etapa 4: Incremental spatial hash + dist² em interações.
+- Etapa 5: Headless pipeline + adaptive detail.
+- Etapa 6: Numba JIT nos hotspots restantes.
+- Etapa 7: (Se necessário) GPU / ECS profunda.
+
+30. Metas Quantitativas (exemplo estimado)
+- Quick wins: 1.5–2.0x
+- NumPy batch NN + locomotion: 3–5x total sobre baseline
+- Retina vetorizada: +1.5–2x
+- Numba colisões/interações: +1.3–1.5x
+- Headless + culling: FPS praticamente linear até ~20k agentes (dependendo de sensor config).
+
+31. Possíveis Trade-offs
+- Precisão vs velocidade (ray simplificado).
+- Perda de diversidade evolutiva (topologia fixa) para performance.
+- Complexidade de manutenção (introdução de backend duplo).
+- Overhead de GPU para populações “médias” (<5k) pode não compensar.
+
+PRIORIDADES RÁPIDAS (implementar primeiro)
+- Remover hypot onde possível (usar dist²).
+- Cache params por frame e prefix (bacteria_, predator_).
+- Precomputar ângulos relativos da retina; evitar recálculo trig por raio.
+- Substituir loops da rede neural por NumPy dot.
+- Headless toggle (desativar render) para corrida evolutiva massiva.
+- Distâncias em InteractionSystem e CollisionSystem: dist².
+- Matar prints / exceções silenciosas em hot loops.
+- Reutilizar SpatialHash incremental (evitar recriar + reinserir tudo).
+
+MÉDIO PRAZO
+- SoA para posições / velocidades / massa.
+- JIT (Numba) sensoriamento + colisões.
+- Batch forward para todos agentes.
+- Adaptive retina_skip.
+
+LONGO PRAZO
+- Campo de densidade / grid ao invés de raycast detalhado.
+- ECS completo + GPU.
+- Ray marching / texture-based vision (se GPU adotada).
+- Migração para PyTorch/JAX se evolução de topologia for descartada.
+
+RESUMO FINAL
+O maior custo previsto: (a) retina (muitos raycasts), (b) feedforward Python puro, (c) reconstrução total do spatial hash, (d) múltiplos hypot e lookups dinâmicos. As maiores alavancas iniciais: vetorizar NN + locomotion/energia, otimizar retina (pré-cálculo + dist² + skip adaptativo), tornar spatial hash incremental, reduzir render e overhead de parâmetros. A partir daí, aplicar Numba/NumPy de forma progressiva e só então avaliar GPU/ECS.
+
+Se quiser, posso começar pela refatoração da rede neural para NumPy e aplicar dist² nas interações. É só pedir.

@@ -1,7 +1,9 @@
 name,value
 agents_inertia,1.0
+auto_export_interval_minutes,10.0
+auto_export_substrate,False
 bacteria_body_size,9.0
-bacteria_count,0
+bacteria_count,10
 bacteria_death_energy,0.0
 bacteria_energy_loss_idle,2.0
 bacteria_energy_loss_move,5.0
@@ -33,7 +35,7 @@ food_target,130
 fps,60
 paused,False
 predator_body_size,14.0
-predator_count,0
+predator_count,10
 predator_death_energy,0.0
 predator_energy_loss_idle,3.0
 predator_energy_loss_move,6.0
@@ -61,7 +63,6 @@ predator_vision_radius,400.0
 predators_enabled,True
 retina_skip,2
 reuse_spatial_grid,True
-show_selected_details,True
 simple_render,False
 substrate_radius,400.0
 substrate_shape,rectangular
