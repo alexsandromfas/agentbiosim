@@ -106,36 +106,51 @@ class Locomotion:
 
 
 class EnergyModel:
-    """Modelo energético baseado em 'energy' separado do tamanho/massa inercial.
+    """Modelo energético contínuo baseado na velocidade.
 
-    Regras solicitadas:
-    - Agente morre quando a energia chega a 0.
-    - Agente se reproduz quando atinge energia máxima (split_energy).
-    - Tamanho/corpo (raio) é fixo; massa inercial (m) permanece constante.
+    cost(v) = v0_cost + ( clamp(v,0,vmax_ref) / vmax_ref ) * (vmax_cost - v0_cost)
+
+    Campos legacy (loss_idle/loss_move) removidos – agora somente curva contínua.
     """
 
-    __slots__ = ("loss_idle", "loss_move", "death_energy", "split_energy")
+    __slots__ = ("death_energy", "split_energy", "v0_cost", "vmax_cost", "vmax_ref", "energy_cap")
 
-    def __init__(self, loss_idle: float = 0.01, loss_move: float = 5.0,
-                 death_energy: float = 0.0, split_energy: float = 150.0):
-        self.loss_idle = loss_idle
-        self.loss_move = loss_move
-        self.death_energy = death_energy  # normalmente 0 (morre ao zerar)
+    def __init__(self, *, death_energy: float = 0.0, split_energy: float = 150.0,
+                 v0_cost: float = 0.5, vmax_cost: float = 8.0, vmax_ref: float = 300.0,
+                 energy_cap: float = 400.0):
+        self.death_energy = death_energy
         self.split_energy = split_energy
+        self.v0_cost = v0_cost
+        self.vmax_cost = vmax_cost
+        self.vmax_ref = max(1e-6, vmax_ref)
+        self.energy_cap = energy_cap
+
+    def metabolic_cost_per_sec(self, speed: float) -> float:
+        # Linear por enquanto; speed saturado em vmax_ref
+        s = max(0.0, min(speed, self.vmax_ref)) / self.vmax_ref
+        return self.v0_cost + s * (self.vmax_cost - self.v0_cost)
 
     def apply(self, agent: 'Agent', dt: float, params: 'Params'):
-        """Aplicar consumo energético.
-
-        Consumo:
-          idle: loss_idle * dt
-          movimento: loss_move * dt (se velocidade > 1)
-        """
         speed = agent.speed()
-        if speed > 1.0:
-            energy_loss = self.loss_move * dt
+        # Permitir override per-tipo via params (dinâmico)
+        if agent.is_predator:
+            v0 = params.get('predator_metab_v0_cost', self.v0_cost)
+            vmaxc = params.get('predator_metab_vmax_cost', self.vmax_cost)
+            vmaxr = params.get('predator_max_speed', getattr(agent.locomotion, 'max_speed', self.vmax_ref))
+            cap = params.get('predator_energy_cap', self.energy_cap)
         else:
-            energy_loss = self.loss_idle * dt
+            v0 = params.get('bacteria_metab_v0_cost', self.v0_cost)
+            vmaxc = params.get('bacteria_metab_vmax_cost', self.vmax_cost)
+            vmaxr = params.get('bacteria_max_speed', getattr(agent.locomotion, 'max_speed', self.vmax_ref))
+            cap = params.get('bacteria_energy_cap', self.energy_cap)
+        # atualização dinâmica dos campos (mantém introspecção consistente)
+        self.v0_cost = v0; self.vmax_cost = vmaxc; self.vmax_ref = max(1e-6, vmaxr); self.energy_cap = cap
+        cost_sec = self.metabolic_cost_per_sec(speed)
+        energy_loss = cost_sec * dt
         agent.energy = max(0.0, agent.energy - energy_loss)
+        # Cap de armazenamento (aplicado após ganhos externos em outro lugar; reforço aqui por segurança)
+        if agent.energy > self.energy_cap:
+            agent.energy = self.energy_cap
 
     # --- Queries ---
     def should_die(self, agent: 'Agent') -> bool:

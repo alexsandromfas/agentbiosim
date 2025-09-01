@@ -49,10 +49,8 @@ class Params:
             'bacteria_min_limit': 10,
             'bacteria_max_limit': 300,
             
-            # Bactérias - energia
+            # Bactérias - energia (legacy classe fixa - manter campos essenciais apenas)
             'bacteria_initial_mass': 100.0,  # Massa inicial
-            'bacteria_energy_loss_idle': 0.01,
-            'bacteria_energy_loss_move': 5.0,
             'bacteria_death_mass': 50.0,
             'bacteria_split_mass': 150.0,
             
@@ -91,8 +89,6 @@ class Params:
             
             # Predadores - energia
             'predator_initial_mass': 100.0,  # Massa inicial
-            'predator_energy_loss_idle': 0.01,
-            'predator_energy_loss_move': 5.0,
             'predator_death_mass': 50.0,
             'predator_split_mass': 150.0,
             

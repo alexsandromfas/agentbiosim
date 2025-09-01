@@ -4,6 +4,13 @@ Responsável pelo loop de simulação com tempo fixo e sistemas.
 """
 import math
 import time
+import os
+import sys
+import ctypes
+try:
+    import psutil  # type: ignore
+except Exception:  # ImportError ou outros
+    psutil = None  # type: ignore
 from typing import Dict, List, Optional, Any
 from queue import Queue, Empty
 
@@ -75,6 +82,30 @@ class Engine:
         self.frame_count = 0
         self.last_fps_time = time.time()
         self.current_fps = 0.0
+        # Recursos (CPU/RAM)
+        self.cpu_percent = 0.0
+        self.mem_used_mb = 0.0
+        self.mem_percent = 0.0
+        self._psutil_process = psutil.Process() if psutil else None  # type: ignore
+        self.resources_available = psutil is not None
+        self.cpu_proc_percent = 0.0
+        self._last_resource_sample = time.time()
+        self._resource_log_emitted = False
+        if psutil:
+            try:
+                # Primeiras chamadas para inicializar médias internas
+                psutil.cpu_percent(interval=None)
+                if self._psutil_process:
+                    self._psutil_process.cpu_percent(interval=None)
+            except Exception:
+                pass
+        else:
+            # Log inicial para ajudar diagnóstico
+            print(f"[engine] psutil não importado. Python: {sys.executable}")
+        # Para fallback sem psutil
+        self._fallback_last_wall = time.time()
+        self._fallback_last_cpu = time.process_time()
+        self._fallback_cpu_percent = 0.0
 
         # Estado para debugging
         self.selected_agent = None
@@ -85,6 +116,16 @@ class Engine:
     def start(self):
         """Inicia a simulação."""
         self.running = True
+        # Limpa/Configura cache multi_brain para evitar crescimento prévio
+        try:
+            from .brain import clear_multi_brain_cache, configure_multi_brain_cache
+            configure_multi_brain_cache(max_entries=self.params.get('brain_cache_max_entries', 32),
+                                        max_mb=self.params.get('brain_cache_max_mb', 512),
+                                        disable=self.params.get('brain_cache_disable', False),
+                                        log=self.params.get('brain_cache_log', False))
+            clear_multi_brain_cache(verbose=True)
+        except Exception:
+            pass
         self._initialize_population()
     
     def stop(self):
@@ -118,9 +159,103 @@ class Engine:
         # Calcula FPS
         now = time.time()
         if now - self.last_fps_time >= 1.0:
-            self.current_fps = self.frame_count / (now - self.last_fps_time)
+            elapsed = now - self.last_fps_time
+            if elapsed > 0:
+                self.current_fps = self.frame_count / elapsed
             self.last_fps_time = now
             self.frame_count = 0
+            # Atualiza métricas de recursos aproximadamente 1x por segundo
+            # Tenta ativar psutil dinamicamente se ainda não disponível
+            if not self.resources_available:
+                try:
+                    import psutil as _ps  # type: ignore
+                    globals()['psutil'] = _ps  # substitui referência global
+                    self._psutil_process = _ps.Process()
+                    _ps.cpu_percent(interval=None)
+                    self._psutil_process.cpu_percent(interval=None)
+                    self.resources_available = True
+                    if not self._resource_log_emitted:
+                        print("[engine] psutil carregado dinamicamente; métricas de CPU/RAM ativadas.")
+                        self._resource_log_emitted = True
+                except Exception as e:
+                    if not self._resource_log_emitted:
+                        print(f"[engine] psutil indisponível (instale com 'pip install psutil'): {e}")
+                        self._resource_log_emitted = True
+
+            if psutil and self.resources_available:
+                try:
+                    self.cpu_percent = float(psutil.cpu_percent(interval=None))
+                    if self._psutil_process:
+                        self.cpu_proc_percent = float(self._psutil_process.cpu_percent(interval=None))
+                        mem_info = self._psutil_process.memory_info()
+                        self.mem_used_mb = mem_info.rss / (1024 * 1024)
+                    vm = psutil.virtual_memory()  # type: ignore
+                    self.mem_percent = float(getattr(vm, 'percent', 0.0))
+                except Exception as e:
+                    if not self._resource_log_emitted:
+                        print(f"[engine] Falha coleta psutil: {e}")
+                        self._resource_log_emitted = True
+            else:
+                # Fallback simples (estimativa) sem psutil
+                wall_now = time.time()
+                cpu_now = time.process_time()
+                wall_dt = wall_now - self._fallback_last_wall
+                cpu_dt = cpu_now - self._fallback_last_cpu
+                if wall_dt > 0:
+                    cores = max(1, os.cpu_count() or 1)
+                    self._fallback_cpu_percent = min(100.0 * cores, max(0.0, (cpu_dt / wall_dt) * 100.0))
+                self.cpu_percent = self._fallback_cpu_percent
+                self.cpu_proc_percent = self._fallback_cpu_percent
+                self.mem_used_mb, self.mem_percent = self._fallback_memory_usage()
+                self._fallback_last_wall = wall_now
+                self._fallback_last_cpu = cpu_now
+            # DEBUG opcional: mem_diag_enable ativa logs periódicos de memória
+            if self.params.get('mem_diag_enable', False):
+                diag_interval = self.params.get('mem_diag_interval', 10.0)
+                if getattr(self, '_last_mem_diag', 0) == 0:
+                    self._last_mem_diag = now
+                if now - getattr(self, '_last_mem_diag', 0) >= diag_interval:
+                    self._last_mem_diag = now
+                    try:
+                        from .brain import get_multi_brain_cache_stats, estimate_brains_param_memory
+                        cache_stats = get_multi_brain_cache_stats()
+                        brain_stats = estimate_brains_param_memory([a.brain for a in self.all_agents if getattr(a,'brain',None)])
+                    except Exception as e:
+                        cache_stats = {'error': str(e)}
+                        brain_stats = {'error': str(e)}
+                    counts = {k: len(v) for k, v in self.entities.items()}
+                    counts['all_agents'] = len(self.all_agents)
+                    sel_act = []
+                    if self.selected_agent and getattr(self.selected_agent, 'last_brain_activations', None):
+                        sel_act = [len(layer) for layer in self.selected_agent.last_brain_activations]
+                    print('[memdiag] RSS_MB=%.1f CPU%%=%s Agents=%s Archs=%s Params=%s ParamsMB=%.2f CacheMB=%.2f CacheEntries=%s' % (
+                        self.mem_used_mb,
+                        f'{self.cpu_proc_percent:.1f}',
+                        counts.get('all_agents',0),
+                        brain_stats.get('distinct_archs'),
+                        brain_stats.get('total_params'),
+                        brain_stats.get('approx_param_mb'),
+                        cache_stats.get('approx_total_mb'),
+                        cache_stats.get('entries')
+                    ))
+                    if cache_stats.get('largest'):
+                        for entry in cache_stats['largest']:
+                            print(f"[memdiag] cache_entry sizes={entry['sizes']} brains={entry['num_brains']} mb={entry['approx_mb']}")
+                    if sel_act:
+                        print(f"[memdiag] selected_agent_layers={sel_act}")
+                    mem_warn = self.params.get('mem_warn_mb', 16000)
+                    if self.mem_used_mb > mem_warn:
+                        print('[memdiag][WARN] memória acima de limiar %d MB' % mem_warn)
+                        try:
+                            versions = {}
+                            for a in self.all_agents:
+                                v = getattr(a.brain, 'version', None)
+                                if v is not None:
+                                    versions[v] = versions.get(v, 0) + 1
+                            top_versions = sorted(versions.items(), key=lambda x: -x[1])[:5]
+                            print(f"[memdiag] top_brain_versions={top_versions}")
+                        except Exception:
+                            pass
     
     def render(self, surface, show_world_bounds: bool = True):
         """
@@ -238,7 +373,7 @@ class Engine:
                     agent_groups[key] = []
                 agent_groups[key].append(agent)
             for group in agent_groups.values():
-                update_agents_batch(group, dt, self.world, self.scene_query, self.params)
+                update_agents_batch(group, dt, self.world, self.scene_query, self.params, selected_agent=self.selected_agent)
 
         with profile_section('interaction'):
             self.interaction_system.apply(
@@ -396,10 +531,12 @@ class Engine:
             )
             locomotion = Locomotion(max_speed=_f('locomotion_max_speed',300.0), max_turn=_f('locomotion_max_turn', _math.pi))
             energy_model = EnergyModel(
-                loss_idle=_f('energy_loss_idle',0.01),
-                loss_move=_f('energy_loss_move',5.0),
                 death_energy=_f('energy_death_energy',0.0),
-                split_energy=_f('energy_split_energy',150.0)
+                split_energy=_f('energy_split_energy',150.0),
+                v0_cost=_f('metab_v0_cost', _f('energy_loss_idle',0.5)),
+                vmax_cost=_f('metab_vmax_cost', _f('energy_loss_move',8.0)),
+                vmax_ref=_f('locomotion_max_speed',300.0),
+                energy_cap=_f('energy_cap', 600.0 if agent_type=='predator' else 400.0)
             )
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)
@@ -481,6 +618,12 @@ class Engine:
             'food_count': len(self.entities['foods']),
             'food_target': self.params.get('food_target', 0),
             'fps': self.current_fps,
+            'cpu_percent': self.cpu_percent,  # CPU total
+            'cpu_proc_percent': self.cpu_proc_percent,  # CPU só do processo
+            'mem_used_mb': self.mem_used_mb,
+            'mem_percent': self.mem_percent,
+            'resources_available': self.resources_available,
+            'fallback_metrics': (not self.resources_available),
             'max_speed': self.params.get('bacteria_max_speed', 300.0),
             'time_scale': self.params.get('time_scale', 1.0),
             'world_w': self.world.width,
@@ -488,3 +631,30 @@ class Engine:
             'selected_agent': self.selected_agent,
             'show_selected_details': self.params.get('show_selected_details', True)
         }
+
+    def _fallback_memory_usage(self):
+        """Obtém memória aproximada (MB, %placeholder) sem psutil (Windows)."""
+        try:
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):  # type: ignore
+                _fields_ = [
+                    ("cb", ctypes.c_ulong),
+                    ("PageFaultCount", ctypes.c_ulong),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+            counters = PROCESS_MEMORY_COUNTERS()
+            GetProcessMemoryInfo = ctypes.windll.psapi.GetProcessMemoryInfo  # type: ignore
+            GetCurrentProcess = ctypes.windll.kernel32.GetCurrentProcess  # type: ignore
+            handle = GetCurrentProcess()
+            if GetProcessMemoryInfo(handle, ctypes.byref(counters), ctypes.sizeof(counters)):
+                used_mb = counters.WorkingSetSize / (1024 * 1024)
+                return used_mb, -1.0
+        except Exception:
+            return self.mem_used_mb or 0.0, -1.0
+        return self.mem_used_mb or 0.0, -1.0

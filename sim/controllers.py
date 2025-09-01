@@ -49,12 +49,14 @@ class Params:
             'bacteria_min_limit': 10,
             'bacteria_max_limit': 300,
             
-            # Bactérias - energia
+            # Bactérias - energia (modelo contínuo)
             'bacteria_initial_energy': 100.0,  # Energia inicial
-            'bacteria_energy_loss_idle': 0.01,
-            'bacteria_energy_loss_move': 5.0,
             'bacteria_death_energy': 50.0,
             'bacteria_split_energy': 150.0,
+            # Bactérias - metabolismo avançado
+            'bacteria_metab_v0_cost': 0.5,      # custo mínimo por segundo na velocidade 0
+            'bacteria_metab_vmax_cost': 8.0,    # custo por segundo na velocidade vmax
+            'bacteria_energy_cap': 400.0,       # limite de armazenamento
 
             # Bactérias - tamanho fixo
             'bacteria_body_size': 9.0,  # Raio fixo (antes variava com "massa")
@@ -92,12 +94,14 @@ class Params:
             'predator_min_limit': 0,
             'predator_max_limit': 100,
             
-            # Predadores - energia
+            # Predadores - energia (modelo contínuo)
             'predator_initial_energy': 100.0,  # Energia inicial
-            'predator_energy_loss_idle': 0.01,
-            'predator_energy_loss_move': 5.0,
             'predator_death_energy': 50.0,
             'predator_split_energy': 150.0,
+            # Predadores - metabolismo avançado
+            'predator_metab_v0_cost': 1.0,
+            'predator_metab_vmax_cost': 15.0,
+            'predator_energy_cap': 600.0,
 
             # Predadores - tamanho fixo
             'predator_body_size': 14.0,

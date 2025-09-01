@@ -337,6 +337,78 @@ from typing import Sequence, Tuple, Dict, Any
 
 # Cache simples: chave = (tuple(sizes), tuple(versions)) -> (weights_stack_list, biases_stack_list)
 _multi_brain_cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], Tuple[list, list]] = {}
+# Ordem de inserção para LRU simples
+_multi_brain_cache_order: list = []  # lista de keys
+# Limites (podem ser ajustados via setters externos)
+_MULTI_BRAIN_CACHE_MAX_ENTRIES = 32
+_MULTI_BRAIN_CACHE_MAX_MB = 512  # MB totais aproximados
+_DISABLE_MULTI_BRAIN_CACHE = False
+_MULTI_BRAIN_CACHE_LOG = False  # logs silenciosos por padrão
+
+def configure_multi_brain_cache(max_entries: int = None, max_mb: int = None, disable: bool = None, log: bool = None):
+    global _MULTI_BRAIN_CACHE_MAX_ENTRIES, _MULTI_BRAIN_CACHE_MAX_MB, _DISABLE_MULTI_BRAIN_CACHE, _MULTI_BRAIN_CACHE_LOG
+    if max_entries is not None:
+        _MULTI_BRAIN_CACHE_MAX_ENTRIES = max(0, int(max_entries))
+    if max_mb is not None:
+        _MULTI_BRAIN_CACHE_MAX_MB = max(0, int(max_mb))
+    if disable is not None:
+        _DISABLE_MULTI_BRAIN_CACHE = bool(disable)
+    if log is not None:
+        _MULTI_BRAIN_CACHE_LOG = bool(log)
+
+def clear_multi_brain_cache(verbose: bool = False):
+    """Esvazia o cache liberando memória."""
+    global _multi_brain_cache, _multi_brain_cache_order
+    if verbose and _multi_brain_cache and _MULTI_BRAIN_CACHE_LOG:
+        try:
+            print(f"[brain] Limpando cache multi_brain: {len(_multi_brain_cache)} entries")
+        except Exception:
+            pass
+    _multi_brain_cache.clear()
+    _multi_brain_cache_order.clear()
+    try:
+        import gc; gc.collect()
+    except Exception:
+        pass
+
+def _approx_cache_total_mb() -> float:
+    total_bytes = 0
+    for (weight_stacks, bias_stacks) in _multi_brain_cache.values():
+        for arr in weight_stacks:
+            if hasattr(arr, 'nbytes'): total_bytes += arr.nbytes
+        for arr in bias_stacks:
+            if hasattr(arr, 'nbytes'): total_bytes += arr.nbytes
+    return total_bytes / (1024*1024)
+
+def _prune_multi_brain_cache():
+    """Remove entradas mais antigas até ficar dentro dos limites."""
+    if _DISABLE_MULTI_BRAIN_CACHE:
+        clear_multi_brain_cache()
+        return
+    changed = False
+    # Limita por número de entries
+    while _MULTI_BRAIN_CACHE_MAX_ENTRIES >= 0 and len(_multi_brain_cache_order) > _MULTI_BRAIN_CACHE_MAX_ENTRIES:
+        oldest = _multi_brain_cache_order.pop(0)
+        _multi_brain_cache.pop(oldest, None)
+        changed = True
+    # Limita por memória aproximada
+    if _MULTI_BRAIN_CACHE_MAX_MB > 0:
+        total_mb = _approx_cache_total_mb()
+        if total_mb > _MULTI_BRAIN_CACHE_MAX_MB:
+            # Remove até ficar abaixo de 80% do limite
+            target = _MULTI_BRAIN_CACHE_MAX_MB * 0.8
+            while _multi_brain_cache_order and total_mb > target:
+                oldest = _multi_brain_cache_order.pop(0)
+                _multi_brain_cache.pop(oldest, None)
+                total_mb = _approx_cache_total_mb()
+                changed = True
+    if changed:
+        try:
+            import gc; gc.collect()
+            if _MULTI_BRAIN_CACHE_LOG:
+                print(f"[brain] Cache multi_brain podado. entries={len(_multi_brain_cache)} mb={_approx_cache_total_mb():.1f}")
+        except Exception:
+            pass
 
 def _ensure_array_layers(brain: NeuralNet):
     """Converte listas internas em np.ndarray in-place (caso legado)."""
@@ -348,13 +420,34 @@ def _ensure_array_layers(brain: NeuralNet):
             brain.biases[i] = np.array(b, dtype=np.float32)
 
 def _build_stacks(brains: Sequence[NeuralNet]):
+    if _DISABLE_MULTI_BRAIN_CACHE:
+        # Construção direta sem cache
+        weight_stacks = []
+        bias_stacks = []
+        for layer_idx in range(len(brains[0].weights)):
+            layer_weights = []
+            layer_biases = []
+            for b in brains:
+                _ensure_array_layers(b)
+                layer_weights.append(b.weights[layer_idx])
+                layer_biases.append(b.biases[layer_idx])
+            weight_stacks.append(np.stack(layer_weights, axis=0))
+            bias_stacks.append(np.stack(layer_biases, axis=0))
+        return weight_stacks, bias_stacks
     sizes_key = tuple(brains[0].sizes)
     versions_key = tuple(b.version for b in brains)
     cache_key = (sizes_key, versions_key)
     cached = _multi_brain_cache.get(cache_key)
     if cached is not None:
+        # move para o final (mais recente)
+        try:
+            if cache_key in _multi_brain_cache_order:
+                _multi_brain_cache_order.remove(cache_key)
+                _multi_brain_cache_order.append(cache_key)
+        except Exception:
+            pass
         return cached
-    # (Re)construir pilhas
+    # Construir pilhas novas
     weight_stacks = []
     bias_stacks = []
     for layer_idx in range(len(brains[0].weights)):
@@ -362,11 +455,13 @@ def _build_stacks(brains: Sequence[NeuralNet]):
         layer_biases = []
         for b in brains:
             _ensure_array_layers(b)
-            layer_weights.append(b.weights[layer_idx])  # (out,in)
-            layer_biases.append(b.biases[layer_idx])    # (out,)
-        weight_stacks.append(np.stack(layer_weights, axis=0))  # (B,out,in)
-        bias_stacks.append(np.stack(layer_biases, axis=0))      # (B,out)
+            layer_weights.append(b.weights[layer_idx])
+            layer_biases.append(b.biases[layer_idx])
+        weight_stacks.append(np.stack(layer_weights, axis=0))
+        bias_stacks.append(np.stack(layer_biases, axis=0))
     _multi_brain_cache[cache_key] = (weight_stacks, bias_stacks)
+    _multi_brain_cache_order.append(cache_key)
+    _prune_multi_brain_cache()
     return weight_stacks, bias_stacks
 
 def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.ndarray:
@@ -427,3 +522,79 @@ def activations_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> 
             x = np.tanh(x)
         activations.append(x.copy())
     return activations
+
+# ============================================================
+# Debug / Memory inspection helpers
+# ============================================================
+def get_multi_brain_cache_stats(limit_detail: int = 5) -> dict:
+    """Retorna estatísticas sobre o cache de batching multi-cérebro.
+
+    limit_detail: quantos maiores entries detalhar.
+    """
+    import sys
+    total_entries = len(_multi_brain_cache)
+    entry_sizes = []  # (bytes, key)
+    total_bytes = 0
+    total_arrays = 0
+    for key, (weight_stacks, bias_stacks) in _multi_brain_cache.items():
+        entry_bytes = 0
+        # weight_stacks e bias_stacks são listas de np.ndarray
+        for arr in weight_stacks:
+            if hasattr(arr, 'nbytes'):
+                entry_bytes += arr.nbytes
+                total_arrays += 1
+        for arr in bias_stacks:
+            if hasattr(arr, 'nbytes'):
+                entry_bytes += arr.nbytes
+                total_arrays += 1
+        total_bytes += entry_bytes
+        entry_sizes.append((entry_bytes, key))
+    entry_sizes.sort(reverse=True)
+    top = []
+    for b, key in entry_sizes[:limit_detail]:
+        sizes_key, versions_key = key
+        top.append({
+            'sizes': sizes_key,
+            'num_brains': len(versions_key),
+            'approx_mb': round(b / (1024*1024), 2)
+        })
+    return {
+        'entries': total_entries,
+        'total_arrays': total_arrays,
+        'approx_total_mb': round(total_bytes / (1024*1024), 2),
+        'largest': top
+    }
+
+def estimate_brains_param_memory(brains: Sequence[NeuralNet]) -> dict:
+    """Estimativa de memória ocupada pelos parâmetros dos cérebros atuais."""
+    import numpy as _np
+    total_params = 0
+    total_bytes = 0
+    distinct_archs = set()
+    versions = []
+    for b in brains:
+        if not hasattr(b, 'weights'):
+            continue
+        arch = tuple(getattr(b, 'sizes', []))
+        distinct_archs.add(arch)
+        versions.append(getattr(b, 'version', -1))
+        for W in b.weights:
+            if isinstance(W, list):
+                arr = _np.array(W, dtype=_np.float32)
+            else:
+                arr = W
+            total_params += arr.size
+            total_bytes += arr.nbytes
+        for B in b.biases:
+            if isinstance(B, list):
+                arr = _np.array(B, dtype=_np.float32)
+            else:
+                arr = B
+            total_params += arr.size
+            total_bytes += arr.nbytes
+    return {
+        'brains': len(brains),
+        'distinct_archs': len(distinct_archs),
+        'total_params': total_params,
+        'approx_param_mb': round(total_bytes / (1024*1024), 2),
+    }

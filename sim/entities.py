@@ -13,7 +13,14 @@ if TYPE_CHECKING:  # Tipos somente para linting
     from .controllers import Params
 
 
-def update_agents_batch(agents, dt, world, scene, params):
+def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
+    """Atualiza um grupo de agentes usando processamento em lote.
+
+    Otimização de memória: não armazenamos activations completas para todos
+    os agentes a cada frame. Apenas o agente selecionado (se houver) terá
+    suas activations calculadas e preservadas para debug/overlay.
+    Exportações de substrato/agente recalculam activations on-demand.
+    """
     if not agents:
         return
     from .sensors import batch_retina_sense
@@ -28,7 +35,7 @@ def update_agents_batch(agents, dt, world, scene, params):
         exp_size = ag.brain.sizes[0] if hasattr(ag.brain, 'sizes') else len(inp)
         if len(inp) != exp_size and hasattr(ag.brain, 'resize_input'):
             ag.brain.resize_input(len(inp))
-    # forward
+    # forward (batch outputs)
     with profile_section('agent_brain_forward'):
         arr = np.array(inputs_list, dtype=np.float32)
         try:
@@ -36,23 +43,33 @@ def update_agents_batch(agents, dt, world, scene, params):
             outs = forward_many_brains([a.brain for a in agents], arr)
         except Exception:
             outs = np.array([a.brain.forward(v.tolist()) for a, v in zip(agents, arr)], dtype=np.float32)
-    # activations
-    acts = None
-    if profiler.enabled and not params.get('disable_brain_activations', False):
-        with profile_section('agent_brain_activations'):
-            try:
-                from .brain import activations_many_brains
-                acts = activations_many_brains([a.brain for a in agents], arr)
-            except Exception:
-                acts = None
-    # distribuir / atuar / energia
+    # distribuir / atuar / energia (sem activations globais)
     for i, ag in enumerate(agents):
         ag.last_brain_output = outs[i].tolist()
-        ag.last_brain_activations = [] if acts is None else [layer[i].tolist() for layer in acts]
+        # Limpamos activations para reduzir pressão de memória (serão preenchidas somente no selecionado)
+        if ag is not selected_agent:
+            if ag.last_brain_activations:
+                ag.last_brain_activations = []
         with profile_section('agent_locomotion'):
             ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
         with profile_section('agent_energy'):
             ag.energy_model.apply(ag, dt, params)
+    # Activations somente para agente selecionado, se profiler habilitado
+    if selected_agent and profiler.enabled and not params.get('disable_brain_activations', False):
+        try:
+            idx = agents.index(selected_agent)
+        except ValueError:
+            return
+        with profile_section('agent_brain_activations_sel'):
+            # Usa o mesmo input já calculado para evitar nova leitura de sensores
+            sel_inp = inputs_list[idx]
+            # Ajuste dinâmico se necessário (já feito acima, mas segurança)
+            if hasattr(selected_agent.brain, 'sizes') and len(sel_inp) != selected_agent.brain.sizes[0] and hasattr(selected_agent.brain, 'resize_input'):
+                selected_agent.brain.resize_input(len(sel_inp))
+            try:
+                selected_agent.last_brain_activations = selected_agent.brain.activations(sel_inp)
+            except Exception:
+                selected_agent.last_brain_activations = []
 """
 Entidades da simulação: Agent (base), Bacteria, Predator, Food.
 Usando herança onde há comportamento compartilhado e composição para capacidades.
@@ -293,10 +310,12 @@ class Bacteria(Agent):
     def _create_child_energy_model(self, params: 'Params') -> 'EnergyModel':
         from .actuators import EnergyModel
         return EnergyModel(
-            loss_idle=params.get('bacteria_energy_loss_idle', 0.01),
-            loss_move=params.get('bacteria_energy_loss_move', 5.0),
             death_energy=params.get('bacteria_death_energy', 0.0),
-            split_energy=params.get('bacteria_split_energy', 150.0)
+            split_energy=params.get('bacteria_split_energy', 150.0),
+            v0_cost=params.get('bacteria_metab_v0_cost', 0.5),
+            vmax_cost=params.get('bacteria_metab_vmax_cost', 8.0),
+            vmax_ref=params.get('bacteria_max_speed',300.0),
+            energy_cap=params.get('bacteria_energy_cap', 400.0)
         )
 
 
@@ -342,10 +361,12 @@ class Predator(Agent):
     def _create_child_energy_model(self, params: 'Params') -> 'EnergyModel':
         from .actuators import EnergyModel
         return EnergyModel(
-            loss_idle=params.get('predator_energy_loss_idle', 0.01),
-            loss_move=params.get('predator_energy_loss_move', 5.0),
             death_energy=params.get('predator_death_energy', 0.0),
-            split_energy=params.get('predator_split_energy', 150.0)
+            split_energy=params.get('predator_split_energy', 150.0),
+            v0_cost=params.get('predator_metab_v0_cost', 1.0),
+            vmax_cost=params.get('predator_metab_vmax_cost', 15.0),
+            vmax_ref=params.get('predator_max_speed',300.0),
+            energy_cap=params.get('predator_energy_cap', 600.0)
         )
 
 
@@ -568,10 +589,12 @@ def _create_bacteria_energy_model(params: 'Params'):
     """Cria modelo energético para bactéria."""
     from .actuators import EnergyModel
     return EnergyModel(
-        loss_idle=params.get('bacteria_energy_loss_idle', 0.01),
-        loss_move=params.get('bacteria_energy_loss_move', 5.0),
         death_energy=params.get('bacteria_death_energy', 0.0),
-        split_energy=params.get('bacteria_split_energy', 150.0)
+    split_energy=params.get('bacteria_split_energy', 150.0),
+    v0_cost=params.get('bacteria_metab_v0_cost', 0.5),
+    vmax_cost=params.get('bacteria_metab_vmax_cost', 8.0),
+    vmax_ref=params.get('bacteria_max_speed',300.0),
+    energy_cap=params.get('bacteria_energy_cap', 400.0)
     )
 
 
@@ -624,8 +647,10 @@ def _create_predator_energy_model(params: 'Params'):
     """Cria modelo energético para predador."""
     from .actuators import EnergyModel
     return EnergyModel(
-        loss_idle=params.get('predator_energy_loss_idle', 0.01),
-        loss_move=params.get('predator_energy_loss_move', 5.0),
         death_energy=params.get('predator_death_energy', 0.0),
-        split_energy=params.get('predator_split_energy', 150.0)
+    split_energy=params.get('predator_split_energy', 150.0),
+    v0_cost=params.get('predator_metab_v0_cost', 1.0),
+    vmax_cost=params.get('predator_metab_vmax_cost', 15.0),
+    vmax_ref=params.get('predator_max_speed',300.0),
+    energy_cap=params.get('predator_energy_cap', 600.0)
     )

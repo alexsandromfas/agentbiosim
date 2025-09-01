@@ -84,28 +84,48 @@ class SimpleRenderer(RendererStrategy):
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Desenha informações de overlay."""
-        # Linha principal de informações
         bacteria_count = info.get('bacteria_count', 0)
-        predator_count = info.get('predator_count', 0)  
+        predator_count = info.get('predator_count', 0)
         food_count = info.get('food_count', 0)
         food_target = info.get('food_target', 0)
         fps = info.get('fps', 0)
-        
+        cpu_percent = info.get('cpu_percent')
+        cpu_proc_percent = info.get('cpu_proc_percent')
+        mem_used_mb = info.get('mem_used_mb')
+        resources_available = info.get('resources_available', True)
+        fallback_metrics = info.get('fallback_metrics', False)
+
         main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  FPS: {int(fps)}"
-        surf = self.font.render(main_info, True, (220, 220, 220))
-        surface.blit(surf, (8, 8))
-        
-        # Linha secundária
+        if cpu_percent is not None and mem_used_mb is not None:
+            try:
+                if resources_available:
+                    if cpu_proc_percent is not None:
+                        main_info += f"  |  CPU: {cpu_percent:4.1f}% (proc {cpu_proc_percent:4.1f}%)  |  RAM: {mem_used_mb:.0f} MB"
+                    else:
+                        main_info += f"  |  CPU: {cpu_percent:4.1f}%  |  RAM: {mem_used_mb:.0f} MB"
+                else:
+                    if fallback_metrics and (cpu_percent > 0 or mem_used_mb > 0):
+                        main_info += f"  |  CPU~: {cpu_percent:4.1f}%  |  RAM~: {mem_used_mb:.0f} MB"
+                    else:
+                        main_info += "  |  CPU: N/A  |  RAM: N/A"
+            except Exception:
+                pass
+
+        surface.blit(self.font.render(main_info, True, (220, 220, 220)), (8, 8))
+
         max_speed = info.get('max_speed', 0)
         time_scale = info.get('time_scale', 1.0)
         world_w = info.get('world_w', 0)
         world_h = info.get('world_h', 0)
-        
         secondary_info = f"Max speed: {max_speed:.1f}  |  Time x: {time_scale:.2f}  |  World: {world_w:.0f}x{world_h:.0f}"
-        surf2 = self.font.render(secondary_info, True, (180, 180, 220))
-        surface.blit(surf2, (8, 28))
-        
-        # Detalhes do agente selecionado
+        surface.blit(self.font.render(secondary_info, True, (180, 180, 220)), (8, 28))
+
+        # Aviso se métricas indisponíveis
+        if not resources_available:
+            hint = "Instale psutil para métricas: pip install psutil"
+            surf_hint = self.small_font.render(hint, True, (160, 120, 120))
+            surface.blit(surf_hint, (8, 46))
+
         selected_agent = info.get('selected_agent')
         if selected_agent and info.get('show_selected_details', True):
             self._draw_agent_details(selected_agent, surface)

@@ -305,13 +305,15 @@ class SimulationUI(QMainWindow):
         w=_spin_int(0,20000); w.setValue(self.params.get('bacteria_count',150)); add_pop("Quantidade inicial:",'bacteria_count',w)
         w=_spin_int(0,10000); w.setValue(self.params.get('bacteria_min_limit',10)); add_pop("Mínimo:",'bacteria_min_limit',w)
         w=_spin_int(0,50000); w.setValue(self.params.get('bacteria_max_limit',300)); add_pop("Máximo:",'bacteria_max_limit',w)
-        w=_spin_double(0.0,10.0,0.001,3); w.setValue(self.params.get('bacteria_energy_loss_idle',0.01)); add_pop("Perda (idle):",'bacteria_energy_loss_idle',w)
-        w=_spin_double(0.0,100.0,0.1,2); w.setValue(self.params.get('bacteria_energy_loss_move',5.0)); add_pop("Perda (movimento):",'bacteria_energy_loss_move',w)
         w=_spin_double(0.0,100000.0,1.0,1); w.setValue(self.params.get('bacteria_initial_energy',100.0)); add_pop("Energia inicial:",'bacteria_initial_energy',w)
         w=_spin_double(0.0,10000.0,1.0,1); w.setValue(self.params.get('bacteria_death_energy',0.0)); add_pop("Energia morte:",'bacteria_death_energy',w)
         w=_spin_double(0.0,200000.0,5.0,1); w.setValue(self.params.get('bacteria_split_energy',150.0)); add_pop("Energia dividir:",'bacteria_split_energy',w)
+        # Metabolismo contínuo
+        w=_spin_double(0.0,1000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_v0_cost',0.5)); add_pop("Custo v=0 (s):",'bacteria_metab_v0_cost',w)
+        w=_spin_double(0.0,10000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_vmax_cost',8.0)); add_pop("Custo v=vmax (s):",'bacteria_metab_vmax_cost',w)
+        w=_spin_double(10.0,1000000.0,10.0,1); w.setValue(self.params.get('bacteria_energy_cap',400.0)); add_pop("Cap energia:",'bacteria_energy_cap',w)
         v.addWidget(g_pop)
-        # Grupo Corpo & Movimento
+        # Corpo & Movimento
         g_body = QGroupBox("Corpo & Movimento"); g_body.setStyleSheet(card_style); gb = QGridLayout(g_body); r_bbody=0
         def add_body(label,name,w):
             nonlocal r_bbody
@@ -323,7 +325,7 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.0,10000.0,10.0,1); w.setValue(self.params.get('bacteria_max_speed',300.0)); add_body("Velocidade máx:",'bacteria_max_speed',w)
         w=_spin_double(1.0,5000.0,1.0,1); w.setValue(math.degrees(self.params.get('bacteria_max_turn', math.pi))); add_body("Rotação máx (°/s):",'bacteria_max_turn_deg',w)
         v.addWidget(g_body)
-        # Grupo Rede Neural & Mutação
+        # Rede Neural & Mutação
         g_nn = QGroupBox("Rede Neural & Mutação"); g_nn.setStyleSheet(card_style); gn = QGridLayout(g_nn); r_bnn=0
         def add_nn(label,name,w):
             nonlocal r_bnn
@@ -335,7 +337,7 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.0,1.0,0.001,3); w.setValue(self.params.get('bacteria_mutation_rate',0.05)); add_nn("Taxa de mutação:",'bacteria_mutation_rate',w)
         w=_spin_double(0.0,10.0,0.01,2); w.setValue(self.params.get('bacteria_mutation_strength',0.08)); add_nn("Força de mutação:",'bacteria_mutation_strength',w)
         v.addWidget(g_nn)
-        # Grupo Visão
+        # Visão
         g_vis = QGroupBox("Visão"); g_vis.setStyleSheet(card_style); gv=QGridLayout(g_vis); r_bvis=0
         def add_vis(label,name,w):
             nonlocal r_bvis
@@ -345,7 +347,7 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_bacteria',False)); add_vis("Ver bactérias:",'bacteria_retina_see_bacteria',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_predators',False)); add_vis("Ver predadores:",'bacteria_retina_see_predators',cb)
         v.addWidget(g_vis)
-        # Grupo Ações
+        # Ações
         g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la=QVBoxLayout(g_act)
         b=QPushButton("Aplicar Parâmetros"); b.clicked.connect(self.apply_bacteria_params); la.addWidget(b); v.addWidget(g_act)
         v.addStretch(1)
@@ -366,7 +368,7 @@ class SimulationUI(QMainWindow):
             "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:28px; background:#1c1f24;} "
             "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left:12px; padding:3px 12px 4px 12px; border-radius:8px; background:#262b31; color:#cfe1f5; font-weight:600; font-size:12px;}"
         )
-        # Grupo População & Energia
+        # População & Energia
         g_pop = QGroupBox("População & Energia"); g_pop.setStyleSheet(card_style); gp = QGridLayout(g_pop); r_ppop=0
         def add_pop(label,name,w):
             nonlocal r_ppop
@@ -375,13 +377,15 @@ class SimulationUI(QMainWindow):
         w=_spin_int(0,5000); w.setValue(self.params.get('predator_count',0)); add_pop("Quantidade inicial:",'predator_count',w)
         w=_spin_int(0,5000); w.setValue(self.params.get('predator_min_limit',0)); add_pop("Mínimo:",'predator_min_limit',w)
         w=_spin_int(0,50000); w.setValue(self.params.get('predator_max_limit',100)); add_pop("Máximo:",'predator_max_limit',w)
-        w=_spin_double(0.0,10.0,0.001,3); w.setValue(self.params.get('predator_energy_loss_idle',0.01)); add_pop("Perda (idle):",'predator_energy_loss_idle',w)
-        w=_spin_double(0.0,100.0,0.1,2); w.setValue(self.params.get('predator_energy_loss_move',5.0)); add_pop("Perda (movimento):",'predator_energy_loss_move',w)
         w=_spin_double(0.0,200000.0,1.0,1); w.setValue(self.params.get('predator_initial_energy',100.0)); add_pop("Energia inicial:",'predator_initial_energy',w)
         w=_spin_double(0.0,10000.0,1.0,1); w.setValue(self.params.get('predator_death_energy',0.0)); add_pop("Energia morte:",'predator_death_energy',w)
         w=_spin_double(0.0,400000.0,10.0,1); w.setValue(self.params.get('predator_split_energy',150.0)); add_pop("Energia dividir:",'predator_split_energy',w)
+        # Metabolismo contínuo
+        w=_spin_double(0.0,5000.0,0.01,2); w.setValue(self.params.get('predator_metab_v0_cost',1.0)); add_pop("Custo v=0 (s):",'predator_metab_v0_cost',w)
+        w=_spin_double(0.0,20000.0,0.01,2); w.setValue(self.params.get('predator_metab_vmax_cost',15.0)); add_pop("Custo v=vmax (s):",'predator_metab_vmax_cost',w)
+        w=_spin_double(10.0,1000000.0,10.0,1); w.setValue(self.params.get('predator_energy_cap',600.0)); add_pop("Cap energia:",'predator_energy_cap',w)
         v.addWidget(g_pop)
-        # Grupo Corpo & Movimento
+        # Corpo & Movimento
         g_body = QGroupBox("Corpo & Movimento"); g_body.setStyleSheet(card_style); gb=QGridLayout(g_body); r_pbody=0
         def add_body(label,name,w):
             nonlocal r_pbody
@@ -393,7 +397,7 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.0,10000.0,10.0,1); w.setValue(self.params.get('predator_max_speed',300.0)); add_body("Velocidade máx:",'predator_max_speed',w)
         w=_spin_double(1.0,5000.0,1.0,1); w.setValue(math.degrees(self.params.get('predator_max_turn', math.pi))); add_body("Rotação máx (°/s):",'predator_max_turn_deg',w)
         v.addWidget(g_body)
-        # Grupo Rede Neural & Mutação
+        # Rede Neural & Mutação
         g_nn = QGroupBox("Rede Neural & Mutação"); g_nn.setStyleSheet(card_style); gn=QGridLayout(g_nn); r_pnn=0
         def add_nn(label,name,w):
             nonlocal r_pnn
@@ -405,7 +409,7 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.0,1.0,0.001,3); w.setValue(self.params.get('predator_mutation_rate',0.05)); add_nn("Taxa de mutação:",'predator_mutation_rate',w)
         w=_spin_double(0.0,10.0,0.01,2); w.setValue(self.params.get('predator_mutation_strength',0.08)); add_nn("Força de mutação:",'predator_mutation_strength',w)
         v.addWidget(g_nn)
-        # Grupo Visão
+        # Visão
         g_vis = QGroupBox("Visão"); g_vis.setStyleSheet(card_style); gv=QGridLayout(g_vis); r_pvis=0
         def add_vis(label,name,w):
             nonlocal r_pvis
@@ -415,7 +419,7 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_predators',False)); add_vis("Ver predadores:",'predator_retina_see_predators',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_show_vision',False)); add_vis("Mostrar visão:",'predator_show_vision',cb)
         v.addWidget(g_vis)
-        # Grupo Ações
+        # Ações
         g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la=QVBoxLayout(g_act)
         b=QPushButton("Aplicar Parâmetros"); b.clicked.connect(self.apply_predator_params); la.addWidget(b); v.addWidget(g_act)
         v.addStretch(1)
@@ -578,11 +582,12 @@ class SimulationUI(QMainWindow):
 
     def apply_bacteria_params(self):
         for name in [
-            'bacteria_count','bacteria_initial_energy','bacteria_energy_loss_idle','bacteria_energy_loss_move',
-            'bacteria_death_energy','bacteria_split_energy','bacteria_show_vision','bacteria_body_size',
-            'bacteria_vision_radius','bacteria_retina_count','bacteria_retina_fov_degrees','bacteria_retina_see_food',
-            'bacteria_retina_see_bacteria','bacteria_retina_see_predators','bacteria_max_speed','bacteria_min_limit',
-            'bacteria_max_limit','bacteria_hidden_layers','bacteria_mutation_rate','bacteria_mutation_strength','bacteria_max_turn_deg'
+            'bacteria_count','bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
+            'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
+            'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
+            'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+            'bacteria_max_speed','bacteria_min_limit','bacteria_max_limit','bacteria_hidden_layers','bacteria_mutation_rate',
+            'bacteria_mutation_strength','bacteria_max_turn_deg'
         ]:
             if name in self.widgets:
                 v = self._get_widget_value(name)
@@ -598,9 +603,9 @@ class SimulationUI(QMainWindow):
 
     def apply_predator_params(self):
         for name in [
-            'predators_enabled','predator_count','predator_initial_energy','predator_energy_loss_idle',
-            'predator_energy_loss_move','predator_death_energy','predator_split_energy','predator_body_size',
-            'predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
+            'predators_enabled','predator_count','predator_initial_energy','predator_death_energy','predator_split_energy',
+            'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
+            'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
             'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
             'predator_min_limit','predator_max_limit','predator_hidden_layers','predator_mutation_rate','predator_mutation_strength','predator_max_turn_deg'
         ]:
@@ -729,8 +734,25 @@ class SimulationUI(QMainWindow):
         if energy_model is not None:
             for attr in ['loss_idle','loss_move','death_energy','split_energy']:
                 if hasattr(energy_model, attr): add(f'energy_{attr}', getattr(energy_model, attr))
-        add('last_brain_output', json.dumps(getattr(agent,'last_brain_output',[])))
-        add('last_brain_activations', json.dumps(getattr(agent,'last_brain_activations',[])))
+        # On-demand activations (recalcula se vazio) para export sem poluir memória runtime
+        last_out = getattr(agent,'last_brain_output', [])
+        if not last_out and getattr(agent,'brain',None) and getattr(agent,'sensor',None):
+            try:
+                from .sensors import RetinaSensor
+                scene = self.engine.scene_query
+                sensor_inputs = agent.sensor.sense(agent, scene, self.params)
+                last_out = agent.brain.forward(sensor_inputs)
+            except Exception:
+                pass
+        add('last_brain_output', json.dumps(last_out))
+        acts = getattr(agent,'last_brain_activations', [])
+        if not acts and getattr(agent,'brain',None) and getattr(agent,'sensor',None):
+            try:
+                sensor_inputs = agent.sensor.sense(agent, self.engine.scene_query, self.params)
+                acts = agent.brain.activations(sensor_inputs)
+            except Exception:
+                acts = []
+        add('last_brain_activations', json.dumps(acts))
         with open(path,'w', newline='', encoding='utf-8') as f:
             writer = csv.DictWriter(f, fieldnames=['key','value']); writer.writeheader(); writer.writerows(rows)
         print(f"Agente exportado para {path}")
@@ -864,8 +886,23 @@ class SimulationUI(QMainWindow):
                 if energy_model:
                     for attr in ['loss_idle','loss_move','death_energy','split_energy']:
                         if hasattr(energy_model, attr): ad[f'energy_{attr}'] = getattr(energy_model, attr)
-                ad['last_brain_output'] = getattr(agent,'last_brain_output', [])
-                ad['last_brain_activations'] = getattr(agent,'last_brain_activations', [])
+                # On-demand forward/activations para snapshot completo sem manter arrays históricos
+                out = getattr(agent,'last_brain_output', [])
+                if (not out) and brain and sensor:
+                    try:
+                        sensor_inputs = sensor.sense(agent, self.engine.scene_query, self.params)
+                        out = brain.forward(sensor_inputs)
+                    except Exception:
+                        out = []
+                ad['last_brain_output'] = out
+                acts = getattr(agent,'last_brain_activations', [])
+                if (not acts) and brain and sensor:
+                    try:
+                        sensor_inputs = sensor.sense(agent, self.engine.scene_query, self.params)
+                        acts = brain.activations(sensor_inputs)
+                    except Exception:
+                        acts = []
+                ad['last_brain_activations'] = acts
                 agents_data.append(ad)
             snapshot = {
                 'version':1,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
@@ -927,7 +964,14 @@ class SimulationUI(QMainWindow):
                     fov_degrees=ad.get('sensor_fov_degrees',180.0), skip=ad.get('sensor_skip',0), see_food=ad.get('sensor_see_food',True),
                     see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False))
                 locomotion = Locomotion(max_speed=ad.get('locomotion_max_speed',300.0), max_turn=ad.get('locomotion_max_turn', _m.pi))
-                energy_model = EnergyModel(loss_idle=ad.get('energy_loss_idle',0.01), loss_move=ad.get('energy_loss_move',5.0), death_energy=ad.get('energy_death_energy',0.0), split_energy=ad.get('energy_split_energy',150.0))
+                energy_model = EnergyModel(
+                    death_energy=ad.get('energy_death_energy',0.0),
+                    split_energy=ad.get('energy_split_energy',150.0),
+                    v0_cost=ad.get('metab_v0_cost', ad.get('energy_loss_idle',0.5)),  # fallback legacy
+                    vmax_cost=ad.get('metab_vmax_cost', ad.get('energy_loss_move',8.0)),
+                    vmax_ref=ad.get('locomotion_max_speed', 300.0),
+                    energy_cap=ad.get('energy_cap', 400.0 if ad.get('type')!='predator' else 600.0)
+                )
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
                 agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
