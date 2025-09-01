@@ -530,13 +530,18 @@ class Engine:
                 see_predators=_b('sensor_see_predators',False)
             )
             locomotion = Locomotion(max_speed=_f('locomotion_max_speed',300.0), max_turn=_f('locomotion_max_turn', _math.pi))
+            def _pick_num(*names, default=0.0):
+                for nm in names:
+                    if nm in data:
+                        return _f(nm, default)
+                return default
             energy_model = EnergyModel(
-                death_energy=_f('energy_death_energy',0.0),
-                split_energy=_f('energy_split_energy',150.0),
-                v0_cost=_f('metab_v0_cost', _f('energy_loss_idle',0.5)),
-                vmax_cost=_f('metab_vmax_cost', _f('energy_loss_move',8.0)),
-                vmax_ref=_f('locomotion_max_speed',300.0),
-                energy_cap=_f('energy_cap', 600.0 if agent_type=='predator' else 400.0)
+                death_energy=_pick_num('energy_death_energy','death_energy', default=0.0),
+                split_energy=_pick_num('energy_split_energy','split_energy', default=150.0),
+                v0_cost=_pick_num('energy_v0_cost','metab_v0_cost','energy_loss_idle', default=0.5),
+                vmax_cost=_pick_num('energy_vmax_cost','metab_vmax_cost','energy_loss_move', default=8.0),
+                vmax_ref=_pick_num('energy_vmax_ref','locomotion_max_speed', default=300.0),
+                energy_cap=_pick_num('energy_energy_cap','energy_cap', default=(600.0 if agent_type=='predator' else 400.0))
             )
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)

@@ -710,6 +710,11 @@ class SimulationUI(QMainWindow):
         os.makedirs(agents_dir, exist_ok=True)
         filename = f"{name}.agent.csv"
         path = os.path.join(agents_dir, filename)
+        # Garante que todos os widgets atuais estejam aplicados aos params antes do export
+        try:
+            self.apply_all_params()
+        except Exception:
+            pass
         brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
         rows = []
         def add(k,v): rows.append({'key':k,'value':v})
@@ -732,8 +737,19 @@ class SimulationUI(QMainWindow):
             for attr in ['max_speed','max_turn']:
                 if hasattr(locomotion, attr): add(f'locomotion_{attr}', getattr(locomotion, attr))
         if energy_model is not None:
-            for attr in ['loss_idle','loss_move','death_energy','split_energy']:
-                if hasattr(energy_model, attr): add(f'energy_{attr}', getattr(energy_model, attr))
+            # Exporta dinamicamente todos os atributos simples do modelo de energia
+            exported_energy_keys = set()
+            for attr in getattr(energy_model, '__slots__', []):
+                if attr.startswith('_'): continue
+                val = getattr(energy_model, attr, None)
+                if isinstance(val, (int, float, bool)):
+                    add(f'energy_{attr}', val)
+                    exported_energy_keys.add(attr)
+            # Compat retroativa: também grava chaves antigas se aplicável
+            if 'v0_cost' in exported_energy_keys:
+                add('energy_loss_idle', getattr(energy_model, 'v0_cost'))
+            if 'vmax_cost' in exported_energy_keys:
+                add('energy_loss_move', getattr(energy_model, 'vmax_cost'))
         # On-demand activations (recalcula se vazio) para export sem poluir memória runtime
         last_out = getattr(agent,'last_brain_output', [])
         if not last_out and getattr(agent,'brain',None) and getattr(agent,'sensor',None):
@@ -782,6 +798,8 @@ class SimulationUI(QMainWindow):
                 data[row['key']] = row['value']
         base = os.path.basename(path)
         name = base.replace('.agent.csv','').replace('.csv','')
+    # Normaliza campos de energia (suporta legacy loss_idle/loss_move e novos v0_cost/vmax_cost)
+    # Mantemos dados originais; conversão será feita no spawn.
         self.engine.loaded_agent_prototypes[name] = data
         self.engine.current_agent_prototype = name
         print(f"Protótipo '{name}' carregado. Clique direito no substrato para inserir instâncias.")
@@ -829,6 +847,11 @@ class SimulationUI(QMainWindow):
         self.params.set('paused', True, validate=False)
         try:
             engine = self.engine
+            # Aplica todos os parâmetros atuais antes de capturar snapshot
+            try:
+                self.apply_all_params()
+            except Exception:
+                pass
             manual_dir, auto_root = self._get_substrate_dirs()
             ts_full = time.strftime('%Y%m%d_%H%M%S')
             if manual:
@@ -884,8 +907,18 @@ class SimulationUI(QMainWindow):
                     for attr in ['max_speed','max_turn']:
                         if hasattr(locomotion, attr): ad[f'locomotion_{attr}'] = getattr(locomotion, attr)
                 if energy_model:
-                    for attr in ['loss_idle','loss_move','death_energy','split_energy']:
-                        if hasattr(energy_model, attr): ad[f'energy_{attr}'] = getattr(energy_model, attr)
+                    exported_energy_keys = set()
+                    for attr in getattr(energy_model,'__slots__', []):
+                        if attr.startswith('_'): continue
+                        val = getattr(energy_model, attr, None)
+                        if isinstance(val,(int,float,bool)):
+                            ad[f'energy_{attr}'] = val
+                            exported_energy_keys.add(attr)
+                    # chaves legacy para snapshots v1
+                    if 'v0_cost' in exported_energy_keys and 'loss_idle' not in exported_energy_keys:
+                        ad['energy_loss_idle'] = getattr(energy_model,'v0_cost')
+                    if 'vmax_cost' in exported_energy_keys and 'loss_move' not in exported_energy_keys:
+                        ad['energy_loss_move'] = getattr(energy_model,'vmax_cost')
                 # On-demand forward/activations para snapshot completo sem manter arrays históricos
                 out = getattr(agent,'last_brain_output', [])
                 if (not out) and brain and sensor:
@@ -905,7 +938,7 @@ class SimulationUI(QMainWindow):
                 ad['last_brain_activations'] = acts
                 agents_data.append(ad)
             snapshot = {
-                'version':1,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
+                'version':2,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
                 'world': {'width': world.width,'height': world.height,'shape': world.shape,'radius': world.radius},
                 'camera': {'x': engine.camera.x,'y': engine.camera.y,'zoom': engine.camera.zoom},
                 'simulation': {'total_simulation_time': engine.total_simulation_time},
@@ -964,13 +997,19 @@ class SimulationUI(QMainWindow):
                     fov_degrees=ad.get('sensor_fov_degrees',180.0), skip=ad.get('sensor_skip',0), see_food=ad.get('sensor_see_food',True),
                     see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False))
                 locomotion = Locomotion(max_speed=ad.get('locomotion_max_speed',300.0), max_turn=ad.get('locomotion_max_turn', _m.pi))
+                # Normalização de chaves de energia (v1 legacy e v2+ dinâmica)
+                def _pick(*names, default=None):
+                    for nm in names:
+                        if nm in ad:
+                            return ad.get(nm)
+                    return default
                 energy_model = EnergyModel(
-                    death_energy=ad.get('energy_death_energy',0.0),
-                    split_energy=ad.get('energy_split_energy',150.0),
-                    v0_cost=ad.get('metab_v0_cost', ad.get('energy_loss_idle',0.5)),  # fallback legacy
-                    vmax_cost=ad.get('metab_vmax_cost', ad.get('energy_loss_move',8.0)),
-                    vmax_ref=ad.get('locomotion_max_speed', 300.0),
-                    energy_cap=ad.get('energy_cap', 400.0 if ad.get('type')!='predator' else 600.0)
+                    death_energy=_pick('energy_death_energy','death_energy', default=0.0),
+                    split_energy=_pick('energy_split_energy','split_energy', default=150.0),
+                    v0_cost=_pick('energy_v0_cost','metab_v0_cost','energy_loss_idle', default=0.5),
+                    vmax_cost=_pick('energy_vmax_cost','metab_vmax_cost','energy_loss_move', default=8.0),
+                    vmax_ref=_pick('energy_vmax_ref','locomotion_max_speed', default=300.0),
+                    energy_cap=_pick('energy_energy_cap','energy_cap', default=(600.0 if ad.get('type')=='predator' else 400.0))
                 )
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))

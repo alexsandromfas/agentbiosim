@@ -1,175 +1,131 @@
-<<<<<<< HEAD
-=======
-## Simulação de Predadores e Bactérias
+## AgentBioSim – Simulação de Bactérias e Predadores 2D
 
-Breve descrição
-- Projeto em Python que simula micro-organismos (bactérias) e predadores num substrato 2D. Cada agente possui sensores (retina), um cérebro (rede neural feedforward simples), atuadores (locomoção, modelo energético) e interage com comida e outros agentes.
+Simulador evolutivo/ambiental em Python onde populações de bactérias e predadores interagem num substrato 2D (retangular ou circular), consumindo comida, gastando energia para se locomover e se reproduzindo conforme um modelo metabólico contínuo. Cada agente percebe o ambiente via um sensor de retina multi‑raios, processa entradas com uma rede neural feedforward mutável e atua através de um sistema de locomoção parametrizado. A energia regula morte e reprodução.
 
-Visão geral
-- Arquitetura separa motor (headless) e interfaces (Tkinter + Pygame). O motor (`sim/engine.py`) contém a lógica da simulação, sistemas e atualização de entidades; a UI orquestra parâmetros e visualização.
+### Destaques atuais
+- UI moderna PyQt6 com embed de visualização Pygame (fallback Tkinter disponível).
+- Modelo energético contínuo (custo v=0 e custo v=vmax) com introspecção automática nas exportações.
+- Exportação / importação de substrato (snapshot completo) manual e automática (autosave rotacionado por data).
+- Exportação e importação de agentes individuais (genótipo/arquitetura + pesos + estado básico).
+- Aplicação automática de todos os parâmetros UI imediatamente antes de cada export (garante snapshots consistentes mesmo sem clicar “Aplicar”).
+- Sistema de retina configurável (nº de raios, FOV, filtros de tipos, skip frames, raio de visão).
+- Ajuste dinâmico do tamanho de entrada da rede neural quando sensores mudam (resize_input).
+- Processamento em lote de agentes (batch forward) + cache multi‑arquitetura (quando habilitado) para performance.
+- Spatial Hash reutilizável com atualização incremental para queries rápidas.
+- Profiler interno por seção (ativável) e métricas de CPU/RAM (com psutil ou fallback).
+- Renderização com duas estratégias: simples (rápida) e elipses detalhadas; alternável em tempo real.
+- Limites suaves de população, reprodução controlada e morte limitada por frame.
+- Mundo circular ou retangular com câmera com zoom focal e ajuste para caber mundo.
 
-Requisitos mínimos
-- Python 3.10+ (recomendado)
-- pygame (instalar via pip)
+### Requisitos
+- Python 3.10+ (tipagem e sintaxe modernas)
+- Dependências (pip): pygame, PyQt6, psutil, numpy
+  (ver `requirements.txt`)
 
-Como rodar
-- No diretório do projeto:
-
+Instalação (Windows PowerShell):
 ```powershell
-python main.py
+python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.txt
 ```
 
-Controles principais (Pygame)
-- Clique esquerdo: selecionar agente / adicionar comida (se não houver agente)
-- Clique do meio: adicionar bactéria
-- Clique direito + arrastar: pan da câmera
-- Scroll do mouse: zoom (com foco onde o cursor aponta)
-- Espaço: pausar / despausar
-- R: resetar população
-- F: ajustar câmera para o mundo
-- T: alternar modo de render
-- V: alternar exibição da visão
-- WASD / setas: mover a câmera
+### Executando
+```powershell
+python main.py           # tenta PyQt6, fallback Tk
+python main.py --ui qt   # força PyQt6
+python main.py --ui tk   # força Tkinter
+```
 
-Arquivos principais e responsabilidades
-- `main.py` — bootstrap: cria `Params`, `World`, `Engine`, `PygameView` e `SimulationUI` e conecta callbacks.
-- `sim/engine.py` — motor headless: loop de simulação, stepping, processamento de comandos e execução de sistemas.
-- `sim/world.py` — mundo (retangular/circular) e `Camera` para conversões coordenadas.
-- `sim/game.py` — `PygameView`: inicializa Pygame, input e loop de render.
-- `sim/ui_tk.py` — interface Tkinter para controle de parâmetros e start/stop.
-- `sim/entities.py` — `Entity`, `Agent`, `Bacteria`, `Predator` e fábricas.
-- `sim/sensors.py` — `RetinaSensor`, `SceneQuery` e utilitários de raycast.
-- `sim/actuators.py` — `Locomotion`, `EnergyModel` (consumo, divisão).
-- `sim/brain.py` — `NeuralNet` feedforward com mutação e resize de entrada.
-- `sim/systems.py` — regras: interação, reprodução, morte, colisões.
-- `sim/spatial.py` — `SpatialHash` para acelerar queries espaciais.
-- `sim/render.py` — `RendererStrategy`, `SimpleRenderer`, `EllipseRenderer`.
-- `sim/controllers.py` — `Params`, `FoodController`, `PopulationController`.
+### Controles (Pygame)
+- Mouse Esquerdo: selecionar agente ou adicionar comida
+- Mouse Meio: adicionar bactéria
+- Mouse Direito + arrastar: mover câmera (ou spawn de protótipo carregado se existir)
+- Scroll: zoom focado no cursor
+- Espaço: pausa / continua
+- R: reset população
+- F: enquadra mundo
+- T: alterna renderer simples/detalhado
+- V: (na UI) alterna ativações / visão do agente selecionado
+- WASD / Setas: mover câmera
 
-Como o motor funciona (contrato resumido)
-- Inputs: `Params`, `World`, comandos via `Engine.send_command()` (ex.: `add_food`, `add_bacteria`, `reset_population`).
-- Outputs: estado mutável `Engine.entities` (listas de `bacteria`, `predators`, `foods`) e render via `engine.render(surface)`.
-- Erros/limites: validações em `Params`; sistemas aplicam limites (população, morte) para estabilidade.
+### Fluxo geral de arquitetura
+1. `main.py` constrói `Params`, `World`, `Camera`, `Engine` (headless) e a view Pygame.
+2. UI PyQt6 (`sim/ui.py`) cria abas de parâmetros (Simulação, Substrato, Bactérias, Predadores, Teste) e se conecta ao engine.
+3. Loop de render roda dentro de `PygameView`; engine executa passos fixos (substeps) com `time_scale`.
+4. Sistemas (`systems.py`) aplicam interação (comer/predar), reprodução, morte e colisões.
+5. Sensoriamento em lote + forward NN -> locomoção -> energia -> atualização de listas.
+6. Exportações capturam: params aplicados, valores brutos de UI, mundo, câmera, comida e estado completo dos agentes (incluindo pesos NN e atributos dinâmicos do modelo energético).
 
-Pontos de extensão para desenvolvedores
-- Substituir renderer: criar classe que implemente `RendererStrategy` em `sim/render.py`.
-- Trocar o cérebro: manter a interface `forward(inputs)` e `activations(inputs)` ao substituir `NeuralNet` por outra implementação.
-- Adicionar sensores: novos sensores devem usar `SceneQuery` para obter dados espaciais.
-- Salvar/carregar: serializar `Engine.entities`, `Params`, `Camera` e pesos das redes permite restaurar simulacões.
+### Principais módulos
+- `sim/engine.py`: loop, comandos thread‑safe, batch update, métricas, spawn por protótipo.
+- `sim/ui.py`: interface PyQt6, parâmetros, export/import (substrato e agente), autosave.
+- `sim/entities.py`: hierarquia `Entity`, `Agent`, `Bacteria`, `Predator`, atualização em lote, reprodução e mutação.
+- `sim/brain.py`: `NeuralNet` + funções auxiliares (batch, mutação, resize de input, caching multi‑brains).
+- `sim/sensors.py`: `RetinaSensor`, raycasts, `SceneQuery` com/sem spatial hash.
+- `sim/actuators.py`: `Locomotion` (steer + velocidade normalizados) e `EnergyModel` contínuo.
+- `sim/systems.py`: Interação (comer), Reprodução (limites), Morte (fila limitada), Colisão.
+- `sim/spatial.py`: `SpatialHash` eficiente reutilizável.
+- `sim/render.py`: estratégias de render + overlay de métricas e detalhes de agente.
+- `sim/profiler.py`: profiler de seções habilitável.
+- `sim/controllers.py`: `Params` (validação, callbacks), `FoodController` (reposição suave), `PopulationController` (limites).
+- `sim/game.py`: `PygameView` (input + loop de render).
 
-Notas rápidas de desenvolvimento
-- Código usa sintaxe moderna (Python 3.10+).  
-- `pygame` é requerido para a view; `tkinter` é parte da stdlib na maioria das instalações do Windows.  
-- Recomenda-se adicionar testes unitários antes de refatorações grandes.
+### Parâmetros & UI
+Todos os widgets registrados entram no CSV (`ui_params.csv`) e são aplicados em bloco via “Aplicar TODOS” ou implicitamente nas exportações. Campos com sufixo `_deg` são convertidos para radianos internamente. Parametrizações de rede neural (número de camadas e neurônios) ajustam dinamicamente a arquitetura dos cérebros novos e em reprodução.
 
-Known issues
-- Pode haver casos em que predadores/bactérias cresçam de forma inesperada quando reprodução e limites populacionais interagem — revisar `set_mass`, `EnergyModel.prepare_reproduction` e `DeathSystem`.
+### Exportação / Importação
+Substrato:
+- Manual: botão “Exportar Substrato” (gera arquivo em `substrates/manual_exports`).
+- Automática: se habilitada, salva snapshots sequenciais em `substrates/auto_exports/<data>/` com numeração incremental.
+- Snapshot inclui: versão, timestamp, params aplicados, valores brutos da UI, mundo, câmera, estatísticas básicas, comida e lista de agentes.
+- Modelo energético exportado dinamicamente por introspecção (`energy_<campo>`), preservando também chaves legacy para compatibilidade.
 
-Melhorias futuras
+Agente individual:
+- Exporta tipo, atributos físicos, energia, idade, arquitetura NN, pesos/bias, sensor, locomoção e energia.
+- Importação registra protótipo; clique direito insere instâncias no substrato.
 
-1) Principais pontos:
+### Modelo Energético Contínuo
+`cost(v) = v0_cost + ( clamp(v,0,vmax_ref) / vmax_ref ) * (vmax_cost - v0_cost)`
+- Campos: `death_energy`, `split_energy`, `v0_cost`, `vmax_cost`, `vmax_ref`, `energy_cap`.
+- Atualizados dinamicamente a partir de `Params` (bactérias/predadores) a cada passo.
+- Reproduzir divide energia internamente ao meio antes de criar o filho.
 
-- Migrar a interface para customtkinter para uma UI mais moderna.
-- Corrigir o bug do tamanho do predador (crescimento excessivo que ignora limites de divisão).
-- Implementar save/restore completo (posições, parâmetros, redes neurais, câmera) para retomar simulações.
-- Tornar possível exportar/importar o "genoma" de um agente (arquivo por agente) e reinserir na simulação.
-- Permitir que agentes possam andar para trás se a rede neural assim decidir.
-- Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
-- Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
-- Avaliar alternativa: remover variação de tamanho e introduzir energia interna (bateria) fixa por indivíduo; divisões ocorrem por acúmulo de energia. Ou talvez aumentar o custo de energia quanto maior o tamanho do agente.
-- Introduzir alimentos com diferentes valores nutricionais (comida mais nutritiva altera comportamento de competição).
-- Dar opção no UI para que predadores exijam múltiplos impactos para matar uma presa (ex.: 3 impactos configuráveis).
-- Permitir comportamentos agressivos adicionais (bactérias atacando bactérias; predadores atacando outros predadores).
-- Alteração genética de cores para possibilitar diferenciação visual e formação de tribos.
+### Performance & Otimizações
+- Batch forward de múltiplos agentes (reduz overhead Python por passo).
+- Reaproveitamento de Spatial Hash opcional (`reuse_spatial_grid`).
+- Skip de retina (`retina_skip`) e toggle de render simples para populações grandes.
+- Activations só para agente selecionado (ou desligadas totalmente) reduzindo custo.
+- Profiler interno para identificar gargalos e emitir snapshot textual.
+- Métricas de CPU/RAM usando psutil (com fallback manual simples em Windows se ausente).
 
-2) Melhorias recomendadas pelo Copilot e já aprovadas:
+### Extensão / Customização
+Adicionar novo sensor: implementar método `sense(agent, scene, params)` retornando lista de floats e ajustar a montagem de inputs da NN.
+Novo renderer: herdar de `RendererStrategy` e substituir em tempo real via comando.
+Rede neural alternativa: implementar interface `forward` / `activations`; opcionalmente fornecer versão em lote.
+Hooks adicionais: podem ser inseridos no loop do engine ou sistemas (ex.: logging de eventos) – manter leve para não degradar desempenho.
 
-- Checkpoints periódicos (persistência incremental) para reduzir perda de progresso em simulações longas.
-- Exportar métricas históricas (população, energia média, taxas) e opção de salvar CSV para análise externa.
-- Ferramenta de perfilamento e logging para identificar gargalos de performance.
-- Suporte a múltiplos cenários/substratos carregáveis via UI para facilitar experimentos.
-- Modo replay (reproduzir simulação a partir de logs) — recurso opcional e de alto custo computacional; ativar apenas quando necessário.
-- Snapshot por agente (exportar genomas e estatísticas) e catálogo de genomas navegável na UI.
-- Avaliar aceleração de trechos pesados com Numba / paralelização ou offload para GPU (raycasts / sensores).
-- Gráficos em tempo real na UI (população, média de massa, energia média) para monitoramento.
-- Implementar integrador/colisão opcional mais estável (ex.: semi-implícito ou Verlet) para maior robustez física.
-- Modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
+### Roadmap (curto/médio prazo)
+1. Gráficos de métricas em tempo real (população, energia média).
+2. Sistema de eventos (nascimento/morte/reprodução) para logging e replay.
+3. Execução headless batch (CLI) para varrer combinações de parâmetros.
+4. Obstáculos / diferentes tipos de alimento (nutrição variável).
+5. Testes automatizados cobrindo sensores, reprodução, consumo energético, limites de população.
+6. Aceleração opcional (Numba ou Cython) para hot loops (raycasts / batch forward).
 
-Observação: os itens acima foram adicionados sem remover as melhorias originais que você indicou.
+### Problemas Conhecidos
+- Balanceamento energético ainda empírico; valores extremos podem levar a explosão ou colapso rápido de população.
+- Sem persistência incremental de longo prazo (apenas snapshots completos atuais).
+- NN não possui normalização adaptativa de inputs; mudanças drásticas de sensores podem gerar saturação temporária.
 
-Sugestões do Copilot, mas que ainda devem ser estudadas:
+### Contribuindo / Próximos Passos
+- Abrir issues descrevendo experimentos desejados ou bottlenecks de performance.
+- Adicionar testes (pytest) começando pelos utilitários determinísticos (raycast, energy cost, reprodução).
+- Documentar resultados de benchmarks com diferentes configurações (usar scripts em `tests/`).
 
-- Testes automatizados (item 3 da lista original sugerida)
-  - Servem para validar comportamento de componentes críticos (p.ex. `NeuralNet`, `SpatialHash`, sistemas) e prevenir regressões. Recomenda-se usar `pytest` e cobrir caminhos principais mais casos de borda.
+### Licença
+Projeto educativo. Definir licença explícita (ex: MIT) conforme necessidade futura.
 
-- Modo headless / CLI (item 4)
-  - Execução da simulação sem UI (apenas `Engine`) para rodar experimentos em lote, varreduras de parâmetros e coleta de métricas em servidores/VMs.
-
-- Throttling / adaptive timestep (item 8)
-  - Ajusta dinamicamente o timestep ou o número de substeps quando a simulação fica sobrecarregada, preservando estabilidade numérica. Pode afetar determinismo; usar com cuidado em experimentos controlados.
-
-- Paralelização de partes do Engine (item 9)
-  - Permite executar tarefas independentes (sensoriamento de agentes, raycasts) em workers/threads. Em Python, avaliar multiprocessing, Numba ou offload para GPU (GIL limita threads em CPU-bound). Requer reorganização para minimizar estados compartilhados e pontos de sincronização.
-
-- Sistema de eventos/hooks (item 18)
-  - Observers (hooks) que emitem eventos (nascimento, morte, reprodução, checkpoint) para logging, UI, gravação de replays ou integração externa. Deve ser desativável para não penalizar desempenho.
-
->>>>>>> 341a7a0 (Initial commit)
-
+---
+Resumo rápido: `python main.py` abre a UI PyQt6 com visualização Pygame embarcada; ajuste parâmetros, observe comportamentos emergentes, exporte substratos/agentes para reuso e explore mutação/energia em populações crescentes.
 
 
 
 
-Vou procurar onde agentes são criados/populados para confirmar se cada agente recebe uma cópia independente do cérebro ou se está sendo reutilizado o mesmo objeto; vou buscar por chamadas a create_random_bacteria/create_random_predator e por loops que populam engine/world. Espero encontrar o ponto onde a população é instanciada e revisar. Vou agrupar buscas para acelerar.
-
-Read engine.py
-
-Recebi — vou explicar rapidamente o que encontrei e por quê isso explica o comportamento idêntico das bactérias; não fiz nenhuma alteração no código.
-
-Plano curto
-
-Localizei o ponto onde o loop de agentes usa processamento em lote.
-Verifiquei como o batch-forward é chamado e por qual cérebro.
-Expliquei por que isso faz com que agentes com arquiteturas iguais se comportem igual.
-Sugeri correções seguras e testes de diagnóstico (sem alterar código por enquanto).
-Checklist
-
-Encontrar onde o forward em lote é usado — Done
-Confirmar se o mesmo cérebro está sendo usado para todos no batch — Done
-Indicar causa raíz e opções de correção (sem aplicar) — Done
-Diagnóstico e evidência
-
-Onde: o agrupamento por arquitetura e o forward em lote acontece em
-engine.py, no método _simulate_substep — bloco que chama:
-from .entities import update_agents_batch
-e depois para cada grupo: update_agents_batch(group, dt, self.world, self.scene_query, self.params)
-Implementação do batch: em entities.py existe a função update_agents_batch(...).
-Essa função constrói um array de entradas para todo o grupo e faz:
-inputs_np = np.array(sensor_inputs_list, dtype=np.float32)
-outputs_np = agents[0].brain.forward_batch(inputs_np)
-Observação crítica: o batch usa agents[0].brain.forward_batch(...) — ou seja, usa o cérebro do primeiro agente do grupo para calcular as saídas de todo o lote.
-Consequência lógica: quando muitos agentes têm a mesma arquitetura (mesmos tamanhos de camadas), o código os agrupa e calcula as saídas do lote usando apenas os pesos do primeiro agente do grupo. Assim, todos recebem exatamente as mesmas saídas naquele passo — aparentando comportamento idêntico mesmo que os objetos-brain sejam diferentes.
-Por que isso provavelmente começou a aparecer depois das mudanças no brain/visão
-
-Antes de introduzir o processamento em lote (ou se o código chamava agent.brain.forward(...) individualmente), cada agente teria outputs baseados em seu próprio conjunto de pesos.
-Depois da mudança para forward em lote com agents[0].brain.forward_batch, o pipeline passou a usar somente um cérebro por grupo — explicando a uniformidade observada.
-Como confirmar localmente (sem alterar o código da simulação)
-
-Execução rápida de diagnóstico (posso fazer isso para você):
-Criar um pequeno script que:
-Cria 2+ redes com a mesma arquitetura, mas inicializadas aleatoriamente,
-Calcula forward individual para as mesmas entradas (cada brain.forward(input)),
-Calcula forward_batch usando a rede 0 em todas as entradas,
-Compara resultados — deverá mostrar que forward_batch com brain[0] produz saídas idênticas para todas as entradas enquanto forward individual não.
-Já apontei a linha exata onde está o comportamento (em entities.py e a chamada em engine.py), então o diagnóstico é reproduzível.
-Correções sugeridas (não aplicadas)
-
-Solução simples e segura (correção direta, mas altera código):
-Em update_agents_batch, não usar agents[0].brain.forward_batch para todo o grupo.
-Em vez disso:
-Opção A (correta + simples): calcular outputs por agente (loop chamando agent.brain.forward(inputs)), ou
-Opção B (vetorização correta): implementar forward_batch capaz de receber um conjunto de pesos para cada amostra (complexo), ou construir um batch por redes idênticas mas divergentes — mais trabalho.
-Impacto: Opção A resolve o bug (cada agente usa seu próprio cérebro) mas perde parte do ganho de performance do batching.
-Alternativa intermediária:
-Usar batching apenas quando for garantido que todos os pesos são idênticos (raro) — não aplicável aqui.
-Observação: a mudança mais direta para corrigir o bug é pequena (trocar a linha que usa agents[0].brain.forward_batch por um loop que chama agent.brain.forward), mas altera comportamento/performance — você disse que não quer mudanças imediatas, então deixo como sugestão para quando autorizar.
