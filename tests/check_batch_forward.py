@@ -1,3 +1,4 @@
+## MODIFICADO PARA GIT
 """Diagnóstico: compara forward_batch(agents[0].brain) com forward por agente.
 
 Não altera código de produção. Imprime estatísticas por grupo de arquitetura.

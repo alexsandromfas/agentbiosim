@@ -1,3 +1,4 @@
+// MODIFICADO PARA GIT
 {
   "label": "arquitetura_slots_typecode",
   "slug": "arquitetura_slots_typecode",
@@ -167,3 +168,4 @@
   },
   "note_overlap": "Somas de seções se sobrepõem (nested); usar wall_s para % real."
 }
+

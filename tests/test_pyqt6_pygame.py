@@ -1,3 +1,4 @@
+## MODIFICADO PARA GIT
 """
 Interface PyQt6 completa para controle da simulação (baseada em ui_tk.py).
 Inclui simulação Pygame integrada e todos os controles de parâmetros.

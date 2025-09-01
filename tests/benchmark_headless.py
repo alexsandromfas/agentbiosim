@@ -1,3 +1,4 @@
+## MODIFICADO PARA GIT
 """Script headless para medir performance inicial.
 
 Mede tempos agregados de várias seções com população fixa:
@@ -14,7 +15,7 @@ import sys
 import time
 
 # When this script is executed directly (python tests/benchmark_headless.py)
-# sys.path[0] is the tests/ directory which makes `import sim` fail. Ensure the
+# sys.path[0] is the tests/ directory which makes `import sim` fail. Ensure the x
 # project root is on sys.path so imports like `from sim.*` work both when
 # running as a module (python -m tests.benchmark_headless) and as a script.
 ROOT = os.path.dirname(os.path.dirname(__file__))

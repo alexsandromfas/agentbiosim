@@ -1,3 +1,4 @@
+# MODIFICADO PARA GIT
 """
 Interface Tkinter para controle da simulação.
 Apenas orquestra parâmetros e envia comandos - NÃO contém lógica de simulação.

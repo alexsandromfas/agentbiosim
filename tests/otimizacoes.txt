@@ -1,3 +1,4 @@
+# MODIFICADO PARA GIT
 
 Buscando e lendo os arquivos principais para analisar oportunidades de otimização. Lendo os arquivos para mapear arquitetura e gargalos. Segue auditoria detalhada (focada em suportar “milhares → dezenas de milhares” de organismos) organizada por níveis e áreas. Use como mapa de otimização.
 
