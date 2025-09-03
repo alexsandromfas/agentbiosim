@@ -26,6 +26,7 @@ import threading
 from typing import Dict, Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QSize
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
@@ -66,7 +67,16 @@ class SimulationUI(QMainWindow):
         self.pygame_view = pygame_view
         self._ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
 
-        self.setWindowTitle("Simulação - Bactérias e Predadores")
+        self.setWindowTitle("AgentBioSim V1.0.0")
+        # Define icon from project assets (only for main UI window)
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'icon.png')
+            icon_path = os.path.normpath(icon_path)
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+        except Exception:
+            # if icon cannot be loaded, continue without failing
+            pass
         self.resize(1400, 860)
 
         self.widgets: Dict[str, QWidget] = {}

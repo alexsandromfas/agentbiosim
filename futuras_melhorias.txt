@@ -1,0 +1,57 @@
+Melhorias futuras
+
+1) Principais pontos:
+
+- Mutação por reprodução sexual
+- Tentar simular a proximidade por parentescos
+- Criar a comunicação por cores
+- Tentar inserir três tipos de indivíduos que encontrem um equilíbrio do tipo pedra papel e tesoura
+- Criar um ambiente de testes onde eu consiga inserir uma um determinado organismo e simular ele individualmente
+- Tentar criar uma forma de simulação que desenvolva indivíduos capazes de se auto cooperar como se fosse uma simbiose mas que ambos recebam algo em troca
+- Tentar criar um sintetizador de áudio para cada um deles um áudio que somente eles podem ouvir ou talvez eu possa ligar mas que seja controlado pela rede neural neural de forma que eles aprendem com o tempo a se comunicar
+- Fazer com que a porcentagem de mutação e a força de mutação também seja definido pela própria mutação ou seja vai nascer um indivíduo que um indivíduo que cujo nível de mutação é maior do que outros mas a mutação dele vai ser muito grande então ele também pode morrer ele pode sofrer mutações tão grandes que ele não vai passar o seu Gene para frente
+- O ângulo máximo de rotação também deve ser definido por mutação
+- a cor do corpo por mutação.
+- criar outro tipo de individuo que possa ter duas nadadeiras laterais. 
+- criar sistema de mutação que pode mutar a estrutura da rede, não apenas os pesos.
+
+- Permitir que agentes possam andar para trás se a rede neural assim decidir.
+- Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
+- Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
+- Avaliar alternativa: remover variação de tamanho e introduzir energia interna (bateria) fixa por indivíduo; divisões ocorrem por acúmulo de energia. Ou talvez aumentar o custo de energia quanto maior o tamanho do agente.
+- Introduzir alimentos com diferentes valores nutricionais (comida mais nutritiva altera comportamento de competição).
+- Dar opção no UI para que predadores exijam múltiplos impactos para matar uma presa (ex.: 3 impactos configuráveis).
+- Permitir comportamentos agressivos adicionais (bactérias atacando bactérias; predadores atacando outros predadores).
+- Alteração genética de cores para possibilitar diferenciação visual e formação de tribos.
+
+2) Melhorias recomendadas pelo Copilot e já aprovadas:
+
+- Checkpoints periódicos (persistência incremental) para reduzir perda de progresso em simulações longas.
+- Exportar métricas históricas (população, energia média, taxas) e opção de salvar CSV para análise externa.
+- Ferramenta de perfilamento e logging para identificar gargalos de performance.
+- Suporte a múltiplos cenários/substratos carregáveis via UI para facilitar experimentos.
+- Modo replay (reproduzir simulação a partir de logs) — recurso opcional e de alto custo computacional; ativar apenas quando necessário.
+- Snapshot por agente (exportar genomas e estatísticas) e catálogo de genomas navegável na UI.
+- Avaliar aceleração de trechos pesados com Numba / paralelização ou offload para GPU (raycasts / sensores).
+- Gráficos em tempo real na UI (população, média de massa, energia média) para monitoramento.
+- Implementar integrador/colisão opcional mais estável (ex.: semi-implícito ou Verlet) para maior robustez física.
+- Modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
+
+Observação: os itens acima foram adicionados sem remover as melhorias originais que você indicou.
+
+Sugestões do Copilot, mas que ainda devem ser estudadas:
+
+- Testes automatizados (item 3 da lista original sugerida)
+  - Servem para validar comportamento de componentes críticos (p.ex. `NeuralNet`, `SpatialHash`, sistemas) e prevenir regressões. Recomenda-se usar `pytest` e cobrir caminhos principais mais casos de borda.
+
+- Modo headless / CLI (item 4)
+  - Execução da simulação sem UI (apenas `Engine`) para rodar experimentos em lote, varreduras de parâmetros e coleta de métricas em servidores/VMs.
+
+- Throttling / adaptive timestep (item 8)
+  - Ajusta dinamicamente o timestep ou o número de substeps quando a simulação fica sobrecarregada, preservando estabilidade numérica. Pode afetar determinismo; usar com cuidado em experimentos controlados.
+
+- Paralelização de partes do Engine (item 9)
+  - Permite executar tarefas independentes (sensoriamento de agentes, raycasts) em workers/threads. Em Python, avaliar multiprocessing, Numba ou offload para GPU (GIL limita threads em CPU-bound). Requer reorganização para minimizar estados compartilhados e pontos de sincronização.
+
+- Sistema de eventos/hooks (item 18)
+  - Observers (hooks) que emitem eventos (nascimento, morte, reprodução, checkpoint) para logging, UI, gravação de replays ou integração externa. Deve ser desativável para não penalizar desempenho.
