@@ -70,7 +70,7 @@ class SimulationUI(QMainWindow):
         self.setWindowTitle("AgentBioSim V1.0.0")
         # Define icon from project assets (only for main UI window)
         try:
-            icon_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'icon3.png')
+            icon_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'icon.png')
             icon_path = os.path.normpath(icon_path)
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
