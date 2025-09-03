@@ -51,9 +51,9 @@ class PygameView:
         
         pygame.display.init()
         pygame.font.init()
-        
+
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
-        pygame.display.set_caption("Simulação de Micro-organismos")
+        pygame.display.set_caption("AgentBioSim V1.0.0")
         
         # Configura renderer baseado nos parâmetros
         if self.engine.params.get('simple_render', False):

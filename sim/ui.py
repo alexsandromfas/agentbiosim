@@ -66,7 +66,7 @@ class SimulationUI(QMainWindow):
         self.pygame_view = pygame_view
         self._ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
 
-        self.setWindowTitle("Simulação - Bactérias e Predadores")
+        self.setWindowTitle("AgentBioSim V1.0.0")
         self.resize(1400, 860)
 
         self.widgets: Dict[str, QWidget] = {}

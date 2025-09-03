@@ -1,4 +1,4 @@
-## AgentBioSim – Simulação de Bactérias e Predadores 2D
+## AgentBioSim V1.0.0 – Simulação de Bactérias e Predadores 2D
 
 Simulador evolutivo/ambiental em Python onde populações de bactérias e predadores interagem num substrato 2D (retangular ou circular), consumindo comida, gastando energia para se locomover e se reproduzindo conforme um modelo metabólico contínuo. Cada agente percebe o ambiente via um sensor de retina multi‑raios, processa entradas com uma rede neural feedforward mutável e atua através de um sistema de locomoção parametrizado. A energia regula morte e reprodução.
 

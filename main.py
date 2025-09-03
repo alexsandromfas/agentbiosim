@@ -38,7 +38,7 @@ def main(argv=None):
         (padrão: tenta qt, fallback tk)
     """
     argv = argv or sys.argv[1:]
-    parser = argparse.ArgumentParser(description="AgentBioSim")
+    parser = argparse.ArgumentParser(description="AgentBioSim V1.0.0")
     parser.add_argument('--ui', choices=['qt','tk'], help='Escolhe backend de interface (qt ou tk).')
     args = parser.parse_args(argv)
 
