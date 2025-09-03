@@ -6,7 +6,7 @@ Cria Params, Engine, UI; conecta sinais/comandos.
 import sys
 import os
 import argparse
-
+# teste
 # Adiciona diretório atual ao path para imports
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
