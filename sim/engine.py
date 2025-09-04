@@ -267,8 +267,13 @@ class Engine:
         """
         if self.headless or self.renderer is None:
             return
-        # Limpa tela
-        surface.fill((10, 10, 20))
+        # Limpa tela usando cor configurável
+        bg = self.params.get('substrate_bg_color', (10, 10, 20))
+        try:
+            bg_color = tuple(int(max(0, min(255, c))) for c in bg)
+        except Exception:
+            bg_color = (10, 10, 20)
+        surface.fill(bg_color)
         
         # Desenha limites do mundo
         if show_world_bounds:
@@ -552,6 +557,25 @@ class Engine:
             # Ajustes adicionais
             agent.energy = _f('energy', 0.0)
             agent.age = _f('age', 0.0)
+            # Cor importada (suporta JSON array ou legacy tuple string)
+            try:
+                if 'color' in data:
+                    try:
+                        c = _json.loads(data.get('color'))
+                        if isinstance(c, (list, tuple)) and len(c) >= 3:
+                            agent.color = (int(c[0]), int(c[1]), int(c[2]))
+                    except Exception:
+                        # try parse simple tuple-like string '(r, g, b)'
+                        raw = data.get('color')
+                        if isinstance(raw, str) and raw.startswith('('):
+                            try:
+                                parts = raw.strip('() ').split(',')
+                                r,g,b = [int(float(p.strip())) for p in parts[:3]]
+                                agent.color = (r,g,b)
+                            except Exception:
+                                pass
+            except Exception:
+                pass
             # Inserção
             if agent.is_predator:
                 self.entities['predators'].append(agent)
