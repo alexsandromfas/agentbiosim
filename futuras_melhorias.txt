@@ -3,6 +3,9 @@ Melhorias futuras
 1) Principais pontos:
 
 - Mutação por reprodução sexual
+- seletor de cores.
+- novo tipo de comida, que leva mais tempo para comer.
+- obstáculos que podem ser desenhados.
 - Tentar simular a proximidade por parentescos
 - Criar a comunicação por cores
 - Tentar inserir três tipos de indivíduos que encontrem um equilíbrio do tipo pedra papel e tesoura

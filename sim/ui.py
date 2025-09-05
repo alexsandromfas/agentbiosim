@@ -351,6 +351,8 @@ class SimulationUI(QMainWindow):
             sub_picker_box.setStyleSheet(card_style)
             sp_layout = QHBoxLayout(sub_picker_box)
             sub_swatch = QLabel(); sub_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_substrate = sub_swatch
             sbg = self.params.get('substrate_bg_color', (10,10,20))
             sub_swatch.setStyleSheet(f"background: rgb({sbg[0]},{sbg[1]},{sbg[2]}); border:1px solid #333; border-radius:4px;")
             btn_sub = QPushButton("Escolher cor do substrato")
@@ -452,6 +454,8 @@ class SimulationUI(QMainWindow):
             bac_picker_box.setStyleSheet(card_style)
             bpc_layout = QHBoxLayout(bac_picker_box)
             b_swatch = QLabel(); b_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_bacteria = b_swatch
             bcol = self.params.get('bacteria_color', (220,220,220))
             b_swatch.setStyleSheet(f"background: rgb({bcol[0]},{bcol[1]},{bcol[2]}); border:1px solid #333; border-radius:4px;")
             btn_bac = QPushButton("Escolher cor das bactérias")
@@ -559,6 +563,8 @@ class SimulationUI(QMainWindow):
         try:
             pc_layout = QHBoxLayout(pred_color_box)
             p_swatch = QLabel(); p_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_predator = p_swatch
             pcol = self.params.get('predator_color', (80,120,220))
             p_swatch.setStyleSheet(f"background: rgb({pcol[0]},{pcol[1]},{pcol[2]}); border:1px solid #333; border-radius:4px;")
             btn_pred = QPushButton("Escolher cor dos predadores")
@@ -851,6 +857,25 @@ class SimulationUI(QMainWindow):
             for name in sorted(self.widgets.keys()):
                 val = self._get_widget_value(name)
                 rows.append({'name': name, 'value': val})
+            # Ensure color params and substrate shape are saved too
+            try:
+                import json as _json
+                rows.append({'name': 'substrate_shape', 'value': self._get_widget_value('substrate_shape')})
+                rows.append({'name': 'substrate_bg_color', 'value': _json.dumps(list(self.params.get('substrate_bg_color', (10,10,20))))})
+                rows.append({'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))})
+                rows.append({'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))})
+                rows.append({'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))})
+                # Camera position/zoom
+                try:
+                    cam = getattr(self.engine, 'camera', None)
+                    if cam is not None:
+                        rows.append({'name': 'camera_x', 'value': cam.x})
+                        rows.append({'name': 'camera_y', 'value': cam.y})
+                        rows.append({'name': 'camera_zoom', 'value': cam.zoom})
+                except Exception:
+                    pass
+            except Exception:
+                pass
             with open(self._ui_params_csv,'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['name','value']); writer.writeheader(); writer.writerows(rows)
             print(f"Parâmetros UI salvos em {self._ui_params_csv}")
@@ -880,6 +905,89 @@ class SimulationUI(QMainWindow):
                                 self._set_widget_value(name, value)
                         except Exception:
                             pass
+                    # Additional: load saved color params or substrate shape even if not in widgets
+                    try:
+                        if name == 'substrate_bg_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('substrate_bg_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_substrate'):
+                                r,g,b = col[:3]; self._swatch_substrate.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                        if name == 'food_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('food_color', tuple(col), validate=False)
+                            if hasattr(self.engine, 'entities'):
+                                for food in self.engine.entities.get('foods', []):
+                                    try:
+                                        food.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'bacteria_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('bacteria_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_bacteria'):
+                                r,g,b = col[:3]; self._swatch_bacteria.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                            if hasattr(self.engine, 'entities'):
+                                for b in self.engine.entities.get('bacteria', []):
+                                    try:
+                                        b.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'predator_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('predator_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_predator'):
+                                r,g,b = col[:3]; self._swatch_predator.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                            if hasattr(self.engine, 'entities'):
+                                for p in self.engine.entities.get('predators', []):
+                                    try:
+                                        p.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'substrate_shape':
+                            # shape stored as plain string
+                            self.params.set('substrate_shape', value, validate=False)
+                            # update combo box widget if exists
+                            if 'substrate_shape' in self.widgets:
+                                try:
+                                    w = self.widgets['substrate_shape']; idx = w.findText(value)
+                                    if idx>=0: w.setCurrentIndex(idx)
+                                except Exception:
+                                    pass
+                            # Apply to engine.world if available
+                            try:
+                                if hasattr(self, 'engine') and getattr(self.engine, 'world', None) is not None:
+                                    world = self.engine.world
+                                    # keep same radius/width/height from params
+                                    world.configure(value, self.params.get('substrate_radius', world.radius), self.params.get('world_w', world.width), self.params.get('world_h', world.height))
+                            except Exception:
+                                pass
+                        if name == 'camera_x':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.x = float(value)
+                            except Exception:
+                                pass
+                        if name == 'camera_y':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.y = float(value)
+                            except Exception:
+                                pass
+                        if name == 'camera_zoom':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.zoom = max(0.01, float(value))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
             # schedule auto export if active
             if self._get_widget_value('auto_export_substrate'):
                 self._schedule_next_auto_export(initial=True)
