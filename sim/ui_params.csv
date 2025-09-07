@@ -27,7 +27,11 @@ bacteria_retina_see_bacteria,False
 bacteria_retina_see_food,True
 bacteria_retina_see_predators,False
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 bacteria_show_vision,False
+=======
+bacteria_show_vision,True
+>>>>>>> Stashed changes
 =======
 bacteria_show_vision,True
 >>>>>>> Stashed changes
@@ -38,7 +42,11 @@ food_max_r,10.0
 food_min_r,8.0
 food_replenish_interval,0.1
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 food_target,300
+=======
+food_target,200
+>>>>>>> Stashed changes
 =======
 food_target,200
 >>>>>>> Stashed changes
@@ -112,9 +120,12 @@ test_param_9,9.0
 time_scale,10.0
 use_spatial,True
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 world_h,8000.0
 world_w,8000.0
 =======
+=======
+>>>>>>> Stashed changes
 world_h,5000.0
 world_w,5000.0
 substrate_shape,rectangular
@@ -125,4 +136,7 @@ predator_color,"[154, 0, 0]"
 camera_x,-686.5502452065069
 camera_y,-903.3222058916213
 camera_zoom,0.11918176537727353
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
 >>>>>>> Stashed changes

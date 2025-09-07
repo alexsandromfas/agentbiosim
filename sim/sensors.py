@@ -313,7 +313,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         return []
     # Coleta sensores e verifica tipo
     sensors = [a.sensor for a in agents]
-    from .sensors import RetinaSensor as _RS  # evitar shadow
+    _RS = RetinaSensor  # referenciar a classe local diretamente
     if not all(isinstance(s, _RS) for s in sensors):  # fallback se algum não for retina
         return [a.sensor.sense(a, scene, params) for a in agents]
 
@@ -378,6 +378,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     for idx in need_update_idx:
         agent = agents[idx]
         sensor = sensors[idx]
+
         # Seleciona candidatos locais usando spatial hash quando disponível
         if scene.spatial_hash is not None:
             # Raio de busca: visão + raio máximo entre tipos relevantes
@@ -408,6 +409,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             sensor._countdown = sensor.skip
             results[idx] = inputs
             continue
+
         # Máscara de auto-interseção (evita ver a si mesmo)
         is_self = np.array([c is agent for c in candidates_local], dtype=bool)
         # Constrói arrays numpy dos candidatos locais
@@ -415,6 +417,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         cand_y = np.array([c.y for c in candidates_local], dtype=np.float32)
         cand_r = np.array([getattr(c, 'r', 0.0) for c in candidates_local], dtype=np.float32)
         cand_tc = np.array([getattr(c, 'type_code', -1) for c in candidates_local], dtype=np.int8)
+
         # Vetores para candidatos
         dx = cand_x - eye_x
         dy = cand_y - eye_y
@@ -489,7 +492,6 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             ang_diff_objs = ang_diff_objs[inside]
             eff_dist = eff_dist[inside]
             sel_r = sel_r[inside]
-            # comportamento antigo (centro -> um índice)
             # comportamento antigo (centro -> um índice)
             if sensor.retina_count > 1:
                 rels = (ang_diff_objs + half_fov) / (2*half_fov) * (sensor.retina_count - 1)
