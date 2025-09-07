@@ -8,7 +8,7 @@ bacteria_death_energy,0.0
 bacteria_energy_cap,200.0
 bacteria_hidden_layers,3
 bacteria_initial_energy,100.0
-bacteria_max_limit,500
+bacteria_max_limit,300
 bacteria_max_speed,300.0
 bacteria_max_turn_deg,180.0
 bacteria_metab_v0_cost,1.0
@@ -26,14 +26,22 @@ bacteria_retina_fov_degrees,180.0
 bacteria_retina_see_bacteria,False
 bacteria_retina_see_food,True
 bacteria_retina_see_predators,False
+<<<<<<< Updated upstream
 bacteria_show_vision,False
+=======
+bacteria_show_vision,True
+>>>>>>> Stashed changes
 bacteria_split_energy,200.0
 bacteria_vision_radius,300.0
 enable_brain_activations,True
 food_max_r,10.0
 food_min_r,8.0
 food_replenish_interval,0.1
+<<<<<<< Updated upstream
 food_target,300
+=======
+food_target,200
+>>>>>>> Stashed changes
 fps,60
 paused,False
 predator_body_size,14.0
@@ -65,6 +73,7 @@ predator_split_energy,200.0
 predator_vision_radius,500.0
 predators_enabled,True
 retina_skip,2
+retina_vision_mode,single
 reuse_spatial_grid,True
 show_selected_details,True
 simple_render,False
@@ -102,5 +111,18 @@ test_param_8,8
 test_param_9,9.0
 time_scale,10.0
 use_spatial,True
+<<<<<<< Updated upstream
 world_h,8000.0
 world_w,8000.0
+=======
+world_h,5000.0
+world_w,5000.0
+substrate_shape,rectangular
+substrate_bg_color,"[18, 7, 53]"
+food_color,"[50, 100, 0]"
+bacteria_color,"[173, 115, 0]"
+predator_color,"[154, 0, 0]"
+camera_x,-686.5502452065069
+camera_y,-903.3222058916213
+camera_zoom,0.11918176537727353
+>>>>>>> Stashed changes

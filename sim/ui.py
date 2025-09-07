@@ -210,15 +210,43 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('paused',False)); add_exec("Pausado:",'paused',cb)
         v.addWidget(g_exec)
         # Grupo: Performance & Render
-        g_perf = QGroupBox("Performance & Render"); g_perf.setStyleSheet(card_style); grid2 = QGridLayout(g_perf); r_perf=0
-        def add_perf(label,name,w):
+        g_perf = QGroupBox("Performance & Render")
+        g_perf.setStyleSheet(card_style)
+        grid2 = QGridLayout(g_perf)
+        r_perf = 0
+        def add_perf(label, name, w):
             nonlocal r_perf
-            self.widgets[name]=w; grid2.addWidget(QLabel(label), r_perf,0); grid2.addWidget(w,r_perf,1); r_perf+=1
-        cb=QCheckBox(); cb.setChecked(self.params.get('use_spatial',True)); add_perf("Spatial Hash:",'use_spatial',cb)
-        w=_spin_int(0,10); w.setValue(self.params.get('retina_skip',0)); add_perf("Retina skip:",'retina_skip',w)
-        cb=QCheckBox(); cb.setChecked(self.params.get('simple_render',False)); add_perf("Renderização simples:",'simple_render',cb)
-        cb=QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid',True)); add_perf("Reutilizar grid espacial:",'reuse_spatial_grid',cb)
-        w=_spin_double(0.1,10.0,0.1,2); w.setValue(self.params.get('agents_inertia',1.0)); add_perf("Inércia global:",'agents_inertia',w)
+            self.widgets[name] = w
+            grid2.addWidget(QLabel(label), r_perf, 0)
+            grid2.addWidget(w, r_perf, 1)
+            r_perf += 1
+
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('use_spatial', True))
+        add_perf("Spatial Hash:", 'use_spatial', cb)
+
+        w = _spin_int(0, 10)
+        w.setValue(self.params.get('retina_skip', 0))
+        add_perf("Retina skip:", 'retina_skip', w)
+
+        # Retina vision mode selector (single = centroid per object, fullbody = span-aware)
+        mode_cb = QComboBox()
+        mode_cb.addItems(['single', 'fullbody'])
+        mode_cb.setCurrentText(self.params.get('retina_vision_mode', 'single'))
+        add_perf("Visão retinas:", 'retina_vision_mode', mode_cb)
+
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('simple_render', False))
+        add_perf("Renderização simples:", 'simple_render', cb)
+
+        cb2 = QCheckBox()
+        cb2.setChecked(self.params.get('reuse_spatial_grid', True))
+        add_perf("Reutilizar grid espacial:", 'reuse_spatial_grid', cb2)
+
+        w2 = _spin_double(0.1, 10.0, 0.1, 2)
+        w2.setValue(self.params.get('agents_inertia', 1.0))
+        add_perf("Inércia global:", 'agents_inertia', w2)
+
         v.addWidget(g_perf)
         # Grupo: Visualização / Debug
         g_vis = QGroupBox("Visualização / Debug"); g_vis.setStyleSheet(card_style); grid3=QGridLayout(g_vis); r_vis=0
@@ -513,12 +541,14 @@ class SimulationUI(QMainWindow):
     # Live callbacks & embedding
     # ------------------------------------------------------------------
     def _setup_live_param_signals(self):
-        for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details']:
+        for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
                 w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
             elif isinstance(w, QCheckBox):
                 w.toggled.connect(lambda _v, n=name: self._update_param_real_time(n))
+            elif isinstance(w, QComboBox):
+                w.currentTextChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
         # brain activation toggle handled separately
 
     def _on_toggle_brain_activations(self, checked: bool):
@@ -558,7 +588,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','use_spatial','retina_skip','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
+        for name in ['time_scale','fps','paused','use_spatial','retina_skip','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':

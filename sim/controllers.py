@@ -33,6 +33,8 @@ class Params:
             
             # Performance
             'retina_skip': 0,
+            # Retina vision mode: 'single' (centroid per object) or 'fullbody' (span-aware)
+            'retina_vision_mode': 'single',
             'simple_render': False,
             'reuse_spatial_grid': True,
             
