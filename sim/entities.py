@@ -236,6 +236,13 @@ class Agent(Entity):
         child.energy = child_energy_value
         child.vx = math.cos(child_angle) * child_speed
         child.vy = math.sin(child_angle) * child_speed
+        # Ensure child inherits parent's color (fix: children were using default type colors)
+        try:
+            child.color = self.color
+        except Exception:
+            # defensive: if the child doesn't have a color attribute for some reason,
+            # ignore to avoid breaking reproduction.
+            pass
         return child
     
     def draw(self, renderer):
