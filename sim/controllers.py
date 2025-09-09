@@ -33,6 +33,8 @@ class Params:
             
             # Performance
             'retina_skip': 0,
+            # Retina vision mode: 'single' (centroid per object) or 'fullbody' (span-aware)
+            'retina_vision_mode': 'single',
             'simple_render': False,
             'reuse_spatial_grid': True,
             
@@ -136,6 +138,11 @@ class Params:
 
             # UI/Debug
             'show_selected_details': True,
+            # Colors (RGB tuples)
+            'substrate_bg_color': (10, 10, 20),
+            'food_color': (220, 30, 30),
+            'bacteria_color': (220, 220, 220),
+            'predator_color': (80, 120, 220),
         }
         
         self._data.update(defaults)
@@ -355,9 +362,14 @@ class FoodController:
                     if distance < food.r + r + 2:  # Pequena margem
                         overlaps = True
                         break
-            
+
             if not overlaps:
-                return Food(x, y, r)
-        
+                f = Food(x, y, r)
+                try:
+                    f.color = tuple(params.get('food_color', f.color))
+                except Exception:
+                    pass
+                return f
+
         # Se não encontrou posição válida, retorna None
         return None

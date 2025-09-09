@@ -313,7 +313,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         return []
     # Coleta sensores e verifica tipo
     sensors = [a.sensor for a in agents]
-    from .sensors import RetinaSensor as _RS  # evitar shadow
+    _RS = RetinaSensor  # referenciar a classe local diretamente
     if not all(isinstance(s, _RS) for s in sensors):  # fallback se algum não for retina
         return [a.sensor.sense(a, scene, params) for a in agents]
 
@@ -349,32 +349,28 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     if not need_update_idx:
         return results  # type: ignore
 
-    # Pré-filtragem global por tipo baseado no OR das flags (evita iterar objetos desnecessários)
-    any_food = any(sensors[i].see_food for i in need_update_idx)
-    any_bact = any(sensors[i].see_bacteria for i in need_update_idx)
-    any_pred = any(sensors[i].see_predators for i in need_update_idx)
-    candidates = []
-    if any_food:
-        candidates.extend(scene.entities.get('foods', []))
-    if any_bact:
-        candidates.extend(scene.entities.get('bacteria', []))
-    if any_pred:
-        candidates.extend(scene.entities.get('predators', []))
-    if not candidates:
-        # Nada visível -> todos zeros para os que precisavam
-        for idx in need_update_idx:
-            sensor = sensors[idx]
-            inputs = [0.0] * sensor.retina_count
-            sensor.last_inputs = inputs
-            sensor._countdown = sensor.skip
-            results[idx] = inputs
-        return results  # type: ignore
-
-    # Constrói arrays numpy dos candidatos
-    cand_x = np.array([c.x for c in candidates], dtype=np.float32)
-    cand_y = np.array([c.y for c in candidates], dtype=np.float32)
-    cand_r = np.array([getattr(c, 'r', 0.0) for c in candidates], dtype=np.float32)
-    cand_tc = np.array([getattr(c, 'type_code', -1) for c in candidates], dtype=np.int8)
+    # Preparação para fallback sem spatial hash (global candidates)
+    global_candidates = None
+    if scene.spatial_hash is None:
+        any_food = any(sensors[i].see_food for i in need_update_idx)
+        any_bact = any(sensors[i].see_bacteria for i in need_update_idx)
+        any_pred = any(sensors[i].see_predators for i in need_update_idx)
+        cand_list = []
+        if any_food:
+            cand_list.extend(scene.entities.get('foods', []))
+        if any_bact:
+            cand_list.extend(scene.entities.get('bacteria', []))
+        if any_pred:
+            cand_list.extend(scene.entities.get('predators', []))
+        global_candidates = cand_list
+        if not global_candidates:
+            for idx in need_update_idx:
+                sensor = sensors[idx]
+                inputs = [0.0] * sensor.retina_count
+                sensor.last_inputs = inputs
+                sensor._countdown = sensor.skip
+                results[idx] = inputs
+            return results  # type: ignore
 
     def angle_wrap(a):
         return (a + np.pi) % (2 * np.pi) - np.pi
@@ -382,9 +378,46 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     for idx in need_update_idx:
         agent = agents[idx]
         sensor = sensors[idx]
-        # Posição do olho
-        eye_x = agent.x + math.cos(agent.angle) * agent.r
-        eye_y = agent.y + math.sin(agent.angle) * agent.r
+
+        # Seleciona candidatos locais usando spatial hash quando disponível
+        if scene.spatial_hash is not None:
+            # Raio de busca: visão + raio máximo entre tipos relevantes
+            max_r = 0.0
+            if sensor.see_food:
+                max_r = max(max_r, float(getattr(params, 'get', lambda k, d=None: d)('food_max_r', 5.0)))
+            if sensor.see_bacteria:
+                max_r = max(max_r, float(params.get('bacteria_body_size', 9.0)))
+            if sensor.see_predators:
+                max_r = max(max_r, float(params.get('predator_body_size', 14.0)))
+            search_r = sensor.vision_radius + max_r
+            eye_x = agent.x + math.cos(agent.angle) * agent.r
+            eye_y = agent.y + math.sin(agent.angle) * agent.r
+            nearby = scene.spatial_hash.query_ball(eye_x, eye_y, search_r)
+            # Filtra tipos de interesse
+            candidates_local = [o for o in nearby if (
+                (getattr(o, 'type_code', -1) == 0 and sensor.see_food) or
+                (getattr(o, 'type_code', -1) == 1 and sensor.see_bacteria) or
+                (getattr(o, 'type_code', -1) == 2 and sensor.see_predators)
+            )]
+        else:
+            candidates_local = global_candidates
+            eye_x = agent.x + math.cos(agent.angle) * agent.r
+            eye_y = agent.y + math.sin(agent.angle) * agent.r
+        if not candidates_local:
+            inputs = [0.0] * sensor.retina_count
+            sensor.last_inputs = inputs
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+            continue
+
+        # Máscara de auto-interseção (evita ver a si mesmo)
+        is_self = np.array([c is agent for c in candidates_local], dtype=bool)
+        # Constrói arrays numpy dos candidatos locais
+        cand_x = np.array([c.x for c in candidates_local], dtype=np.float32)
+        cand_y = np.array([c.y for c in candidates_local], dtype=np.float32)
+        cand_r = np.array([getattr(c, 'r', 0.0) for c in candidates_local], dtype=np.float32)
+        cand_tc = np.array([getattr(c, 'type_code', -1) for c in candidates_local], dtype=np.int8)
+
         # Vetores para candidatos
         dx = cand_x - eye_x
         dy = cand_y - eye_y
@@ -404,6 +437,11 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             ((tc == 1) & sensor.see_bacteria) |
             ((tc == 2) & sensor.see_predators)
         )
+        # Remove o próprio agente da lista de visíveis
+        if np.any(visible_mask):
+            self_within = is_self[within]
+            if np.any(self_within):
+                visible_mask = visible_mask & (~self_within)
         if not np.any(visible_mask):
             inputs = [0.0] * sensor.retina_count
             sensor.last_inputs = inputs
@@ -418,31 +456,97 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         obj_angle = np.arctan2(sel_dy, sel_dx)
         # Distâncias efetivas (considera raio aprox)
         eff_dist = np.clip(sel_dist - sel_r, 0.0, sensor.vision_radius)
-        # Mapeia para rays
+
+        # Decide modo de mapeamento: 'single' usa centro (idéia antiga), 'fullbody' ativa
+        # todas as retinas cujo ângulo cai dentro do span angular do objeto.
+        vision_mode = params.get('retina_vision_mode', 'single') if params is not None else 'single'
+
         half_fov = math.radians(sensor.fov_degrees/2.0)
         if half_fov <= 0:
-            rels = np.zeros_like(obj_angle)
-        else:
-            ang_diff = angle_wrap(obj_angle - agent.angle)
-            # Fora do FOV
-            inside = np.abs(ang_diff) <= half_fov
+            inputs = [0.0] * sensor.retina_count
+            sensor.last_inputs = inputs
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+            continue
+
+        # ângulo relativo do centro do objeto (usado no modo 'single')
+        ang_diff_objs = angle_wrap(obj_angle - agent.angle)
+        # Pré-cálculos geométricos (usados apenas no modo 'single' para apressar filtro)
+        dists = np.sqrt(sel_dx*sel_dx + sel_dy*sel_dy)
+        with np.errstate(invalid='ignore', divide='ignore'):
+            ratio = np.clip(sel_r / dists, 0.0, 1.0)
+            half_span_all = np.arcsin(ratio)
+        cover_all_mask_all = dists <= sel_r
+        half_span_all[cover_all_mask_all] = math.pi
+
+        if vision_mode == 'single' or sensor.retina_count == 1:
+            # Aplica filtro de interseção com FOV apenas no modo 'single'
+            inside = np.abs(ang_diff_objs) <= (half_fov + half_span_all)
             if not np.any(inside):
                 inputs = [0.0] * sensor.retina_count
                 sensor.last_inputs = inputs
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
                 continue
-            ang_diff = ang_diff[inside]
+            # reduz arrays para objetos que intersectam o FOV (single)
+            ang_diff_objs = ang_diff_objs[inside]
             eff_dist = eff_dist[inside]
-            # Índice do raio (0 .. retina_count-1)
+            sel_r = sel_r[inside]
+            # comportamento antigo (centro -> um índice)
             if sensor.retina_count > 1:
-                rels = (ang_diff + half_fov) / (2*half_fov) * (sensor.retina_count - 1)
+                rels = (ang_diff_objs + half_fov) / (2*half_fov) * (sensor.retina_count - 1)
             else:
-                rels = np.zeros_like(ang_diff)
-        ray_idx = np.clip(np.round(rels).astype(int), 0, sensor.retina_count - 1)
-        # Para cada raio manter menor distância
-        ray_best = np.full((sensor.retina_count,), np.inf, dtype=np.float32)
-        np.minimum.at(ray_best, ray_idx, eff_dist)
+                rels = np.zeros_like(ang_diff_objs)
+            ray_idx = np.clip(np.round(rels).astype(int), 0, sensor.retina_count - 1)
+            ray_best = np.full((sensor.retina_count,), np.inf, dtype=np.float32)
+            np.minimum.at(ray_best, ray_idx, eff_dist)
+        else:
+            # modo 'fullbody': interseção exata raio-círculo para todos os raios vs objetos
+            # Direções dos raios no mundo
+            if sensor.retina_count > 1:
+                ray_rel = np.linspace(-half_fov, half_fov, sensor.retina_count, dtype=np.float32)
+            else:
+                ray_rel = np.array([0.0], dtype=np.float32)
+            ray_angles = agent.angle + ray_rel
+            dir_x = np.cos(ray_angles).astype(np.float32)
+            dir_y = np.sin(ray_angles).astype(np.float32)
+
+            # Vetores origem->centro (negativos de sel_dx/dy)
+            ox = (-sel_dx).astype(np.float32)
+            oy = (-sel_dy).astype(np.float32)
+            rr = (sel_r).astype(np.float32)
+
+            # b = d·o, c = o·o - r^2; broadcast em (R, M)
+            # dir_x: (R,), dir_y: (R,) -> (R,1) para broadcast
+            dxm = dir_x[:, None]
+            dym = dir_y[:, None]
+            omx = ox[None, :]
+            omy = oy[None, :]
+            b = dxm * omx + dym * omy
+            c = (omx * omx + omy * omy) - (rr[None, :] * rr[None, :])
+            disc = b * b - c
+            # Inicializa com inf (sem interseção)
+            ray_dists = np.full((sensor.retina_count, ox.shape[0]), np.inf, dtype=np.float32)
+            hit = disc >= 0.0
+            if np.any(hit):
+                sqrt_disc = np.zeros_like(disc)
+                sqrt_disc[hit] = np.sqrt(disc[hit])
+                t1 = -b - sqrt_disc
+                t2 = -b + sqrt_disc
+                # Menor t positivo entre t1 e t2 (apenas onde há interseção)
+                t_pos1 = np.where(t1 >= 0.0, t1, np.inf)
+                t_pos2 = np.where(t2 >= 0.0, t2, np.inf)
+                t_min = np.minimum(t_pos1, t_pos2)
+                # Invalida pares sem interseção
+                t_min = np.where(hit, t_min, np.inf)
+                ray_dists = t_min
+            # Melhor (menor) distância por raio entre todos objetos
+            ray_best = np.min(ray_dists, axis=1)
+            # Limita ao alcance da visão e aplica FOV por raio explicitamente
+            # Nota: já geramos os raios dentro do FOV, mas reforçamos para robustez
+            valid_range = (ray_best >= 0.0) & (ray_best <= sensor.vision_radius)
+            ray_best = np.where(valid_range, ray_best, np.inf)
+
         # Converte para ativações
         activation = (sensor.vision_radius - ray_best) / sensor.vision_radius
         activation[~np.isfinite(ray_best)] = 0.0

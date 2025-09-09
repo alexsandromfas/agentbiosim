@@ -26,12 +26,13 @@ import threading
 from typing import Dict, Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QColor
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
     QLineEdit, QTextEdit, QListWidget, QMessageBox, QFileDialog, QScrollArea,
     QFormLayout, QGridLayout, QGroupBox
+    , QColorDialog
 )
 
 from .controllers import Params
@@ -210,15 +211,43 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('paused',False)); add_exec("Pausado:",'paused',cb)
         v.addWidget(g_exec)
         # Grupo: Performance & Render
-        g_perf = QGroupBox("Performance & Render"); g_perf.setStyleSheet(card_style); grid2 = QGridLayout(g_perf); r_perf=0
-        def add_perf(label,name,w):
+        g_perf = QGroupBox("Performance & Render")
+        g_perf.setStyleSheet(card_style)
+        grid2 = QGridLayout(g_perf)
+        r_perf = 0
+        def add_perf(label, name, w):
             nonlocal r_perf
-            self.widgets[name]=w; grid2.addWidget(QLabel(label), r_perf,0); grid2.addWidget(w,r_perf,1); r_perf+=1
-        cb=QCheckBox(); cb.setChecked(self.params.get('use_spatial',True)); add_perf("Spatial Hash:",'use_spatial',cb)
-        w=_spin_int(0,10); w.setValue(self.params.get('retina_skip',0)); add_perf("Retina skip:",'retina_skip',w)
-        cb=QCheckBox(); cb.setChecked(self.params.get('simple_render',False)); add_perf("Renderização simples:",'simple_render',cb)
-        cb=QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid',True)); add_perf("Reutilizar grid espacial:",'reuse_spatial_grid',cb)
-        w=_spin_double(0.1,10.0,0.1,2); w.setValue(self.params.get('agents_inertia',1.0)); add_perf("Inércia global:",'agents_inertia',w)
+            self.widgets[name] = w
+            grid2.addWidget(QLabel(label), r_perf, 0)
+            grid2.addWidget(w, r_perf, 1)
+            r_perf += 1
+
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('use_spatial', True))
+        add_perf("Spatial Hash:", 'use_spatial', cb)
+
+        w = _spin_int(0, 10)
+        w.setValue(self.params.get('retina_skip', 0))
+        add_perf("Retina skip:", 'retina_skip', w)
+
+        # Retina vision mode selector (single = centroid per object, fullbody = span-aware)
+        mode_cb = QComboBox()
+        mode_cb.addItems(['single', 'fullbody'])
+        mode_cb.setCurrentText(self.params.get('retina_vision_mode', 'single'))
+        add_perf("Visão retinas:", 'retina_vision_mode', mode_cb)
+
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('simple_render', False))
+        add_perf("Renderização simples:", 'simple_render', cb)
+
+        cb2 = QCheckBox()
+        cb2.setChecked(self.params.get('reuse_spatial_grid', True))
+        add_perf("Reutilizar grid espacial:", 'reuse_spatial_grid', cb2)
+
+        w2 = _spin_double(0.1, 10.0, 0.1, 2)
+        w2.setValue(self.params.get('agents_inertia', 1.0))
+        add_perf("Inércia global:", 'agents_inertia', w2)
+
         v.addWidget(g_perf)
         # Grupo: Visualização / Debug
         g_vis = QGroupBox("Visualização / Debug"); g_vis.setStyleSheet(card_style); grid3=QGridLayout(g_vis); r_vis=0
@@ -257,84 +286,228 @@ class SimulationUI(QMainWindow):
         v.addWidget(g_act)
         v.addStretch(1)
 
+    # test playground removed; color pickers moved into respective tabs (non-destructive previews)
+
     # ---------------------- Tab: Substrate ----------------------------
     def _build_tab_substrate(self):
-        tab = QWidget(); self.tabs.addTab(tab, "Substrato")
-        outer = QVBoxLayout(tab); outer.setContentsMargins(4,4,4,4); outer.setSpacing(6)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); outer.addWidget(scroll)
-        content = QWidget(); scroll.setWidget(content)
-        v = QVBoxLayout(content); v.setContentsMargins(2,2,2,20); v.setSpacing(18)
+        tab = QWidget()
+        self.tabs.addTab(tab, "Substrato")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4,4,4,4)
+        outer.setSpacing(6)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2,2,2,20)
+        v.setSpacing(18)
         card_style = (
             "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:28px; background:#1c1f24;} "
             "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left:12px; padding:3px 12px 4px 12px; border-radius:8px; background:#262b31; color:#cfe1f5; font-weight:600; font-size:12px;}"
         )
+
         # Grupo Comida
-        g_food = QGroupBox("Comida"); g_food.setStyleSheet(card_style); gf = QGridLayout(g_food); r_food=0
-        def add_food(label,name,w):
+        g_food = QGroupBox("Comida")
+        g_food.setStyleSheet(card_style)
+        gf = QGridLayout(g_food)
+        r_food = 0
+        def add_food(label, name, w):
             nonlocal r_food
-            self.widgets[name]=w; gf.addWidget(QLabel(label), r_food,0); gf.addWidget(w,r_food,1); r_food+=1
-        w=_spin_int(0,10000); w.setValue(self.params.get('food_target',50)); add_food("Target comida:",'food_target',w)
-        w=_spin_double(0.1,100.0,0.1,2); w.setValue(self.params.get('food_min_r',4.5)); add_food("Comida raio mín:",'food_min_r',w)
-        w=_spin_double(0.1,100.0,0.1,2); w.setValue(self.params.get('food_max_r',5.0)); add_food("Comida raio máx:",'food_max_r',w)
-        w=_spin_double(0.01,60.0,0.01,2); w.setValue(self.params.get('food_replenish_interval',0.1)); add_food("Intervalo reposição (s):",'food_replenish_interval',w)
+            self.widgets[name] = w
+            gf.addWidget(QLabel(label), r_food, 0)
+            gf.addWidget(w, r_food, 1)
+            r_food += 1
+
+        w = _spin_int(0,10000); w.setValue(self.params.get('food_target',50)); add_food("Target comida:", 'food_target', w)
+        w = _spin_double(0.1,100.0,0.1,2); w.setValue(self.params.get('food_min_r',4.5)); add_food("Comida raio mín:", 'food_min_r', w)
+        w = _spin_double(0.1,100.0,0.1,2); w.setValue(self.params.get('food_max_r',5.0)); add_food("Comida raio máx:", 'food_max_r', w)
+        w = _spin_double(0.01,60.0,0.01,2); w.setValue(self.params.get('food_replenish_interval',0.1)); add_food("Intervalo reposição (s):", 'food_replenish_interval', w)
         v.addWidget(g_food)
+
+        # Color picker for food (non-destructive UI -> updates params & entities)
+        try:
+            food_picker_box = QGroupBox("Cor da comida")
+            food_picker_box.setStyleSheet(card_style)
+            fp_layout = QHBoxLayout(food_picker_box)
+            food_swatch = QLabel(); food_swatch.setFixedSize(36,36)
+            fcol = self.params.get('food_color', (220,30,30))
+            food_swatch.setStyleSheet(f"background: rgb({fcol[0]},{fcol[1]},{fcol[2]}); border:1px solid #333; border-radius:4px;")
+            btn_food = QPushButton("Escolher cor da comida")
+            def _pick_food_color():
+                col = QColorDialog.getColor(QColor(*fcol), self, "Escolha cor da comida")
+                if col.isValid():
+                    r,g,b = col.red(), col.green(), col.blue()
+                    food_swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                    # persist and propagate
+                    try:
+                        self.params.set('food_color', (r,g,b))
+                        if hasattr(self, 'engine') and self.engine is not None:
+                            for food in self.engine.entities.get('foods', []):
+                                try: food.color = (r,g,b)
+                                except Exception: pass
+                    except Exception:
+                        pass
+            btn_food.clicked.connect(_pick_food_color)
+            fp_layout.addWidget(food_swatch); fp_layout.addWidget(btn_food)
+            v.addWidget(food_picker_box)
+        except Exception:
+            pass
+
         # Grupo Mundo
-        g_world = QGroupBox("Mundo"); g_world.setStyleSheet(card_style); gw = QGridLayout(g_world); r_world=0
-        def add_world(label,name,w):
+        g_world = QGroupBox("Mundo")
+        g_world.setStyleSheet(card_style)
+        gw = QGridLayout(g_world)
+        r_world = 0
+        def add_world(label, name, w):
             nonlocal r_world
-            self.widgets[name]=w; gw.addWidget(QLabel(label), r_world,0); gw.addWidget(w,r_world,1); r_world+=1
-        w=_spin_double(10.0,20000.0,10.0,1); w.setValue(self.params.get('world_w',1000.0)); add_world("Largura do mundo:",'world_w',w)
-        w=_spin_double(10.0,20000.0,10.0,1); w.setValue(self.params.get('world_h',700.0)); add_world("Altura do mundo:",'world_h',w)
-        shape=QComboBox(); shape.addItems(["rectangular","circular"]); shape.setCurrentText(self.params.get('substrate_shape','rectangular')); add_world("Formato do substrato:",'substrate_shape',shape)
-        w=_spin_double(1.0,5000.0,1.0,1); w.setValue(self.params.get('substrate_radius',400.0)); add_world("Raio do substrato:",'substrate_radius',w)
+            self.widgets[name] = w
+            gw.addWidget(QLabel(label), r_world, 0)
+            gw.addWidget(w, r_world, 1)
+            r_world += 1
+
+        w = _spin_double(10.0,20000.0,10.0,1); w.setValue(self.params.get('world_w',1000.0)); add_world("Largura do mundo:", 'world_w', w)
+        w = _spin_double(10.0,20000.0,10.0,1); w.setValue(self.params.get('world_h',700.0)); add_world("Altura do mundo:", 'world_h', w)
+        shape = QComboBox(); shape.addItems(["rectangular","circular"]); shape.setCurrentText(self.params.get('substrate_shape','rectangular')); add_world("Formato do substrato:", 'substrate_shape', shape)
+        w = _spin_double(1.0,5000.0,1.0,1); w.setValue(self.params.get('substrate_radius',400.0)); add_world("Raio do substrato:", 'substrate_radius', w)
         v.addWidget(g_world)
+
+        # Color picker for substrate background (updates params)
+        try:
+            sub_picker_box = QGroupBox("Background Substrato")
+            sub_picker_box.setStyleSheet(card_style)
+            sp_layout = QHBoxLayout(sub_picker_box)
+            sub_swatch = QLabel(); sub_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_substrate = sub_swatch
+            sbg = self.params.get('substrate_bg_color', (10,10,20))
+            sub_swatch.setStyleSheet(f"background: rgb({sbg[0]},{sbg[1]},{sbg[2]}); border:1px solid #333; border-radius:4px;")
+            btn_sub = QPushButton("Escolher cor do substrato")
+            def _pick_sub_color():
+                col = QColorDialog.getColor(QColor(*sbg), self, "Escolha cor do substrato")
+                if col.isValid():
+                    r,g,b = col.red(), col.green(), col.blue()
+                    sub_swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                    try:
+                        self.params.set('substrate_bg_color', (r,g,b))
+                    except Exception:
+                        pass
+            btn_sub.clicked.connect(_pick_sub_color)
+            sp_layout.addWidget(sub_swatch); sp_layout.addWidget(btn_sub)
+            v.addWidget(sub_picker_box)
+        except Exception:
+            pass
+
+        
+
         # Grupo Ações
-        g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la = QVBoxLayout(g_act)
+        g_act = QGroupBox("Ações")
+        g_act.setStyleSheet(card_style)
+        la = QVBoxLayout(g_act)
         b = QPushButton("Aplicar Parâmetros"); b.clicked.connect(self.apply_substrate_params); la.addWidget(b)
         h = QHBoxLayout(); btn_export = QPushButton("Exportar Substrato"); btn_export.clicked.connect(self.open_export_substrate_window); h.addWidget(btn_export)
-        btn_import = QPushButton("Importar Substrato"); btn_import.clicked.connect(self.open_import_substrate_window); h.addWidget(btn_import); wrap=QWidget(); wrap.setLayout(h); la.addWidget(wrap)
+        btn_import = QPushButton("Importar Substrato"); btn_import.clicked.connect(self.open_import_substrate_window); h.addWidget(btn_import)
+        wrap = QWidget(); wrap.setLayout(h); la.addWidget(wrap)
         v.addWidget(g_act)
         v.addStretch(1)
 
     # ---------------------- Tab: Bacteria -----------------------------
     def _build_tab_bacteria(self):
-        tab = QWidget(); self.tabs.addTab(tab, "Bactérias")
-        outer = QVBoxLayout(tab); outer.setContentsMargins(4,4,4,4); outer.setSpacing(6)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); outer.addWidget(scroll)
-        content = QWidget(); scroll.setWidget(content)
-        v = QVBoxLayout(content); v.setContentsMargins(2,2,2,20); v.setSpacing(18)
+        tab = QWidget()
+        self.tabs.addTab(tab, "Bactérias")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4,4,4,4)
+        outer.setSpacing(6)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2,2,2,20)
+        v.setSpacing(18)
         card_style = (
             "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:28px; background:#1c1f24;} "
             "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left:12px; padding:3px 12px 4px 12px; border-radius:8px; background:#262b31; color:#cfe1f5; font-weight:600; font-size:12px;}"
         )
+
         # Grupo População & Energia
-        g_pop = QGroupBox("População & Energia"); g_pop.setStyleSheet(card_style); gp = QGridLayout(g_pop); r_bpop=0
+        g_pop = QGroupBox("População & Energia")
+        g_pop.setStyleSheet(card_style)
+        gp = QGridLayout(g_pop)
+        r_bpop = 0
         def add_pop(label,name,w):
             nonlocal r_bpop
-            self.widgets[name]=w; gp.addWidget(QLabel(label), r_bpop,0); gp.addWidget(w,r_bpop,1); r_bpop+=1
-        w=_spin_int(0,20000); w.setValue(self.params.get('bacteria_count',150)); add_pop("Quantidade inicial:",'bacteria_count',w)
-        w=_spin_int(0,10000); w.setValue(self.params.get('bacteria_min_limit',10)); add_pop("Mínimo:",'bacteria_min_limit',w)
-        w=_spin_int(0,50000); w.setValue(self.params.get('bacteria_max_limit',300)); add_pop("Máximo:",'bacteria_max_limit',w)
-        w=_spin_double(0.0,100000.0,1.0,1); w.setValue(self.params.get('bacteria_initial_energy',100.0)); add_pop("Energia inicial:",'bacteria_initial_energy',w)
-        w=_spin_double(0.0,10000.0,1.0,1); w.setValue(self.params.get('bacteria_death_energy',0.0)); add_pop("Energia morte:",'bacteria_death_energy',w)
-        w=_spin_double(0.0,200000.0,5.0,1); w.setValue(self.params.get('bacteria_split_energy',150.0)); add_pop("Energia dividir:",'bacteria_split_energy',w)
+            self.widgets[name]=w
+            gp.addWidget(QLabel(label), r_bpop,0)
+            gp.addWidget(w, r_bpop,1)
+            r_bpop += 1
+
+        w = _spin_int(0,20000); w.setValue(self.params.get('bacteria_count',150)); add_pop("Quantidade inicial:",'bacteria_count',w)
+        w = _spin_int(0,10000); w.setValue(self.params.get('bacteria_min_limit',10)); add_pop("Mínimo:",'bacteria_min_limit',w)
+        w = _spin_int(0,50000); w.setValue(self.params.get('bacteria_max_limit',300)); add_pop("Máximo:",'bacteria_max_limit',w)
+        w = _spin_double(0.0,100000.0,1.0,1); w.setValue(self.params.get('bacteria_initial_energy',100.0)); add_pop("Energia inicial:",'bacteria_initial_energy',w)
+        w = _spin_double(0.0,10000.0,1.0,1); w.setValue(self.params.get('bacteria_death_energy',0.0)); add_pop("Energia morte:",'bacteria_death_energy',w)
+        w = _spin_double(0.0,200000.0,5.0,1); w.setValue(self.params.get('bacteria_split_energy',150.0)); add_pop("Energia dividir:",'bacteria_split_energy',w)
         # Metabolismo contínuo
-        w=_spin_double(0.0,1000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_v0_cost',0.5)); add_pop("Custo v=0 (s):",'bacteria_metab_v0_cost',w)
-        w=_spin_double(0.0,10000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_vmax_cost',8.0)); add_pop("Custo v=vmax (s):",'bacteria_metab_vmax_cost',w)
-        w=_spin_double(10.0,1000000.0,10.0,1); w.setValue(self.params.get('bacteria_energy_cap',400.0)); add_pop("Cap energia:",'bacteria_energy_cap',w)
+        w = _spin_double(0.0,1000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_v0_cost',0.5)); add_pop("Custo v=0 (s):",'bacteria_metab_v0_cost',w)
+        w = _spin_double(0.0,10000.0,0.01,2); w.setValue(self.params.get('bacteria_metab_vmax_cost',8.0)); add_pop("Custo v=vmax (s):",'bacteria_metab_vmax_cost',w)
+        w = _spin_double(10.0,1000000.0,10.0,1); w.setValue(self.params.get('bacteria_energy_cap',400.0)); add_pop("Cap energia:",'bacteria_energy_cap',w)
         v.addWidget(g_pop)
+
         # Corpo & Movimento
-        g_body = QGroupBox("Corpo & Movimento"); g_body.setStyleSheet(card_style); gb = QGridLayout(g_body); r_bbody=0
+        g_body = QGroupBox("Corpo & Movimento")
+        g_body.setStyleSheet(card_style)
+        gb = QGridLayout(g_body)
+        r_bbody = 0
         def add_body(label,name,w):
             nonlocal r_bbody
-            self.widgets[name]=w; gb.addWidget(QLabel(label), r_bbody,0); gb.addWidget(w,r_bbody,1); r_bbody+=1
-        w=_spin_double(1.0,500.0,0.5,1); w.setValue(self.params.get('bacteria_body_size',9.0)); add_body("Tamanho corpo (raio):",'bacteria_body_size',w)
-        w=_spin_double(1.0,5000.0,5.0,1); w.setValue(self.params.get('bacteria_vision_radius',120.0)); add_body("Raio visão:",'bacteria_vision_radius',w)
-        w=_spin_int(1,128); w.setValue(self.params.get('bacteria_retina_count',18)); add_body("Número de retinas:",'bacteria_retina_count',w)
-        w=_spin_double(1.0,360.0,1.0,1); w.setValue(self.params.get('bacteria_retina_fov_degrees',180.0)); add_body("Campo de visão (°):",'bacteria_retina_fov_degrees',w)
-        w=_spin_double(0.0,10000.0,10.0,1); w.setValue(self.params.get('bacteria_max_speed',300.0)); add_body("Velocidade máx:",'bacteria_max_speed',w)
-        w=_spin_double(1.0,5000.0,1.0,1); w.setValue(math.degrees(self.params.get('bacteria_max_turn', math.pi))); add_body("Rotação máx (°/s):",'bacteria_max_turn_deg',w)
+            self.widgets[name]=w
+            gb.addWidget(QLabel(label), r_bbody,0)
+            gb.addWidget(w, r_bbody,1)
+            r_bbody += 1
+
+        w = _spin_double(1.0,500.0,0.5,1); w.setValue(self.params.get('bacteria_body_size',9.0)); add_body("Tamanho corpo (raio):",'bacteria_body_size',w)
+        w = _spin_double(1.0,5000.0,5.0,1); w.setValue(self.params.get('bacteria_vision_radius',120.0)); add_body("Raio visão:",'bacteria_vision_radius',w)
+        w = _spin_int(1,128); w.setValue(self.params.get('bacteria_retina_count',18)); add_body("Número de retinas:",'bacteria_retina_count',w)
+        w = _spin_double(1.0,360.0,1.0,1); w.setValue(self.params.get('bacteria_retina_fov_degrees',180.0)); add_body("Campo de visão (°):",'bacteria_retina_fov_degrees',w)
+        w = _spin_double(0.0,10000.0,10.0,1); w.setValue(self.params.get('bacteria_max_speed',300.0)); add_body("Velocidade máx:",'bacteria_max_speed',w)
+        w = _spin_double(1.0,5000.0,1.0,1); w.setValue(math.degrees(self.params.get('bacteria_max_turn', math.pi))); add_body("Rotação máx (°/s):",'bacteria_max_turn_deg',w)
         v.addWidget(g_body)
+
+        # Color picker for bacteria body color
+        try:
+            bac_picker_box = QGroupBox("Cor das bactérias")
+            bac_picker_box.setStyleSheet(card_style)
+            bpc_layout = QHBoxLayout(bac_picker_box)
+            b_swatch = QLabel(); b_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_bacteria = b_swatch
+            bcol = self.params.get('bacteria_color', (220,220,220))
+            b_swatch.setStyleSheet(f"background: rgb({bcol[0]},{bcol[1]},{bcol[2]}); border:1px solid #333; border-radius:4px;")
+            btn_bac = QPushButton("Escolher cor das bactérias")
+            def _pick_bac_color():
+                col = QColorDialog.getColor(QColor(*bcol), self, "Escolha cor das bactérias")
+                if col.isValid():
+                    r,g,b = col.red(), col.green(), col.blue()
+                    b_swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                    try:
+                        self.params.set('bacteria_color', (r,g,b))
+                        if hasattr(self, 'engine') and self.engine is not None:
+                            for bact in self.engine.entities.get('bacteria', []):
+                                try: bact.color = (r,g,b)
+                                except Exception: pass
+                    except Exception:
+                        pass
+            btn_bac.clicked.connect(_pick_bac_color)
+            bpc_layout.addWidget(b_swatch); bpc_layout.addWidget(btn_bac)
+            v.addWidget(bac_picker_box)
+        except Exception:
+            pass
+
+        
+
         # Rede Neural & Mutação
         g_nn = QGroupBox("Rede Neural & Mutação"); g_nn.setStyleSheet(card_style); gn = QGridLayout(g_nn); r_bnn=0
         def add_nn(label,name,w):
@@ -369,20 +542,36 @@ class SimulationUI(QMainWindow):
 
     # ---------------------- Tab: Predator -----------------------------
     def _build_tab_predator(self):
-        tab = QWidget(); self.tabs.addTab(tab, "Predadores")
-        outer = QVBoxLayout(tab); outer.setContentsMargins(4,4,4,4); outer.setSpacing(6)
-        scroll = QScrollArea(); scroll.setWidgetResizable(True); outer.addWidget(scroll)
-        content = QWidget(); scroll.setWidget(content)
-        v = QVBoxLayout(content); v.setContentsMargins(2,2,2,20); v.setSpacing(18)
+        tab = QWidget()
+        self.tabs.addTab(tab, "Predadores")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4,4,4,4)
+        outer.setSpacing(6)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2,2,2,20)
+        v.setSpacing(18)
         card_style = (
             "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:28px; background:#1c1f24;} "
             "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left:12px; padding:3px 12px 4px 12px; border-radius:8px; background:#262b31; color:#cfe1f5; font-weight:600; font-size:12px;}"
         )
+
         # População & Energia
-        g_pop = QGroupBox("População & Energia"); g_pop.setStyleSheet(card_style); gp = QGridLayout(g_pop); r_ppop=0
+        g_pop = QGroupBox("População & Energia")
+        g_pop.setStyleSheet(card_style)
+        gp = QGridLayout(g_pop)
+        r_ppop = 0
         def add_pop(label,name,w):
             nonlocal r_ppop
-            self.widgets[name]=w; gp.addWidget(QLabel(label), r_ppop,0); gp.addWidget(w,r_ppop,1); r_ppop+=1
+            self.widgets[name]=w
+            gp.addWidget(QLabel(label), r_ppop,0)
+            gp.addWidget(w, r_ppop,1)
+            r_ppop += 1
+
         cb=QCheckBox(); cb.setChecked(self.params.get('predators_enabled',False)); add_pop("Habilitar predadores",'predators_enabled',cb)
         w=_spin_int(0,5000); w.setValue(self.params.get('predator_count',0)); add_pop("Quantidade inicial:",'predator_count',w)
         w=_spin_int(0,5000); w.setValue(self.params.get('predator_min_limit',0)); add_pop("Mínimo:",'predator_min_limit',w)
@@ -395,6 +584,39 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.0,20000.0,0.01,2); w.setValue(self.params.get('predator_metab_vmax_cost',15.0)); add_pop("Custo v=vmax (s):",'predator_metab_vmax_cost',w)
         w=_spin_double(10.0,1000000.0,10.0,1); w.setValue(self.params.get('predator_energy_cap',600.0)); add_pop("Cap energia:",'predator_energy_cap',w)
         v.addWidget(g_pop)
+
+        # Predator color selector
+        pred_color_box = QGroupBox("Cor dos predadores")
+        pred_color_box.setStyleSheet(card_style)
+        try:
+            pc_layout = QHBoxLayout(pred_color_box)
+            p_swatch = QLabel(); p_swatch.setFixedSize(36,36)
+            # keep reference for persistence updates
+            self._swatch_predator = p_swatch
+            pcol = self.params.get('predator_color', (80,120,220))
+            p_swatch.setStyleSheet(f"background: rgb({pcol[0]},{pcol[1]},{pcol[2]}); border:1px solid #333; border-radius:4px;")
+            btn_pred = QPushButton("Escolher cor dos predadores")
+            def _pick_pred_color():
+                col = QColorDialog.getColor(QColor(*pcol), self, "Escolha cor dos predadores")
+                if col.isValid():
+                    r,g,b = col.red(), col.green(), col.blue()
+                    p_swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                    try:
+                        self.params.set('predator_color', (r,g,b))
+                        if hasattr(self, 'engine') and self.engine is not None:
+                            for pred in self.engine.entities.get('predators', []):
+                                try: pred.color = (r,g,b)
+                                except Exception: pass
+                    except Exception:
+                        pass
+            btn_pred.clicked.connect(_pick_pred_color)
+            pc_layout.addWidget(p_swatch); pc_layout.addWidget(btn_pred)
+            v.addWidget(pred_color_box)
+        except Exception:
+            v.addWidget(pred_color_box)
+
+        
+
         # Corpo & Movimento
         g_body = QGroupBox("Corpo & Movimento"); g_body.setStyleSheet(card_style); gb=QGridLayout(g_body); r_pbody=0
         def add_body(label,name,w):
@@ -513,12 +735,14 @@ class SimulationUI(QMainWindow):
     # Live callbacks & embedding
     # ------------------------------------------------------------------
     def _setup_live_param_signals(self):
-        for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details']:
+        for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
                 w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
             elif isinstance(w, QCheckBox):
                 w.toggled.connect(lambda _v, n=name: self._update_param_real_time(n))
+            elif isinstance(w, QComboBox):
+                w.currentTextChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
         # brain activation toggle handled separately
 
     def _on_toggle_brain_activations(self, checked: bool):
@@ -558,7 +782,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','use_spatial','retina_skip','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
+        for name in ['time_scale','fps','paused','use_spatial','retina_skip','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -586,6 +810,7 @@ class SimulationUI(QMainWindow):
                 for entity in list(self.engine.agents) + list(self.engine.foods):
                     if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
                         entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
+            # color pickers already update params and propagate; nothing else to do here
             print("Parâmetros de substrato aplicados")
         except Exception as e:
             print(f"Erro apply substrate: {e}")
@@ -609,7 +834,8 @@ class SimulationUI(QMainWindow):
             nm = f'bacteria_neurons_layer_{i}'
             if nm in self.widgets:
                 self.params.set(nm, self._get_widget_value(nm))
-        print("Parâmetros de bactérias aplicados")
+    # color picker button handles bacteria color persistence/propagation
+    print("Parâmetros de bactérias aplicados")
 
     def apply_predator_params(self):
         for name in [
@@ -629,7 +855,8 @@ class SimulationUI(QMainWindow):
             nm = f'predator_neurons_layer_{i}'
             if nm in self.widgets:
                 self.params.set(nm, self._get_widget_value(nm))
-        print("Parâmetros de predadores aplicados")
+    # color picker button handles predator color persistence/propagation
+    print("Parâmetros de predadores aplicados")
 
     def apply_all_params(self):
         self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
@@ -660,6 +887,25 @@ class SimulationUI(QMainWindow):
             for name in sorted(self.widgets.keys()):
                 val = self._get_widget_value(name)
                 rows.append({'name': name, 'value': val})
+            # Ensure color params and substrate shape are saved too
+            try:
+                import json as _json
+                rows.append({'name': 'substrate_shape', 'value': self._get_widget_value('substrate_shape')})
+                rows.append({'name': 'substrate_bg_color', 'value': _json.dumps(list(self.params.get('substrate_bg_color', (10,10,20))))})
+                rows.append({'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))})
+                rows.append({'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))})
+                rows.append({'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))})
+                # Camera position/zoom
+                try:
+                    cam = getattr(self.engine, 'camera', None)
+                    if cam is not None:
+                        rows.append({'name': 'camera_x', 'value': cam.x})
+                        rows.append({'name': 'camera_y', 'value': cam.y})
+                        rows.append({'name': 'camera_zoom', 'value': cam.zoom})
+                except Exception:
+                    pass
+            except Exception:
+                pass
             with open(self._ui_params_csv,'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['name','value']); writer.writeheader(); writer.writerows(rows)
             print(f"Parâmetros UI salvos em {self._ui_params_csv}")
@@ -689,6 +935,89 @@ class SimulationUI(QMainWindow):
                                 self._set_widget_value(name, value)
                         except Exception:
                             pass
+                    # Additional: load saved color params or substrate shape even if not in widgets
+                    try:
+                        if name == 'substrate_bg_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('substrate_bg_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_substrate'):
+                                r,g,b = col[:3]; self._swatch_substrate.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                        if name == 'food_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('food_color', tuple(col), validate=False)
+                            if hasattr(self.engine, 'entities'):
+                                for food in self.engine.entities.get('foods', []):
+                                    try:
+                                        food.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'bacteria_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('bacteria_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_bacteria'):
+                                r,g,b = col[:3]; self._swatch_bacteria.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                            if hasattr(self.engine, 'entities'):
+                                for b in self.engine.entities.get('bacteria', []):
+                                    try:
+                                        b.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'predator_color':
+                            import json as _json
+                            col = _json.loads(value)
+                            self.params.set('predator_color', tuple(col), validate=False)
+                            if hasattr(self, '_swatch_predator'):
+                                r,g,b = col[:3]; self._swatch_predator.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                            if hasattr(self.engine, 'entities'):
+                                for p in self.engine.entities.get('predators', []):
+                                    try:
+                                        p.color = tuple(col)
+                                    except Exception:
+                                        pass
+                        if name == 'substrate_shape':
+                            # shape stored as plain string
+                            self.params.set('substrate_shape', value, validate=False)
+                            # update combo box widget if exists
+                            if 'substrate_shape' in self.widgets:
+                                try:
+                                    w = self.widgets['substrate_shape']; idx = w.findText(value)
+                                    if idx>=0: w.setCurrentIndex(idx)
+                                except Exception:
+                                    pass
+                            # Apply to engine.world if available
+                            try:
+                                if hasattr(self, 'engine') and getattr(self.engine, 'world', None) is not None:
+                                    world = self.engine.world
+                                    # keep same radius/width/height from params
+                                    world.configure(value, self.params.get('substrate_radius', world.radius), self.params.get('world_w', world.width), self.params.get('world_h', world.height))
+                            except Exception:
+                                pass
+                        if name == 'camera_x':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.x = float(value)
+                            except Exception:
+                                pass
+                        if name == 'camera_y':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.y = float(value)
+                            except Exception:
+                                pass
+                        if name == 'camera_zoom':
+                            try:
+                                cam = getattr(self.engine, 'camera', None)
+                                if cam is not None:
+                                    cam.zoom = max(0.01, float(value))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
             # schedule auto export if active
             if self._get_widget_value('auto_export_substrate'):
                 self._schedule_next_auto_export(initial=True)
@@ -731,6 +1060,13 @@ class SimulationUI(QMainWindow):
         add('type', 'predator' if getattr(agent,'is_predator', False) else 'bacteria')
         for attr in ['x','y','r','angle','vx','vy','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
+        # Cor do agente (RGB tuple) - exportada em JSON para compatibilidade
+        try:
+            col = getattr(agent, 'color', None)
+            if col is not None:
+                add('color', json.dumps(list(col)))
+        except Exception:
+            pass
         if brain is not None and hasattr(brain,'sizes'):
             add('brain_sizes', json.dumps(brain.sizes)); add('brain_version', getattr(brain,'version',0))
             for idx,(W,B) in enumerate(zip(brain.weights, brain.biases)):
