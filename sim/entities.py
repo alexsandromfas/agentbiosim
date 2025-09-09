@@ -425,8 +425,13 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
     locomotion = _create_bacteria_locomotion(params)
     energy = _create_bacteria_energy_model(params)
     
-    # Cria bactéria com massa inicial customizável
+    # Cria bactéria com cor baseada em parâmetros e massa inicial customizável
     bacterium = Bacteria(x, y, params.get('bacteria_body_size', r), brain, sensor, locomotion, energy)
+    # Override color from params if provided
+    try:
+        bacterium.color = tuple(params.get('bacteria_color', bacterium.color))
+    except Exception:
+        pass
     bacterium.energy = params.get('bacteria_initial_energy', 100.0)
     
     return bacterium
@@ -486,8 +491,12 @@ def create_random_predator(existing_entities: list, params: 'Params',
     locomotion = _create_predator_locomotion(params)
     energy = _create_predator_energy_model(params)
     
-    # Cria predador com massa inicial customizável
+    # Cria predador com cor baseada em parâmetros e massa inicial customizável
     predator = Predator(x, y, params.get('predator_body_size', r), brain, sensor, locomotion, energy)
+    try:
+        predator.color = tuple(params.get('predator_color', predator.color))
+    except Exception:
+        pass
     predator.energy = params.get('predator_initial_energy', 100.0)
     
     return predator
@@ -536,7 +545,12 @@ def create_random_food(existing_food: list, params: 'Params',
             x = random.uniform(r, world_w - r)
             y = random.uniform(r, world_h - r)
     
-    return Food(x, y, r)
+    food = Food(x, y, r)
+    try:
+        food.color = tuple(params.get('food_color', food.color))
+    except Exception:
+        pass
+    return food
 
 
 # Helper functions para criar componentes

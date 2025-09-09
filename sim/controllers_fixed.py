@@ -326,7 +326,12 @@ class FoodController:
                         break
             
             if not overlaps:
-                return Food(x, y, r)
+                f = Food(x, y, r)
+                try:
+                    f.color = tuple(params.get('food_color', f.color))
+                except Exception:
+                    pass
+                return f
         
         # Se não encontrou posição válida, retorna None
         return None

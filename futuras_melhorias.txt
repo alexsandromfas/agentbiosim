@@ -4,6 +4,8 @@ Melhorias futuras
 
 - Mutação por reprodução sexual
 - novo tipo de comida, que leva mais tempo para comer.
+ - seletor de cores.
+ - novo tipo de comida, que leva mais tempo para comer.
 - obstáculos que podem ser desenhados.
 - Tentar simular a proximidade por parentescos
 - Criar a comunicação por cores
