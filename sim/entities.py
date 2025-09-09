@@ -228,8 +228,10 @@ class Agent(Entity):
         child_energy_model = self._create_child_energy_model(params)
 
         # Instância filho
+        # Child should inherit parent's color; pass color explicitly as the
+        # fourth argument (Agent.__init__ expects color before brain).
         child = self.__class__(
-            child_x, child_y, self.r,
+            child_x, child_y, self.r, self.color,
             child_brain, child_sensor, child_locomotion, child_energy_model,
             child_angle
         )
