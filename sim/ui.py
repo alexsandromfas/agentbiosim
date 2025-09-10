@@ -950,7 +950,8 @@ class SimulationUI(QMainWindow):
                             if hasattr(self.engine, 'entities'):
                                 for food in self.engine.entities.get('foods', []):
                                     try:
-                                        food.color = tuple(col)
+                                        if getattr(food, 'color', None) is None:
+                                            food.color = tuple(col)
                                     except Exception:
                                         pass
                         if name == 'bacteria_color':
@@ -962,7 +963,8 @@ class SimulationUI(QMainWindow):
                             if hasattr(self.engine, 'entities'):
                                 for b in self.engine.entities.get('bacteria', []):
                                     try:
-                                        b.color = tuple(col)
+                                        if getattr(b, 'color', None) is None:
+                                            b.color = tuple(col)
                                     except Exception:
                                         pass
                         if name == 'predator_color':
@@ -974,7 +976,8 @@ class SimulationUI(QMainWindow):
                             if hasattr(self.engine, 'entities'):
                                 for p in self.engine.entities.get('predators', []):
                                     try:
-                                        p.color = tuple(col)
+                                        if getattr(p, 'color', None) is None:
+                                            p.color = tuple(col)
                                     except Exception:
                                         pass
                         if name == 'substrate_shape':

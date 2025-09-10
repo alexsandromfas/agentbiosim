@@ -25,13 +25,13 @@ bacteria_retina_count,18
 bacteria_retina_fov_degrees,180.0
 bacteria_retina_see_bacteria,False
 bacteria_retina_see_food,True
-<<<<<<< HEAD
-bacteria_retina_see_predators,False
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
 bacteria_retina_see_predators,True
 bacteria_show_vision,True
+bacteria_split_energy,150.0
+bacteria_vision_radius,120.0
+enable_brain_activations,True
+food_max_r,5.0
+food_min_r,4.5
 food_replenish_interval,0.1
 food_target,1000
 fps,60
@@ -101,7 +101,7 @@ test_param_6,6.0
 test_param_7,7
 test_param_8,8
 test_param_9,9.0
-time_scale,5.0
+time_scale,1.0
 use_spatial,True
 world_h,20000.0
 world_w,20000.0
@@ -110,6 +110,6 @@ substrate_bg_color,"[18, 7, 53]"
 food_color,"[50, 100, 0]"
 bacteria_color,"[173, 115, 0]"
 predator_color,"[154, 0, 0]"
-camera_x,-7589.500398030258
-camera_y,-4240.082296691514
-camera_zoom,0.0391425130122053
+camera_x,-1278.6742990950686
+camera_y,-933.7046633143875
+camera_zoom,0.2896643797366976

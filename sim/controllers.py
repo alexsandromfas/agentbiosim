@@ -138,6 +138,8 @@ class Params:
 
             # UI/Debug
             'show_selected_details': True,
+            # Debug toggles
+            'debug_reproduction_color': False,
             # Colors (RGB tuples)
             'substrate_bg_color': (10, 10, 20),
             'food_color': (220, 30, 30),

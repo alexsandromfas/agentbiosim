@@ -228,23 +228,40 @@ class Agent(Entity):
         child_energy_model = self._create_child_energy_model(params)
 
         # Instância filho
-        # Child should inherit parent's color; pass color explicitly as the
-        # fourth argument (Agent.__init__ expects color before brain).
-        child = self.__class__(
-            child_x, child_y, self.r, self.color,
-            child_brain, child_sensor, child_locomotion, child_energy_model,
-            child_angle
-        )
+        # Use explicit subclass constructors to avoid positional-argument mismatches
+        # for subclasses that may define a different __init__ signature.
+        if isinstance(self, Bacteria):
+            # pass parent's color explicitly to avoid any race or override
+            child = Bacteria(
+                child_x, child_y, self.r,
+                child_brain, child_sensor, child_locomotion, child_energy_model,
+                child_angle,
+                color=getattr(self, 'color', None)
+            )
+        elif isinstance(self, Predator):
+            child = Predator(
+                child_x, child_y, self.r,
+                child_brain, child_sensor, child_locomotion, child_energy_model,
+                child_angle,
+                color=getattr(self, 'color', None)
+            )
+        else:
+            child = self.__class__(
+                child_x, child_y, self.r, self.color,
+                child_brain, child_sensor, child_locomotion, child_energy_model,
+                child_angle
+            )
         child.energy = child_energy_value
         child.vx = math.cos(child_angle) * child_speed
         child.vy = math.sin(child_angle) * child_speed
-        # Ensure child inherits parent's color (fix: children were using default type colors)
-        try:
-            child.color = self.color
-        except Exception:
-            # defensive: if the child doesn't have a color attribute for some reason,
-            # ignore to avoid breaking reproduction.
-            pass
+        # Ensure child inherits parent's color (fallback) and optionally debug
+        if getattr(self, 'color', None) is not None:
+            try:
+                child.color = getattr(self, 'color')
+            except Exception:
+                pass
+        if params.get('debug_reproduction_color', False):
+            print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
         return child
     
     def draw(self, renderer):
@@ -282,8 +299,9 @@ class Bacteria(Agent):
 
     def __init__(self, x: float, y: float, r: float, brain: 'IBrain',
                  sensor: 'RetinaSensor', locomotion: 'Locomotion',
-                 energy_model: 'EnergyModel', angle: Optional[float] = None):
-        color = (220, 220, 220)
+                 energy_model: 'EnergyModel', angle: Optional[float] = None, color: Optional[tuple] = None):
+        # allow passing color as optional kwarg; default remains the type default
+        color = (220, 220, 220) if color is None else color
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy_model, angle)
         self.is_predator = False
         self.type_code = 1
@@ -333,8 +351,9 @@ class Predator(Agent):
 
     def __init__(self, x: float, y: float, r: float, brain: 'IBrain',
                  sensor: 'RetinaSensor', locomotion: 'Locomotion',
-                 energy_model: 'EnergyModel', angle: Optional[float] = None):
-        color = (80, 120, 220)
+                 energy_model: 'EnergyModel', angle: Optional[float] = None, color: Optional[tuple] = None):
+        # allow passing color as optional kwarg; default remains the type default
+        color = (80, 120, 220) if color is None else color
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy_model, angle)
         self.is_predator = True
         self.type_code = 2
