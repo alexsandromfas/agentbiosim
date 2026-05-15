@@ -25,9 +25,9 @@ class InteractionSystem:
         self._foods_to_remove: Set['Food'] = set()
         self._agents_to_remove: Set['Agent'] = set()
     
-    def apply(self, bacteria: List['Bacteria'], predators: List['Predator'], 
-              foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params'):
-        """Aplica interações por um frame."""
+    def apply(self, bacteria: List['Bacteria'], predators: List['Predator'],
+              foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params') -> Set['Agent']:
+        """Aplica interações por um frame e retorna agentes removidos."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
 
@@ -43,6 +43,7 @@ class InteractionSystem:
 
         # Remove bactérias predadas
         bacteria[:] = [b for b in bacteria if b not in self._agents_to_remove]
+        return set(self._agents_to_remove)
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
                           spatial_hash: 'SpatialHash', params: 'Params'):

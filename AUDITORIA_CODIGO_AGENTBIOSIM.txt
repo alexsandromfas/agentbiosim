@@ -1,0 +1,710 @@
+AUDITORIA DO CODIGO - AGENTBIOSIM
+Data: 2026-05-15
+
+Escopo:
+- Revisao estatica dos modulos principais em sim/, main.py, tests/ e arquivos de configuracao.
+- Verificacao sintatica com: python -m compileall -q .
+- Tentativa de executar scripts de teste existentes.
+
+Resultado rapido:
+- O projeto compila sintaticamente.
+- A arquitetura geral esta separada em Engine, entidades, sensores, sistemas, UI e render, o que e uma boa base.
+- Existem problemas de corretude que podem invalidar resultados de simulacao antes de qualquer otimizacao.
+- A prioridade deve ser corrigir consistencia de estado, cache neural, snapshots e testes.
+
+
+===============================================================================
+PRIORIDADE P0 - BUGS QUE AFETAM A VALIDADE DA SIMULACAO
+===============================================================================
+
+1. Spatial hash e montado antes dos agentes se moverem
+Evidencia:
+- sim/engine.py:359 inicia _simulate_substep
+- sim/engine.py:362 chama _update_spatial_hash()
+- sim/engine.py:371-381 atualiza agentes e move posicoes
+- sim/engine.py:384 usa interaction_system com o spatial_hash antigo
+- sim/engine.py:411 usa collision_system com o spatial_hash antigo
+
+Impacto:
+- Comer, predar e colidir usam posicoes antigas.
+- Comidas adicionadas pelo FoodController depois do hash nao entram no hash ate o proximo substep.
+- Isso gera misses/falsos positivos de interacao e colisao, principalmente com velocidades altas.
+
+Acao recomendada:
+- Atualizar o spatial hash depois do movimento, antes de interacao e colisao.
+- Alternativa melhor: manter hash incremental e atualizar celulas quando cada agente se move.
+- Se comida for criada no mesmo substep, inserir no hash ou reconstruir hash depois do FoodController.
+
+
+2. Bacterias predadas continuam em all_agents ate o fim do substep e podem reproduzir
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Evidencia:
+- sim/systems.py:43-45 remove bacterias predadas da lista bacteria.
+- sim/engine.py:390 chama reproduction_system.apply(self.all_agents, ...) depois da predacao.
+- self.all_agents so e reconstruida em sim/engine.py:407, depois da reproducao.
+
+Impacto:
+- Uma bacteria ja comida ainda pode reproduzir no mesmo substep.
+- Isso cria descendentes de agentes mortos e distorce selecao/evolucao.
+
+Acao recomendada:
+- Depois de InteractionSystem.apply, remover imediatamente agentes predados de all_agents.
+- Melhor: InteractionSystem retornar listas/sets de removidos e o Engine centralizar a remocao.
+
+
+3. Bacteria adicionada manualmente nao entra em all_agents
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Evidencia:
+- sim/engine.py:326 define add_bacteria_at.
+- sim/engine.py:333 adiciona em entities['bacteria'].
+- Nao ha self.all_agents.append(bacterium) nesse metodo.
+
+Impacto:
+- A bacteria aparece no render, mas nao e atualizada pelo batch update.
+- Ela nao se move, nao gasta energia, nao reproduz, nao morre corretamente e nao e selecionavel por get_agent_at_position.
+
+Acao recomendada:
+- Adicionar self.all_agents.append(bacterium).
+- Criar testes de invariantes: toda bacteria/predador em entities deve estar em all_agents.
+
+
+4. Cache do batch neural pode reutilizar pesos errados
+Evidencia:
+- sim/brain.py:439 usa cache_key = (sizes_key, versions_key).
+- A chave nao inclui identidade dos cerebros nem hash dos pesos.
+- Engine.start limpa cache em sim/engine.py:121-126, mas reset/import/spawn nao garantem limpeza.
+- Importacao de substrato nao restaura brain.version em sim/ui.py:1342.
+
+Impacto:
+- Dois grupos com mesma arquitetura e mesma sequencia de version podem receber stacks de pesos antigos.
+- Resetar a populacao com mesmo tamanho pode manter cache da populacao anterior.
+- Agentes adicionados/importados com version 0 podem usar saidas de outros cerebros.
+- Isso e critico: comportamento neural pode nao corresponder ao genoma real.
+
+Acao recomendada:
+- Trocar chave para incluir id(brain) e brain.version por agente, por exemplo tuple((id(b), b.version) for b in brains).
+- Limpar cache em reset_population, import_substrate, spawn_loaded_agent e mudancas estruturais.
+- Restaurar brain.version nos imports.
+- Considerar desabilitar cache ate ter teste de equivalencia forte.
+
+
+5. Export/import de substrato nao e snapshot completo
+Evidencia:
+- Export salva apenas contagem de comida em sim/ui.py:1294.
+- Import recria comida aleatoria em sim/ui.py:1327-1329.
+- Export de agentes do substrato nao salva cor do agente.
+- Import em sim/ui.py:1342 carrega pesos/biases, mas nao restaura brain_version.
+
+Impacto:
+- Um substrato importado nao reproduz o estado exportado.
+- Posicoes, raios, energia e cores de comidas se perdem.
+- Experimentos longos nao sao reprodutiveis a partir do snapshot.
+
+Acao recomendada:
+- Exportar lista completa de foods: x, y, r, energy, color.
+- Importar exatamente essa lista.
+- Exportar/importar cor dos agentes, brain_version e qualquer estado dinamico relevante.
+- Criar teste round-trip: exportar, importar e comparar contagens, posicoes e pesos.
+
+
+6. Engine.start sempre reinicializa a populacao
+Evidencia:
+- sim/engine.py:116 define start.
+- sim/engine.py:129 chama _initialize_population().
+- sim/ui.py:874-878 chama engine.start() quando usuario clica Iniciar.
+- sim/ui.py:1304 importa substrato, mas se isso ocorrer antes de start, start apaga o substrato importado.
+
+Impacto:
+- Usuario pode importar um substrato antes de iniciar e perder tudo ao clicar Iniciar.
+
+Acao recomendada:
+- Separar start() de initialize_population().
+- start() deve apenas ativar running.
+- Criar comando explicito "nova populacao" ou "reset".
+
+
+7. Tempo fisico e tempo contabilizado podem divergir
+Evidencia:
+- sim/engine.py:149 calcula world_dt.
+- sim/engine.py:152 so simula se nao estiver pausado.
+- sim/engine.py:156 soma total_simulation_time mesmo pausado.
+- sim/engine.py:344-353 usa round(world_dt / physics_dt) e step_dt=physics_dt em muitos casos.
+
+Impacto:
+- total_simulation_time cresce durante pausa.
+- Para dt que nao e multiplo de 1/60, a simulacao pode andar menos ou mais que world_dt.
+- Isso prejudica reprodutibilidade e analise temporal.
+
+Acao recomendada:
+- Somar total_simulation_time apenas pelo tempo realmente simulado.
+- Usar acumulador fixed timestep classico ou dividir world_dt por steps quando nao usar acumulador.
+
+
+8. Fallback Tkinter documentado nao existe
+Evidencia:
+- main.py:24 tenta importar sim.ui_tk.
+- Test-Path sim/ui_tk.py retorna False.
+- README diz que ha fallback Tkinter.
+
+Impacto:
+- Se PyQt6 falhar, o app nao tem fallback real.
+- main.py captura qualquer Exception ao importar sim.ui; bugs reais de UI podem ser mascarados como UI indisponivel.
+
+Acao recomendada:
+- Remover fallback Tk da documentacao e do codigo, ou restaurar sim/ui_tk.py.
+- Trocar except Exception por excecoes especificas quando possivel e logar traceback em modo debug.
+
+
+9. apply_substrate_params referencia atributos inexistentes
+Evidencia:
+- sim/ui.py:797 define apply_substrate_params.
+- sim/ui.py:810 usa self.engine.agents e self.engine.foods, que nao existem.
+
+Impacto:
+- Ao aplicar substrato circular, o clamp dos objetos falha e cai no except.
+- Parte da aplicacao de parametros fica silenciosamente quebrada.
+
+Acao recomendada:
+- Usar self.engine.all_agents e self.engine.entities['foods'].
+- Remover except amplo ou exibir erro com contexto.
+
+
+10. Parametros de mostrar visao nao sao usados no render
+Evidencia:
+- sim/ui.py:528 e 652 criam controles bacteria_show_vision e predator_show_vision.
+- sim/game.py:201-204 tecla V alterna bacteria_show_vision.
+- sim/engine.py:289 e 294 chama draw_agent(... show_vision=False) sempre.
+- sim/render.py:76 e 254 so desenha visao se show_vision ou selected.
+
+Impacto:
+- O controle da UI e a tecla V nao fazem o que prometem, exceto visao do agente selecionado.
+
+Acao recomendada:
+- Passar show_vision=self.params.get('predator_show_vision') e show_vision=self.params.get('bacteria_show_vision').
+
+
+11. Mutacao estrutural da rede pode quebrar com ndarray
+Evidencia:
+- sim/brain.py:203 mutate.
+- sim/brain.py:262 _resize_layer.
+- sim/brain.py:307 faz old_biases.append(0.0), mas old_biases normalmente e np.ndarray.
+
+Impacto:
+- Se structural_jitter > 0 e a mutacao estrutural for acionada, a reproducao pode falhar.
+- O erro e capturado em sim/systems.py:166-168 e apenas impresso, perdendo reproducoes.
+
+Acao recomendada:
+- Reescrever _resize_layer usando arrays numpy do inicio ao fim.
+- Adicionar teste com structural_jitter=1.
+
+
+12. Exportacao de agente ignora caminho escolhido e duplica sufixo
+Evidencia:
+- sim/ui.py:1045 chama _export_selected_agent com basename.
+- sim/ui.py:1053 sempre salva em agents_dir com filename = f"{name}.agent.csv".
+- Arquivos existentes em agents/ incluem nomes como vermelho.agent.agent.csv.
+
+Impacto:
+- A UI informa que salvou no caminho escolhido, mas o arquivo e gravado na pasta agents/.
+- Se o usuario escolhe nome ja terminado em .agent.csv, vira .agent.agent.csv.
+
+Acao recomendada:
+- _export_selected_agent deve receber path completo.
+- Normalizar sufixo uma unica vez.
+
+
+===============================================================================
+PRIORIDADE P1 - PROBLEMAS CONCEITUAIS / MODELO CIENTIFICO
+===============================================================================
+
+13. O "genoma" atual e basicamente so a rede neural
+Evidencia:
+- sim/entities.py:207 reproduce.
+- sim/entities.py:219 muta child_brain.
+- sim/entities.py:226-228 cria sensor, locomotion e energy_model novos a partir de Params.
+
+Impacto:
+- Morfologia, metabolismo, sensor, velocidade, tamanho e cor nao sao herdados/mutados de forma biologica.
+- Mudancas globais de UI afetam descendentes como se fossem ambiente, nao genes.
+- Agentes importados com parametros especiais perdem parte desses parametros nos filhos.
+
+Acao recomendada:
+- Criar estrutura Genome explicita contendo brain, sensor, locomotion, metabolismo, cor/tamanho.
+- Reproducao deve copiar e mutar o Genome, depois construir o fenotipo.
+
+
+14. Cap de energia e aplicado antes de comer, nao depois
+Evidencia:
+- sim/actuators.py:150-153 aplica cap no EnergyModel.apply.
+- sim/systems.py:73 soma food.energy diretamente.
+- sim/systems.py:109 soma energia de presa diretamente.
+- Reproducao ocorre depois da interacao em sim/engine.py:390.
+
+Impacto:
+- Agente pode ultrapassar energy_cap ao comer e reproduzir no mesmo substep acima do limite.
+
+Acao recomendada:
+- Centralizar ganho de energia em Agent.add_energy com cap.
+- Aplicar cap depois de interacoes e antes de reproducao.
+
+
+15. Limite minimo de populacao cria imortalidade artificial
+Evidencia:
+- sim/systems.py:217 _process_deaths.
+- Quando current_count <= min_limit, agentes candidatos a morte recebem death_energy + 0.001.
+
+Impacto:
+- A selecao natural e alterada: agentes ruins sao mantidos vivos por regra externa.
+- Pode ser util para UI, mas deve ser opcional e claramente separado de experimentos biologicos.
+
+Acao recomendada:
+- Ter modo "experimental estrito" sem resgate.
+- Se quiser preservar populacao minima, criar novos individuos aleatorios em vez de ressuscitar os existentes.
+
+
+16. Locomocao nao usa inercia e nao permite re
+Evidencia:
+- sim/actuators.py:49-58 define velocidade instantanea a partir da saida neural.
+- sim/controllers.py:137 define agents_inertia.
+- sim/ui.py:248-249 expoe agents_inertia.
+- Nenhum sistema usa agents_inertia.
+
+Impacto:
+- O comportamento fisico e mais "controle arcade" do que dinamica organica.
+- UI tem parametro sem efeito.
+- Agentes nao conseguem andar para tras porque velocidade passa por sigmoid 0..1.
+
+Acao recomendada:
+- Ou remover agents_inertia da UI, ou implementar aceleracao/inercia real.
+- Se biologicamente desejado, permitir velocidade assinada via tanh.
+
+
+17. Sensor retina tem dois modelos com semanticas diferentes
+Evidencia:
+- sim/sensors.py:61 SceneQuery.raycast faz raycast geometrico.
+- sim/sensors.py:492-509 modo single no batch usa centro do objeto e mapeia para um raio.
+- sim/sensors.py:511-549 modo fullbody faz intersecao raio-circulo.
+
+Impacto:
+- O modo single nao e equivalente ao raycast classico; ele aproxima objetos por centro.
+- Isso pode alterar evolucao: agentes aprendem sobre um sensor diferente do esperado.
+
+Acao recomendada:
+- Definir formalmente o sensor.
+- Se single for aproximacao proposital, documentar como tal e testar.
+- Para ciencia, preferir fullbody ou outra percepcao matematicamente definida.
+
+
+18. retina_skip nao e atualizado dinamicamente em sensores existentes
+Evidencia:
+- sim/ui.py:230-231 expoe retina_skip.
+- sim/sensors.py atualiza count, fov, radius e filtros, mas nao atualiza self.skip a partir de params.
+- sim/sensors.py:280 e varios outros pontos usam self.skip antigo.
+
+Impacto:
+- Alterar retina_skip na UI afeta apenas sensores criados depois, nao a populacao existente.
+
+Acao recomendada:
+- Atualizar desired_skip junto com os demais parametros dinamicos.
+
+
+19. Criacao inicial valida overlap com raio diferente do raio final
+Evidencia:
+- sim/entities.py:410 escolhe min/max radius de bacteria para posicionar.
+- sim/entities.py:457 cria Bacteria com bacteria_body_size.
+- sim/entities.py:476 e 523 fazem o mesmo para predadores.
+
+Impacto:
+- Se body_size for maior que max_r, agentes podem nascer sobrepostos ou fora do substrato circular.
+- ui_params.csv atual usa predator_body_size=30.0, acima do predator_max_r default 18.0.
+
+Acao recomendada:
+- Usar o raio final de corpo na validacao de spawn.
+- Remover min_r/max_r se tamanho fixo for a regra atual.
+
+
+20. Falta determinismo experimental
+Evidencia:
+- Uso direto de random e np.random em factories e brain.
+- Nao ha parametro seed global no Engine/Params.
+
+Impacto:
+- Experimentos nao sao reproduziveis.
+- Fica dificil comparar otimizacoes e mudancas biologicas.
+
+Acao recomendada:
+- Adicionar seed em Params e RNGs injetados.
+- Salvar seed e estado RNG no snapshot.
+
+
+21. FoodController so adiciona comida, nao reduz excesso
+Evidencia:
+- sim/controllers.py:301-322 calcula divida e adiciona comida quando falta.
+- Nao ha remocao quando current_count > target_count.
+
+Impacto:
+- Reduzir food_target pela UI nao converge rapidamente ao novo alvo.
+
+Acao recomendada:
+- Se target deve ser controle real, remover excesso gradualmente.
+- Se target e apenas reposicao minima, renomear/documentar.
+
+
+22. Reproducao pode ocorrer em todo substep sem cooldown
+Evidencia:
+- sim/systems.py:123-174 percorre agentes e reproduz se energy >= split_energy.
+- sim/actuators.py:164-165 divide energia ao meio.
+
+Impacto:
+- Com energia abundante, populacoes podem explodir por regra numerica.
+- Nao ha idade minima, cooldown ou custo extra de reproducao.
+
+Acao recomendada:
+- Adicionar cooldown/idade minima opcional.
+- Registrar eventos de nascimento para auditar explosoes populacionais.
+
+
+===============================================================================
+PRIORIDADE P1 - PERFORMANCE E ESCALA
+===============================================================================
+
+23. Mutacao de pesos usa loops Python por escalar
+Evidencia:
+- sim/brain.py:211-222 percorre camada, neuronio e peso.
+
+Impacto:
+- Reproducao fica cara com muitas redes/agentes.
+
+Acao recomendada:
+- Usar numpy: mask = rng.random(W.shape) < rate; W += mask * rng.normal(...).
+
+
+24. Retina batch ainda aloca muitos arrays por agente
+Evidencia:
+- sim/sensors.py:394-556 cria arrays de candidatos para cada agente.
+- Modo fullbody cria matriz R x M por agente.
+
+Impacto:
+- Pode ficar pesado com muitos agentes e muitos objetos no raio.
+
+Acao recomendada:
+- Precomputar raios relativos.
+- Reduzir candidatos com traversal de grid ou query por cone/celulas.
+- Avaliar Numba para hot loop ou campo de densidade em grid.
+
+
+25. SpatialHash e reconstruido todo substep
+Evidencia:
+- sim/engine.py:413-462 limpa/reinsere todas entidades.
+
+Impacto:
+- Custo O(n) por substep mesmo quando poucos agentes mudam de celula.
+
+Acao recomendada:
+- Guardar celulas ocupadas por objeto e atualizar incrementalmente.
+- Como passo intermediario, manter rebuild, mas corrigir a ordem apos movimento.
+
+
+26. InteractionSystem faz contagens repetidas dentro de loops
+Evidencia:
+- sim/systems.py:96 e 111 usam len([a for a in self._agents_to_remove ...]).
+
+Impacto:
+- Custo extra em predacao com muitos predadores.
+
+Acao recomendada:
+- Manter contador removed_bacteria_count.
+
+
+27. ReproductionSystem recalcula contagens e listas auxiliares
+Evidencia:
+- sim/systems.py:136-138 soma populacoes.
+- sim/systems.py:153 e 156 usam list comprehension em new_agents repetidamente.
+
+Impacto:
+- Custo cresce com populacao e numero de novos agentes.
+
+Acao recomendada:
+- Manter counters incrementais bacteria_new_count e predator_new_count.
+
+
+28. Render detalhado cria Surface e rotaciona por agente a cada frame
+Evidencia:
+- sim/render.py:232 cria pygame.Surface para cada agente.
+- sim/render.py:237 chama pygame.transform.rotate.
+- sim/render.py:265 e 270 criam SimpleRenderer novo para overlay/raios.
+
+Impacto:
+- Muito caro para populacoes grandes.
+
+Acao recomendada:
+- Cachear sprites por cor/tamanho/zoom aproximado ou preferir SimpleRenderer em massa.
+- Reutilizar um SimpleRenderer interno, nao criar a cada chamada.
+
+
+29. Muitos params.get em hot loops
+Evidencia:
+- Sensores, EnergyModel e sistemas leem Params repetidamente por agente/frame.
+
+Impacto:
+- Overhead de dicionario em escala alta.
+
+Acao recomendada:
+- Criar snapshot/cache de parametros por frame ou por tipo.
+- Atualizar apenas quando UI marcar dirty.
+
+
+30. Objetos Python por agente limitam escala
+Evidencia:
+- O projeto ja usa __slots__, mas ainda opera como AoS orientado a objetos.
+
+Impacto:
+- Para dezenas de milhares de agentes, atributos Python e listas viram gargalo.
+
+Acao recomendada:
+- Caminho medio prazo: backend SoA com arrays numpy para x, y, vx, vy, angle, energy, radius, type.
+- Manter OO para UI/debug e usar backend vetorizado para experimentos.
+
+
+31. Export completo pode ficar muito pesado
+Evidencia:
+- sim/ui.py:1237-1288 exporta pesos e pode recalcular activations de todos os agentes.
+
+Impacto:
+- Snapshots grandes podem travar a UI e consumir muita memoria.
+
+Acao recomendada:
+- Tornar activations opcionais no snapshot.
+- Salvar JSON com indent opcional apenas em modo humano; usar formato compacto ou comprimido para autosave.
+
+
+===============================================================================
+PRIORIDADE P1 - UI, THREADS E PERSISTENCIA
+===============================================================================
+
+32. UI e Pygame acessam Engine sem sincronizacao suficiente
+Evidencia:
+- sim/ui.py:776 cria thread para pygame_view.run.
+- sim/game.py:138-144 acessa engine diretamente para selecionar/agregar comida.
+- sim/ui.py:1192-1304 exporta/importa lendo e alterando entities/all_agents.
+
+Impacto:
+- Export/import podem ocorrer enquanto a thread de simulacao esta no meio de um step.
+- Pausar via parametro reduz risco, mas nao e lock atomico.
+
+Acao recomendada:
+- Todas as mutacoes do estado do Engine devem passar por command_queue.
+- Para export/import, usar lock do Engine ou pausar e aguardar confirmacao de frame parado.
+
+
+33. ui_params.csv e estado runtime dentro do pacote sim
+Evidencia:
+- sim/ui.py:69 salva em sim/ui_params.csv.
+- sim/ui_params.csv contem configuracoes locais, test_param_* e chaves duplicadas.
+
+Impacto:
+- Rodar a UI modifica arquivo dentro do codigo fonte.
+- Isso suja o repositorio e mistura configuracao local com codigo.
+
+Acao recomendada:
+- Mover para config/user_params.csv ou pasta fora do pacote.
+- Remover test_param_* do persist.
+- Evitar chaves duplicadas como substrate_shape.
+
+
+34. Prints de aplicacao de parametros estao no corpo da classe, nao nos metodos
+Evidencia:
+- sim/ui.py:838 print("Parametros de bacterias aplicados")
+- sim/ui.py:859 print("Parametros de predadores aplicados")
+
+Impacto:
+- Esses prints rodam no import da classe, nao ao aplicar parametros.
+- E ruido e indica indentacao incorreta.
+
+Acao recomendada:
+- Indentar os prints para dentro dos metodos ou remover/logar adequadamente.
+
+
+35. Excecoes amplas escondem falhas reais
+Evidencia:
+- Varios except Exception em sim/ui.py, sim/engine.py e main.py.
+
+Impacto:
+- Bugs importantes viram comportamento silencioso.
+- Fica dificil depurar estado corrompido.
+
+Acao recomendada:
+- Trocar por excecoes especificas onde possivel.
+- Em operacoes de UI, mostrar erro com traceback resumido em modo debug.
+
+
+===============================================================================
+PRIORIDADE P2 - TESTES, HIGIENE E ORGANIZACAO
+===============================================================================
+
+36. Testes existentes sao scripts soltos, nao uma suite confiavel
+Evidencia:
+- tests/*.py sao executaveis manuais.
+- Nao ha pytest em requirements.txt.
+
+Impacto:
+- Regressao de comportamento nao e detectada automaticamente.
+
+Acao recomendada:
+- Padronizar pytest.
+- Criar testes unitarios para Brain, Sensors, Systems, Engine invariants, export/import.
+
+
+37. Alguns testes nao rodam diretamente
+Verificacao realizada:
+- python tests/test_reproduction_color.py falhou com ModuleNotFoundError: No module named 'sim'.
+- python tests/retina_sanity.py falhou com ModuleNotFoundError: No module named 'numpy' neste ambiente.
+- python tests/check_batch_forward.py falhou com ModuleNotFoundError: No module named 'numpy' neste ambiente.
+
+Evidencia adicional:
+- tests/test_reproduction_color.py nao injeta a raiz no sys.path.
+- tests/retina_test.py tambem importa sim sem ajustar sys.path.
+
+Acao recomendada:
+- Rodar testes via python -m pytest a partir da raiz.
+- Configurar pyproject.toml ou pytest.ini.
+- Garantir ambiente com requirements instalados.
+
+
+38. benchmark_headless usa parametros legados sem efeito
+Evidencia:
+- tests/benchmark_headless.py:46-47 usa bacteria_split_mass e predator_split_mass.
+- O modelo atual usa bacteria_split_energy e predator_split_energy.
+
+Impacto:
+- O benchmark diz evitar reproducao, mas provavelmente nao evita.
+
+Acao recomendada:
+- Atualizar para split_energy.
+- Adicionar assert de que populacao nao cresce quando benchmark pedir isso.
+
+
+39. check_batch_forward tem problema de indentacao logica
+Evidencia:
+- O calculo de diffs parece estar fora do loop por grupo em tests/check_batch_forward.py.
+
+Impacto:
+- O diagnostico pode avaliar apenas o ultimo grupo ou usar variaveis de escopo errado.
+
+Acao recomendada:
+- Transformar em teste pytest parametrizado e assertar equivalencia por grupo.
+
+
+40. Arquivos duplicados/stale confundem manutencao
+Evidencia:
+- sim/controllers_fixed.py nao e importado por ninguem.
+- tests/ui_tk.txt parece copia antiga de UI Tk.
+- tests/test_pyqt6_pygame.py parece copia antiga/grande de UI.
+
+Impacto:
+- Dificulta saber qual codigo e fonte de verdade.
+- Aumenta risco de corrigir arquivo errado.
+
+Acao recomendada:
+- Mover historicos para docs/archive ou remover.
+- Manter uma unica implementacao viva por responsabilidade.
+
+
+41. Dados experimentais estao versionados junto com codigo
+Evidencia:
+- agents/ contem varios CSV exportados.
+- substrates/ contem muitos snapshots.
+- tests/otimizacoes/ contem relatorios JSON.
+
+Impacto:
+- Repositorio cresce e fica dificil revisar mudancas.
+
+Acao recomendada:
+- Separar exemplos pequenos versionados de dados locais.
+- Ignorar exports locais por padrao e manter uma pasta examples/ controlada.
+
+
+42. .gitignore e muito especifico
+Evidencia:
+- .gitignore contem duas linhas iguais para um JSON absoluto/slug especifico.
+
+Impacto:
+- Nao previne novos arquivos de benchmark/export.
+
+Acao recomendada:
+- Ignorar padroes gerais para __pycache__, .venv, *.pyc, exports locais e relatorios gerados.
+
+
+===============================================================================
+ORDEM SUGERIDA DE CORRECAO
+===============================================================================
+
+Fase 1 - Corrigir validade do estado da simulacao:
+1. [FEITO; TESTADO/VALIDADO] add_bacteria_at deve atualizar all_agents.
+2. Corrigir ordem do spatial hash no substep.
+3. [FEITO; TESTADO/VALIDADO] Remover predados de all_agents antes da reproducao.
+4. Corrigir cache neural ou desabilitar temporariamente.
+5. Corrigir tempo pausado e fixed timestep.
+
+Fase 2 - Corrigir persistencia/import/export:
+1. Snapshot completo de foods.
+2. Restaurar cor, brain_version e estado dinamico.
+3. Corrigir exportacao de agente por path completo.
+4. Separar start() de initialize_population().
+
+Fase 3 - Testes minimos obrigatorios:
+1. Invariante entities <-> all_agents.
+2. Predacao remove agente antes da reproducao.
+3. Batch neural == forward individual apos reset/spawn/import.
+4. Export/import round-trip de substrato.
+5. Structural jitter nao quebra.
+6. total_simulation_time nao cresce pausado.
+
+Fase 4 - Modelo biologico:
+1. Criar Genome explicito.
+2. Definir o que e hereditario e o que e parametro ambiental.
+3. Decidir regra de morte minima: modo estrito vs modo UI.
+4. Definir sensor oficial e unidades de energia/metabolismo.
+
+Fase 5 - Performance:
+1. Vetorizar mutate.
+2. Cachear params por frame.
+3. Otimizar retina com menos alocacoes e melhor broad phase.
+4. Incremental spatial hash.
+5. Render simplificado/cached para massa.
+6. Planejar backend SoA se a meta for dezenas de milhares de agentes.
+
+
+===============================================================================
+VERIFICACOES REALIZADAS
+===============================================================================
+
+OK:
+- python -m compileall -q .
+
+Nao concluido por ambiente/testes:
+- python tests/test_reproduction_color.py
+  Falha: ModuleNotFoundError: No module named 'sim'.
+- python tests/retina_sanity.py
+  Falha: ModuleNotFoundError: No module named 'numpy'.
+- python tests/check_batch_forward.py
+  Falha: ModuleNotFoundError: No module named 'numpy'.
+
+Observacao:
+- As falhas de numpy indicam que o ambiente atual nao tem requirements instalados.
+- A falha de test_reproduction_color tambem e bug do proprio script, pois ele nao injeta a raiz do projeto no sys.path como outros scripts fazem.
+
+
+===============================================================================
+RESUMO FINAL
+===============================================================================
+
+Antes de otimizar, o projeto precisa de uma rodada de corretude:
+- estado unificado de agentes consistente;
+- spatial hash sincronizado com posicoes atuais;
+- cache neural seguro;
+- snapshots realmente reprodutiveis;
+- testes automatizados minimos.
+
+So depois disso vale investir pesado em Numba, SoA, GPU ou otimizacoes profundas.
+Caso contrario, a simulacao pode ficar mais rapida, mas continuar medindo um sistema incorreto.

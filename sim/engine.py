@@ -331,6 +331,7 @@ class Engine:
                                          self.world.width, self.world.height,
                                          at=(world_x, world_y))
         self.entities['bacteria'].append(bacterium)
+        self.all_agents.append(bacterium)
     
     def _simulate_physics(self, world_dt: float):
         """Simula física por um delta tempo do mundo."""
@@ -381,10 +382,14 @@ class Engine:
                 update_agents_batch(group, dt, self.world, self.scene_query, self.params, selected_agent=self.selected_agent)
 
         with profile_section('interaction'):
-            self.interaction_system.apply(
+            removed_agents = self.interaction_system.apply(
                 self.entities['bacteria'], self.entities['predators'],
                 self.entities['foods'], self.spatial_hash, self.params
             )
+            if removed_agents:
+                self.all_agents = [a for a in self.all_agents if a not in removed_agents]
+                if self.selected_agent in removed_agents:
+                    self.selected_agent = None
 
         with profile_section('reproduction'):
             new_agents = self.reproduction_system.apply(self.all_agents, self.params)
