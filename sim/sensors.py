@@ -9,6 +9,7 @@ from typing import List, Optional, TYPE_CHECKING, Set, Any, Sequence
 RETINA_VISION_MODE_SINGLE = "single"
 RETINA_VISION_MODE_FULLBODY = "fullbody"
 RETINA_VISION_MODES = {RETINA_VISION_MODE_SINGLE, RETINA_VISION_MODE_FULLBODY}
+_RETINA_RAY_CACHE: dict[tuple[int, float], tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 
 
 def normalize_retina_vision_mode(value: Any) -> str:
@@ -26,6 +27,23 @@ def normalize_retina_vision_mode(value: Any) -> str:
         if value in RETINA_VISION_MODES:
             return value
     return RETINA_VISION_MODE_SINGLE
+
+
+def _get_retina_relative_rays(retina_count: int, half_fov: float) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    count = max(1, int(retina_count))
+    key = (count, round(float(half_fov), 12))
+    cached = _RETINA_RAY_CACHE.get(key)
+    if cached is not None:
+        return cached
+    if count > 1:
+        ray_rel = np.linspace(-half_fov, half_fov, count, dtype=np.float32)
+    else:
+        ray_rel = np.array([0.0], dtype=np.float32)
+    cos_rel = np.cos(ray_rel).astype(np.float32)
+    sin_rel = np.sin(ray_rel).astype(np.float32)
+    cached = (ray_rel, cos_rel, sin_rel)
+    _RETINA_RAY_CACHE[key] = cached
+    return cached
 
 if TYPE_CHECKING:
     from .entities import Agent
@@ -537,10 +555,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         else:
             # modo 'fullbody': interseção exata raio-círculo para todos os raios vs objetos
             # Direções dos raios no mundo
-            if sensor.retina_count > 1:
-                ray_rel = np.linspace(-half_fov, half_fov, sensor.retina_count, dtype=np.float32)
-            else:
-                ray_rel = np.array([0.0], dtype=np.float32)
+            ray_rel, _, _ = _get_retina_relative_rays(sensor.retina_count, half_fov)
             ray_angles = agent.angle + ray_rel
             dir_x = np.cos(ray_angles).astype(np.float32)
             dir_y = np.sin(ray_angles).astype(np.float32)

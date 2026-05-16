@@ -631,6 +631,26 @@ Acao recomendada:
 - Reduzir candidatos com traversal de grid ou query por cone/celulas.
 - Avaliar Numba para hot loop ou campo de densidade em grid.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Adicionado cache de raios relativos da retina por (retina_count, half_fov).
+- O modo fullbody reutiliza o linspace relativo cacheado e mantem o calculo
+  original np.cos(agent.angle + ray_rel) / np.sin(...) para preservar a
+  trajetoria numerica.
+- A primeira tentativa com composicao trigonometrica cacheada foi medida, mas
+  descartada no codigo final porque mudou a trajetoria e nao melhorou tempo.
+
+Teste/validacao:
+- Teste direto validou cache, equivalencia do linspace e leitura fullbody com
+  objeto largo ativando 3 retinas.
+- compileall passou para sensors.py.
+- Benchmark final p1_24_retina_ray_cache_stable preservou exatamente os eventos
+  do P1 #23 e melhorou ms/agente/step de 0.078870 para 0.077513.
+
+Pendente:
+- Ainda ha alocacoes por agente para candidatos e matriz R x M no fullbody.
+  Reducao maior exige mudanca mais profunda de broad phase/SoA ou kernel dedicado.
+
 
 25. SpatialHash e reconstruido todo substep
 Evidencia:

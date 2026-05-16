@@ -282,3 +282,27 @@ P1 #23 - Mutacao numerica vetorizada com NumPy
 - Leitura: pequeno ganho de performance. A trajetoria mudou porque a fonte e a
   ordem dos sorteios de mutacao mudaram de random para np.random; distribuicao
   equivalente, sequencia diferente. Monitorar outside_world_objects.
+
+P1 #24 - Cache de raios relativos da retina
+- Run id final: 20260516_015754_p1_24_retina_ray_cache_stable
+- Run id descartado/observado: 20260516_015613_p1_24_retina_ray_cache
+- Alteracao final: cache de ray_rel por (retina_count, half_fov), mantendo o
+  calculo original cos/sin de agent.angle + ray_rel para estabilidade numerica.
+- Teste direto: PASS cache reutilizado e fullbody com objeto largo ativando 3
+  retinas.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077513
+- wall_s: 47.430
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: preservou exatamente os eventos do P1 #23 e reduziu ms/agente/step
+  de 0.078870 para 0.077513. A tentativa trigonometrica cacheada mudou a
+  trajetoria e foi descartada do codigo final.
