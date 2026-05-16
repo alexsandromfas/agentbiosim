@@ -270,62 +270,49 @@ class NeuralNet:
         old_size = self.sizes[layer_idx]
         if new_size == old_size:
             return
+
+        for i, W in enumerate(self.weights):
+            self.weights[i] = np.asarray(W, dtype=np.float32)
+        for i, b in enumerate(self.biases):
+            self.biases[i] = np.asarray(b, dtype=np.float32)
         
         self.sizes[layer_idx] = new_size
         
         # Ajusta weights da camada (pesos que saem da camada anterior para esta)
         weight_layer_idx = layer_idx - 1
         if weight_layer_idx >= 0:
-            old_weights = self.weights[weight_layer_idx]
-            new_weights = []
-            
+            old_weights = np.asarray(self.weights[weight_layer_idx], dtype=np.float32)
+            fan_in = old_weights.shape[1] if old_weights.ndim == 2 and old_weights.shape[1] > 0 else 1
+            new_weights = np.empty((new_size, fan_in), dtype=np.float32)
+            kept = min(old_size, new_size)
+            new_weights[:kept, :] = old_weights[:kept, :]
             if new_size > old_size:
-                # Adicionar neurônios
-                for i in range(new_size):
-                    if i < old_size:
-                        # Manter neurônio existente
-                        new_weights.append(list(old_weights[i]))
-                    else:
-                        # Criar novo neurônio com pesos aleatórios
-                        fan_in = len(old_weights[0]) if old_weights else 1
-                        std = 0.1 / math.sqrt(fan_in)
-                        new_neuron = [random.gauss(0, std) for _ in range(fan_in)]
-                        new_weights.append(new_neuron)
-            else:
-                # Remover neurônios (manter os primeiros)
-                for i in range(new_size):
-                    new_weights.append(list(old_weights[i]))
-            
+                std = 0.1 / math.sqrt(fan_in)
+                new_weights[old_size:, :] = np.random.normal(
+                    0, std, (new_size - old_size, fan_in)
+                ).astype(np.float32)
             self.weights[weight_layer_idx] = new_weights
         
         # Ajusta biases da camada
         if layer_idx - 1 < len(self.biases):
-            old_biases = self.biases[layer_idx - 1]
-            if new_size > old_size:
-                # Adicionar biases
-                for _ in range(new_size - old_size):
-                    old_biases.append(0.0)
-            else:
-                # Remover biases (manter os primeiros)
-                self.biases[layer_idx - 1] = old_biases[:new_size]
+            old_biases = np.asarray(self.biases[layer_idx - 1], dtype=np.float32)
+            new_biases = np.zeros((new_size,), dtype=np.float32)
+            kept = min(old_size, new_size)
+            new_biases[:kept] = old_biases[:kept]
+            self.biases[layer_idx - 1] = new_biases
         
         # Ajusta weights da próxima camada (pesos que entram nesta camada)
         next_weight_layer_idx = layer_idx
         if next_weight_layer_idx < len(self.weights):
-            old_next_weights = self.weights[next_weight_layer_idx]
-            new_next_weights = []
-            
-            for neuron_weights in old_next_weights:
-                if new_size > old_size:
-                    # Adicionar conexões com pesos pequenos aleatórios
-                    new_neuron_weights = list(neuron_weights)
-                    for _ in range(new_size - old_size):
-                        new_neuron_weights.append(random.gauss(0, 0.1))
-                    new_next_weights.append(new_neuron_weights)
-                else:
-                    # Remover conexões (manter as primeiras)
-                    new_next_weights.append(neuron_weights[:new_size])
-            
+            old_next_weights = np.asarray(self.weights[next_weight_layer_idx], dtype=np.float32)
+            out_rows = old_next_weights.shape[0]
+            new_next_weights = np.empty((out_rows, new_size), dtype=np.float32)
+            kept = min(old_size, new_size)
+            new_next_weights[:, :kept] = old_next_weights[:, :kept]
+            if new_size > old_size:
+                new_next_weights[:, old_size:] = np.random.normal(
+                    0, 0.1, (out_rows, new_size - old_size)
+                ).astype(np.float32)
             self.weights[next_weight_layer_idx] = new_next_weights
         # Alteração estrutural implica nova versão
         self.version += 1

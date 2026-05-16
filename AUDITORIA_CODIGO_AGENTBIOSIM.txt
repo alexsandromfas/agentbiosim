@@ -245,10 +245,19 @@ Acao recomendada:
 
 
 11. Mutacao estrutural da rede pode quebrar com ndarray
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/brain.py:203 mutate.
 - sim/brain.py:262 _resize_layer.
 - sim/brain.py:307 faz old_biases.append(0.0), mas old_biases normalmente e np.ndarray.
+
+Correcao aplicada:
+- _resize_layer agora normaliza todos os weights/biases para np.ndarray no inicio.
+- Crescimento/reducao de camada copia fatias existentes e cria novas linhas/colunas com numpy.
+- Biases passam a ser redimensionados com np.zeros + copia, sem append em ndarray.
+- As conexoes da proxima camada sao redimensionadas como matriz numpy coerente.
+- Teste direto validou crescer/reduzir camada, pesos legados em lista, mutate estrutural forcado e reproducao com structural_jitter=1.
+- Benchmark p0_11_structural_mutation_ndarray preservou eventos e integridade do P0 #10.
 
 Impacto:
 - Se structural_jitter > 0 e a mutacao estrutural for acionada, a reproducao pode falhar.

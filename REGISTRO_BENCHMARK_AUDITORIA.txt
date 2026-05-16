@@ -72,3 +72,18 @@ P0 #10 - Parametros de mostrar visao no render
 - final: bacteria=1000, predators=20, foods=463, all_agents=1020
 - integrity_errors: 0
 - Leitura: dinamica preservada; correcao afeta somente visualizacao.
+
+P0 #11 - Mutacao estrutural segura com ndarray
+- Run id: 20260516_010735_p0_11_structural_mutation_ndarray
+- Alteracao: _resize_layer normaliza weights/biases para np.ndarray e
+  redimensiona linhas/colunas/biases com numpy, sem append em ndarray.
+- Teste direto: PASS grow/shrink, pesos legados em lista, mutate estrutural
+  forcado e reproducao com structural_jitter=1.
+- ms/agente/step: 0.141937
+- wall_s: 86.866
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada no substrato atual; correcao remove falha
+  latente quando mutacao estrutural for habilitada.
