@@ -461,6 +461,23 @@ Acao recomendada:
 - Usar o raio final de corpo na validacao de spawn.
 - Remover min_r/max_r se tamanho fixo for a regra atual.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- create_random_bacteria e create_random_predator agora calculam o raio final
+  de corpo antes de escolher posicao e validar overlap.
+- A validacao circular e retangular usa esse mesmo raio final, nao mais um raio
+  sorteado de min_r/max_r que poderia ser menor que body_size.
+- Se body_size nao existir ou for invalido, o codigo ainda usa min_r/max_r como
+  fallback de compatibilidade.
+- Posicionamento retangular evita random.uniform invalido quando o corpo e
+  maior que metade da dimensao do mundo.
+
+Teste/validacao:
+- Teste direto criou bacteria retangular com body_size=40 e min/max 1..2, e
+  predador circular com body_size=30 e min/max 1..2; ambos respeitaram o raio
+  final na posicao.
+- Benchmark p1_19_spawn_final_radius preservou eventos e contagens do P1 #18.
+
 
 20. Falta determinismo experimental
 Evidencia:

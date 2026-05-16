@@ -404,6 +404,32 @@ class Predator(Agent):
 
 
 # Factory functions para criar entidades com parâmetros
+def _agent_spawn_radius(params: 'Params', body_key: str, min_key: str, max_key: str,
+                        default_min: float, default_max: float) -> float:
+    body_size = params.get(body_key, None)
+    if body_size is not None:
+        try:
+            return max(0.1, float(body_size))
+        except (TypeError, ValueError):
+            pass
+    min_r = max(0.1, float(params.get(min_key, default_min)))
+    max_r = max(min_r, float(params.get(max_key, default_max)))
+    return random.uniform(min_r, max_r)
+
+
+def _random_position_for_radius(shape: str, world_w: float, world_h: float,
+                                radius_sub: float, r: float) -> tuple[float, float]:
+    cx = world_w / 2
+    cy = world_h / 2
+    if shape == 'circular':
+        ang = random.random() * 2 * math.pi
+        rad = (random.random() ** 0.5) * max(0.0, radius_sub - r)
+        return cx + math.cos(ang) * rad, cy + math.sin(ang) * rad
+    x = cx if world_w <= 2 * r else random.uniform(r, world_w - r)
+    y = cy if world_h <= 2 * r else random.uniform(r, world_h - r)
+    return x, y
+
+
 def create_random_bacteria(existing_entities: list, params: 'Params', 
                           world_w: float, world_h: float,
                           at: Optional[tuple] = None) -> Bacteria:
@@ -412,23 +438,14 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
     from .sensors import RetinaSensor  
     from .actuators import Locomotion, EnergyModel
     
-    min_r = params.get('bacteria_min_r', 6.0)
-    max_r = params.get('bacteria_max_r', 12.0)
+    r = _agent_spawn_radius(params, 'bacteria_body_size', 'bacteria_min_r', 'bacteria_max_r', 6.0, 12.0)
     shape = params.get('substrate_shape', 'rectangular')
     radius_sub = params.get('substrate_radius', min(world_w, world_h)/2)
     cx = world_w/2
     cy = world_h/2
     for _ in range(300):
-        r = random.uniform(min_r, max_r)
         if at is None:
-            if shape == 'circular':
-                ang = random.random() * 2*math.pi
-                rad = (random.random() ** 0.5) * (radius_sub - r)
-                x = cx + math.cos(ang)*rad
-                y = cy + math.sin(ang)*rad
-            else:
-                x = random.uniform(r, world_w - r)
-                y = random.uniform(r, world_h - r)
+            x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
         else:
             x, y = at
         if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
@@ -442,15 +459,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
         if not overlaps or at is not None:
             break
     else:
-        r = random.uniform(min_r, max_r)
-        if shape == 'circular':
-            ang = random.random() * 2*math.pi
-            rad = (random.random() ** 0.5) * (radius_sub - r)
-            x = cx + math.cos(ang)*rad
-            y = cy + math.sin(ang)*rad
-        else:
-            x = random.uniform(r, world_w - r)
-            y = random.uniform(r, world_h - r)
+        x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
     
     # Cria componentes
     brain = _create_bacteria_brain(params)
@@ -459,7 +468,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
     energy = _create_bacteria_energy_model(params)
     
     # Cria bactéria com cor baseada em parâmetros e massa inicial customizável
-    bacterium = Bacteria(x, y, params.get('bacteria_body_size', r), brain, sensor, locomotion, energy)
+    bacterium = Bacteria(x, y, r, brain, sensor, locomotion, energy)
     # Override color from params if provided
     try:
         bacterium.color = tuple(params.get('bacteria_color', bacterium.color))
@@ -478,23 +487,14 @@ def create_random_predator(existing_entities: list, params: 'Params',
     from .sensors import RetinaSensor
     from .actuators import Locomotion, EnergyModel
     
-    min_r = params.get('predator_min_r', 10.0)
-    max_r = params.get('predator_max_r', 18.0)
+    r = _agent_spawn_radius(params, 'predator_body_size', 'predator_min_r', 'predator_max_r', 10.0, 18.0)
     shape = params.get('substrate_shape', 'rectangular')
     radius_sub = params.get('substrate_radius', min(world_w, world_h)/2)
     cx = world_w/2
     cy = world_h/2
     for _ in range(300):
-        r = random.uniform(min_r, max_r)
         if at is None:
-            if shape == 'circular':
-                ang = random.random() * 2*math.pi
-                rad = (random.random() ** 0.5) * (radius_sub - r)
-                x = cx + math.cos(ang)*rad
-                y = cy + math.sin(ang)*rad
-            else:
-                x = random.uniform(r, world_w - r)
-                y = random.uniform(r, world_h - r)
+            x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
         else:
             x, y = at
         if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
@@ -508,15 +508,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
         if not overlaps or at is not None:
             break
     else:
-        r = random.uniform(min_r, max_r)
-        if shape == 'circular':
-            ang = random.random() * 2*math.pi
-            rad = (random.random() ** 0.5) * (radius_sub - r)
-            x = cx + math.cos(ang)*rad
-            y = cy + math.sin(ang)*rad
-        else:
-            x = random.uniform(r, world_w - r)
-            y = random.uniform(r, world_h - r)
+        x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
     
     # Cria componentes
     brain = _create_predator_brain(params)
@@ -525,7 +517,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
     energy = _create_predator_energy_model(params)
     
     # Cria predador com cor baseada em parâmetros e massa inicial customizável
-    predator = Predator(x, y, params.get('predator_body_size', r), brain, sensor, locomotion, energy)
+    predator = Predator(x, y, r, brain, sensor, locomotion, energy)
     try:
         predator.color = tuple(params.get('predator_color', predator.color))
     except Exception:

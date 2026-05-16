@@ -173,3 +173,22 @@ P1 #18 - retina_skip dinamico em sensores existentes
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica preservada. A correcao afeta mudancas em tempo real pela
   UI/parametros, sem alterar o substrato quando retina_skip ja estava coerente.
+
+P1 #19 - Spawn inicial usa raio final de corpo
+- Run id: 20260516_013412_p1_19_spawn_final_radius
+- Alteracao: create_random_bacteria/create_random_predator usam body_size real
+  para sortear posicao e validar overlap; min/max viram fallback.
+- Teste direto: PASS bacteria retangular body_size=40 com min/max 1..2 ficou
+  dentro dos limites; predador circular body_size=30 ficou dentro do raio util.
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079119
+- wall_s: 48.416
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A correcao afeta criacao nova/populacao inicial,
+  sem alterar o substrato carregado ja com agentes.
