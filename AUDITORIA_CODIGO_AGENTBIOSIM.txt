@@ -529,6 +529,24 @@ Acao recomendada:
 - Se target deve ser controle real, remover excesso gradualmente.
 - Se target e apenas reposicao minima, renomear/documentar.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- FoodController agora possui food_excess_debt e remove excesso gradualmente
+  quando len(comidas) > food_target.
+- Remocao e limitada por food_trim_max_per_step e pode ser desligada com
+  food_trim_excess_enabled=False.
+- A remocao escolhe primeiro as comidas de menor energia/raio, de forma
+  deterministica, para reduzir impacto brusco na simulacao.
+- Benchmark agora registra foods_added_controller e foods_removed_controller.
+
+Teste/validacao:
+- Teste direto validou remocao gradual: com 5 comidas, alvo 2 e limite 2,
+  removeu as duas menores e preservou as maiores.
+- compileall passou para controllers e benchmark.
+- Benchmark p1_21_food_trim_excess preservou eventos biologicos e contagens do
+  P1 #20; foods_removed_controller=0 porque o substrato estava abaixo do alvo
+  de comida durante a rodada.
+
 
 22. Reproducao pode ocorrer em todo substep sem cooldown
 Evidencia:

@@ -214,3 +214,25 @@ P1 #20 - Seed experimental e estado RNG em snapshots
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica preservada. O ganho principal e reprodutibilidade para
   reset/start e continuidade de snapshots novos com rng_state.
+
+P1 #21 - FoodController remove excesso gradualmente
+- Run id: 20260516_014422_p1_21_food_trim_excess
+- Alteracao: FoodController ganhou food_excess_debt, food_trim_excess_enabled e
+  food_trim_max_per_step; remove primeiro as comidas de menor energia quando
+  a quantidade passa de food_target. Benchmark registra adicoes/remocoes.
+- Teste direto: PASS com 5 comidas, alvo 2 e limite 2, removeu as duas menores
+  e preservou as maiores.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079593
+- wall_s: 48.706
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2003, predations=184, births=187, deaths=3
+- eventos food_controller: added=1982, removed=0
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A nova remocao nao atuou no benchmark porque a
+  comida estava abaixo do alvo, mas agora reduzir food_target converge.

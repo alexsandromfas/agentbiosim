@@ -554,7 +554,7 @@ def run_benchmark(
     sample_every = max(1, int(round(sample_interval * fps)))
     samples: list[dict[str, Any]] = []
     step_times: list[float] = []
-    events = {"foods_eaten": 0, "predations": 0, "births": 0, "deaths": 0}
+    events = {"foods_eaten": 0, "predations": 0, "births": 0, "deaths": 0, "foods_added_controller": 0, "foods_removed_controller": 0}
 
     wall_start = time.perf_counter()
     samples.append(collect_sample(engine, 0, engine.total_simulation_time, 0.0, neural_sample))
@@ -566,6 +566,8 @@ def run_benchmark(
         events["predations"] += int(getattr(engine.interaction_system, "last_agents_predated", 0))
         events["births"] += len(getattr(engine.reproduction_system, "last_births", []) or [])
         events["deaths"] += len(getattr(engine.death_system, "last_deaths", []) or [])
+        events["foods_added_controller"] += int(getattr(engine.food_controller, "last_foods_added", 0))
+        events["foods_removed_controller"] += int(getattr(engine.food_controller, "last_foods_removed", 0))
         if step % sample_every == 0 or step == steps:
             samples.append(collect_sample(engine, step, engine.total_simulation_time, time.perf_counter() - wall_start, neural_sample))
 

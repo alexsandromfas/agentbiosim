@@ -47,6 +47,8 @@ class Params:
             'food_min_r': 4.5,
             'food_max_r': 5.0,
             'food_replenish_interval': 0.1,
+            'food_trim_excess_enabled': True,
+            'food_trim_max_per_step': 5,
             
             # Bactérias - população
             'bacteria_count': 150,
@@ -294,6 +296,9 @@ class FoodController:
     
     def __init__(self):
         self.food_debt = 0.0  # Dívida de comida para criação suave
+        self.food_excess_debt = 0.0
+        self.last_foods_added = 0
+        self.last_foods_removed = 0
         self.last_update_time = 0.0
     
     def update(self, current_foods: list, target_count: int, world_w: float, 
@@ -312,6 +317,21 @@ class FoodController:
         Returns:
             Lista de novas comidas a criar
         """
+        target_count = max(0, int(target_count))
+        current_count = len(current_foods)
+        self.last_foods_added = 0
+        self.last_foods_removed = 0
+
+        if current_count > target_count and params.get('food_trim_excess_enabled', True):
+            self.food_excess_debt += ((current_count - target_count) * dt) / max(1e-6, params.get('food_replenish_interval', 0.1))
+            max_remove = max(0, int(params.get('food_trim_max_per_step', 5)))
+            while self.food_excess_debt >= 1.0 and len(current_foods) > target_count and self.last_foods_removed < max_remove:
+                self._remove_lowest_energy_food(current_foods)
+                self.food_excess_debt -= 1.0
+                self.last_foods_removed += 1
+        else:
+            self.food_excess_debt = max(0.0, self.food_excess_debt * 0.99)
+
         current_count = len(current_foods)
         difference = target_count - current_count
         
@@ -326,6 +346,7 @@ class FoodController:
             food = self._create_random_food(current_foods + new_foods, world_w, world_h, params)
             if food:
                 new_foods.append(food)
+                self.last_foods_added += 1
                 self.food_debt -= 1.0
             else:
                 # Se não conseguiu criar comida, não tenta mais neste frame
@@ -335,6 +356,20 @@ class FoodController:
         self.food_debt = max(0, self.food_debt * 0.99)
         
         return new_foods
+
+    def _remove_lowest_energy_food(self, foods: list):
+        if not foods:
+            return None
+        idx = min(
+            range(len(foods)),
+            key=lambda i: (
+                float(getattr(foods[i], 'energy', getattr(foods[i], 'r', 0.0) ** 2)),
+                float(getattr(foods[i], 'r', 0.0)),
+                float(getattr(foods[i], 'x', 0.0)),
+                float(getattr(foods[i], 'y', 0.0)),
+            ),
+        )
+        return foods.pop(idx)
     
     def _create_random_food(self, existing_foods: list, world_w: float, 
                            world_h: float, params: 'Params'):
