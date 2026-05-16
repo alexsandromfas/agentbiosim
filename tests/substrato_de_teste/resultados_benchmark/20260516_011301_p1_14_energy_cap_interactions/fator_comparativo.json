@@ -1,0 +1,50 @@
+{
+  "run_id": "20260516_011301_p1_14_energy_cap_interactions",
+  "label": "p1_14_energy_cap_interactions",
+  "git_commit": "ba5ecd2",
+  "created_at": "2026-05-16T01:14:00.496961",
+  "seconds": 10.0,
+  "fps": 60,
+  "time_scale": 0.5,
+  "seed": 12345,
+  "food_restore": {
+    "mode": "bench_canonical_layout",
+    "count": 480,
+    "layout_path": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\layouts\\substrato_de_teste_20260515_210719_food_layout_seed_12345.json",
+    "note": "Snapshot v2 has only food count; benchmark uses a persisted canonical food layout."
+  },
+  "wall_s": 58.22001690004254,
+  "steps": 600,
+  "avg_agents": 1019.9090909090908,
+  "ms_per_agent_step": 0.09513922600060433,
+  "initial_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 480,
+    "all_agents": 1020
+  },
+  "final_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 459,
+    "all_agents": 1020
+  },
+  "events": {
+    "foods_eaten": 2003,
+    "predations": 184,
+    "births": 187,
+    "deaths": 3
+  },
+  "final_integrity": {
+    "all_agents_missing_from_entities": 0,
+    "entities_missing_from_all_agents": 0,
+    "duplicate_all_agents": 0,
+    "bad_numeric_objects": 0,
+    "outside_world_objects": 12,
+    "negative_energy_objects": 0,
+    "spatial_hash_sample_misses": 0
+  },
+  "final_bacteria_energy_mean": 158.17510780717427,
+  "final_predator_energy_mean": 389.8517341285109,
+  "summary_json": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260516_011301_p1_14_energy_cap_interactions\\summary.json"
+}

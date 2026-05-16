@@ -87,3 +87,20 @@ P0 #11 - Mutacao estrutural segura com ndarray
 - integrity_errors: 0
 - Leitura: dinamica preservada no substrato atual; correcao remove falha
   latente quando mutacao estrutural for habilitada.
+
+P1 #14 - Cap de energia apos comer/predar
+- Run id: 20260516_011301_p1_14_energy_cap_interactions
+- Alteracao: Agent.add_energy aceita cap; comida e predacao aplicam
+  bacteria_energy_cap/predator_energy_cap imediatamente.
+- Teste direto: PASS ganhos por comida e predacao respeitam energy_cap.
+- ms/agente/step: 0.095139
+- wall_s: 58.220
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integrity_errors: 0
+- Leitura: dinamica mudou por motivo correto. Antes, bacterias passavam do cap
+  de 200.0 apos comer; agora o max final respeita 200.0. Predacoes e
+  nascimentos cairam porque ha menos excesso energetico acima do limite.

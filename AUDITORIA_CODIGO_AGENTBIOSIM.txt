@@ -311,11 +311,19 @@ Acao recomendada:
 
 
 14. Cap de energia e aplicado antes de comer, nao depois
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/actuators.py:150-153 aplica cap no EnergyModel.apply.
 - sim/systems.py:73 soma food.energy diretamente.
 - sim/systems.py:109 soma energia de presa diretamente.
 - Reproducao ocorre depois da interacao em sim/engine.py:390.
+
+Correcao aplicada:
+- Agent.add_energy agora aceita cap opcional e aplica limite de armazenamento.
+- Bacterias usam add_energy(food.energy, cap=bacteria_energy_cap) ao comer.
+- Predadores usam add_energy(prey.energy * 0.7, cap=predator_energy_cap) ao predar.
+- Teste direto validou comida e predacao respeitando energy_cap.
+- Benchmark p1_14_energy_cap_interactions mudou a dinamica como esperado: energia maxima de bacterias caiu de 268.878 para 200.0, com integridade preservada.
 
 Impacto:
 - Agente pode ultrapassar energy_cap ao comer e reproduzir no mesmo substep acima do limite.

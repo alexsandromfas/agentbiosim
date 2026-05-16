@@ -74,8 +74,9 @@ class InteractionSystem:
                 dy = bacterium.y - food.y
                 r_sum = bacterium.r + food.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
-                    # Bactéria come comida -> ganha energia
-                    bacterium.energy += food.energy
+                    # Bactéria come comida -> ganha energia respeitando cap.
+                    cap = params.get('bacteria_energy_cap', getattr(bacterium.energy_model, 'energy_cap', None))
+                    bacterium.add_energy(food.energy, cap=cap)
                     self._foods_to_remove.add(food)
                     break  # Uma comida por frame por bactéria
     
@@ -110,8 +111,9 @@ class InteractionSystem:
                 dy = predator.y - bacterium.y
                 r_sum = predator.r + bacterium.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
-                    # Predador come bactéria -> ganha parte da energia
-                    predator.energy += bacterium.energy * 0.7
+                    # Predador come bactéria -> ganha parte da energia respeitando cap.
+                    cap = params.get('predator_energy_cap', getattr(predator.energy_model, 'energy_cap', None))
+                    predator.add_energy(bacterium.energy * 0.7, cap=cap)
                     # Rechecar mínimo antes de remover
                     if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
                         break

@@ -195,8 +195,13 @@ class Agent(Entity):
     def set_energy(self, value: float):
         self.energy = max(0.0, value)
 
-    def add_energy(self, delta: float):
-        self.energy = max(0.0, self.energy + delta)
+    def add_energy(self, delta: float, cap: Optional[float] = None):
+        value = max(0.0, self.energy + delta)
+        if cap is None and getattr(self, 'energy_model', None) is not None:
+            cap = getattr(self.energy_model, 'energy_cap', None)
+        if cap is not None:
+            value = min(value, float(cap))
+        self.energy = value
     
     def can_reproduce(self, params: 'Params') -> bool:
         return self.energy_model.can_reproduce(self)
