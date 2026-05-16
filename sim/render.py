@@ -212,6 +212,7 @@ class EllipseRenderer(RendererStrategy):
             pygame.font.init()
         self.font = pygame.font.SysFont(None, 18)
         self.small_font = pygame.font.SysFont(None, 14)
+        self._simple_renderer = SimpleRenderer()
     
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
                    show_head: bool = True, show_vision: bool = False, selected: bool = False):
@@ -262,10 +263,8 @@ class EllipseRenderer(RendererStrategy):
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Reutiliza implementação do SimpleRenderer."""
-        simple = SimpleRenderer()
-        simple.draw_overlay(surface, info)
+        self._simple_renderer.draw_overlay(surface, info)
     
     def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera'):
         """Reutiliza implementação do SimpleRenderer."""
-        simple = SimpleRenderer()
-        simple._draw_vision_rays(agent, surface, camera)
+        self._simple_renderer._draw_vision_rays(agent, surface, camera)

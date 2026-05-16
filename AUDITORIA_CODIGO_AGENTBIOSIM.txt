@@ -764,6 +764,22 @@ Acao recomendada:
 - Cachear sprites por cor/tamanho/zoom aproximado ou preferir SimpleRenderer em massa.
 - Reutilizar um SimpleRenderer interno, nao criar a cada chamada.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- EllipseRenderer agora cria um SimpleRenderer interno uma vez no __init__.
+- draw_overlay e _draw_vision_rays reutilizam esse renderer em vez de instanciar
+  SimpleRenderer a cada chamada.
+
+Teste/validacao:
+- Teste direto com pygame.Surface em memoria validou que o mesmo SimpleRenderer
+  e reutilizado entre chamadas de draw_overlay.
+- compileall passou para render.py.
+- Benchmark p1_28_renderer_simple_reuse preservou os eventos do P1 #27.
+
+Pendente:
+- Ainda cria Surface e faz pygame.transform.rotate por agente no render detalhado.
+  Cache de sprites por cor/tamanho/zoom fica para uma etapa visual especifica.
+
 
 29. Muitos params.get em hot loops
 Evidencia:
