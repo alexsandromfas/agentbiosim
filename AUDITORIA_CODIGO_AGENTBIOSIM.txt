@@ -1089,6 +1089,26 @@ Acao recomendada:
 - Configurar pyproject.toml ou pytest.ini.
 - Garantir ambiente com requirements instalados.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Criado tests/_path.py com ensure_repo_root_on_path para scripts legados.
+- tests/test_reproduction_color.py e tests/retina_test.py agora usam esse
+  bootstrap antes de importar sim.*.
+- pytest.ini/requirements do P2 #36 cobrem a recomendacao de rodar suite via
+  python -m pytest a partir da raiz.
+
+Teste/validacao:
+- python tests/test_reproduction_color.py passou.
+- python tests/retina_test.py passou.
+- python tests/retina_sanity.py passou.
+- python -m pytest passou: 3 testes.
+- Benchmark p2_37_legacy_tests_direct_path preservou exatamente os eventos do P2 #36.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.076573 contra 0.075208 no P2 #36.
+- Integridade critica preservada.
+
 
 38. benchmark_headless usa parametros legados sem efeito
 Evidencia:

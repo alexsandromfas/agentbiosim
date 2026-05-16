@@ -2,6 +2,10 @@
 Teste mínimo para garantir que filhos herdam a cor do pai.
 Este teste evita carregar a UI (pygame) e usa as fábricas existentes.
 """
+from _path import ensure_repo_root_on_path
+
+ensure_repo_root_on_path()
+
 from sim.controllers import Params
 from sim.entities import create_random_bacteria
 
