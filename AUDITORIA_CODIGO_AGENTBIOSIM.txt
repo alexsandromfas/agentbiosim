@@ -979,6 +979,23 @@ Impacto:
 Acao recomendada:
 - Indentar os prints para dentro dos metodos ou remover/logar adequadamente.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Prints de apply_bacteria_params e apply_predator_params foram indentados para
+  dentro dos respectivos metodos.
+- Importar sim.ui nao dispara mais mensagens de aplicacao de parametros.
+
+Teste/validacao:
+- Teste direto validou que import de sim.ui nao emite os prints de bacteria e
+  predadores, e que os metodos ainda imprimem quando chamados.
+- compileall passou para ui.py.
+- Benchmark p1_34_ui_apply_print_indent preservou exatamente os eventos do P1 #33.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.077468 contra 0.077884 no P1 #33.
+- Integridade critica preservada.
+
 
 35. Excecoes amplas escondem falhas reais
 Evidencia:

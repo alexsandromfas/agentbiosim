@@ -850,8 +850,8 @@ class SimulationUI(QMainWindow):
             nm = f'bacteria_neurons_layer_{i}'
             if nm in self.widgets:
                 self.params.set(nm, self._get_widget_value(nm))
-    # color picker button handles bacteria color persistence/propagation
-    print("Parâmetros de bactérias aplicados")
+        # color picker button handles bacteria color persistence/propagation
+        print("Parâmetros de bactérias aplicados")
 
     def apply_predator_params(self):
         for name in [
@@ -871,8 +871,8 @@ class SimulationUI(QMainWindow):
             nm = f'predator_neurons_layer_{i}'
             if nm in self.widgets:
                 self.params.set(nm, self._get_widget_value(nm))
-    # color picker button handles predator color persistence/propagation
-    print("Parâmetros de predadores aplicados")
+        # color picker button handles predator color persistence/propagation
+        print("Parâmetros de predadores aplicados")
 
     def apply_all_params(self):
         self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()

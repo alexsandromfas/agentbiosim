@@ -521,3 +521,26 @@ P1 #33 - Persistencia local de parametros fora de sim/
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Tempo e ruido, pois a mudanca e de persistencia
   de UI e nao participa da simulacao headless.
+
+P1 #34 - Indentacao dos prints de apply params
+- Run id: 20260516_023915_p1_34_ui_apply_print_indent
+- Alteracao: prints de apply_bacteria_params/apply_predator_params foram
+  indentados para dentro dos metodos.
+- Teste direto: PASS import de sim.ui nao emite prints de aplicacao; chamadas
+  diretas dos metodos ainda imprimem corretamente.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077468
+- wall_s: 47.410
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca so remove ruido de import/UI.
