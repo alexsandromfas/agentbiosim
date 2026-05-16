@@ -357,11 +357,22 @@ Acao recomendada:
 
 
 16. Locomocao nao usa inercia e nao permite re
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/actuators.py:49-58 define velocidade instantanea a partir da saida neural.
 - sim/controllers.py:137 define agents_inertia.
 - sim/ui.py:248-249 expoe agents_inertia.
 - Nenhum sistema usa agents_inertia.
+
+Correcao aplicada:
+- Locomotion.step agora usa agents_inertia para suavizar a velocidade comandada.
+- Para compatibilidade, agents_inertia <= 1.0 preserva o comportamento instantaneo antigo.
+- Valores maiores que 1.0 aplicam interpolacao parcial da velocidade atual ate a velocidade desejada.
+- Teste direto validou que agents_inertia=1 preserva resposta instantanea e agents_inertia=4 suaviza a velocidade.
+- Benchmark p1_16_agents_inertia preservou eventos e integridade do P1 #15, pois o substrato usa agents_inertia=1.0.
+
+Pendente conceitual:
+- Movimento para tras ainda nao foi habilitado; isso deve ser decisao explicita de modelo antes de trocar sigmoid por tanh.
 
 Impacto:
 - O comportamento fisico e mais "controle arcade" do que dinamica organica.

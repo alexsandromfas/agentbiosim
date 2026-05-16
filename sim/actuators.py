@@ -49,9 +49,17 @@ class Locomotion:
         agent.angle += steer_cmd * self.max_turn * dt
         agent.angle = self._normalize_angle(agent.angle)
         
-        # Velocidade instantânea comandada
-        agent.vx = math.cos(agent.angle) * desired_speed
-        agent.vy = math.sin(agent.angle) * desired_speed
+        desired_vx = math.cos(agent.angle) * desired_speed
+        desired_vy = math.sin(agent.angle) * desired_speed
+
+        inertia = max(0.0, float(params.get('agents_inertia', 1.0)))
+        if inertia <= 1.0:
+            agent.vx = desired_vx
+            agent.vy = desired_vy
+        else:
+            alpha = min(1.0, 1.0 / inertia)
+            agent.vx += (desired_vx - agent.vx) * alpha
+            agent.vy += (desired_vy - agent.vy) * alpha
         
         # Move agente
         agent.x += agent.vx * dt

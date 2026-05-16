@@ -120,3 +120,18 @@ P1 #15 - Modo estrito sem resgate populacional artificial
 - integrity_errors: 0
 - Leitura: dinamica padrao preservada; agora existe uma separacao clara entre
   modo UI com resgate e modo experimental estrito.
+
+P1 #16 - agents_inertia aplicado na locomocao
+- Run id: 20260516_012011_p1_16_agents_inertia
+- Alteracao: Locomotion.step suaviza velocidade quando agents_inertia > 1.0.
+  Valor <= 1.0 preserva comportamento instantaneo legado.
+- Teste direto: PASS agents_inertia=1 instantaneo; agents_inertia=4 suaviza.
+- ms/agente/step: 0.079218
+- wall_s: 48.477
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias max: 200.000
+- integrity_errors: 0
+- Leitura: dinamica preservada no substrato atual porque agents_inertia=1.0.
+  Movimento para tras continua pendente por ser uma decisao biologica separada.
