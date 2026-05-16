@@ -146,6 +146,8 @@ class Params:
 
             # UI/Debug
             'show_selected_details': True,
+            'export_substrate_include_brain_activations': False,
+            'export_substrate_pretty_json': False,
             # Debug toggles
             'debug_reproduction_color': False,
             # Colors (RGB tuples)

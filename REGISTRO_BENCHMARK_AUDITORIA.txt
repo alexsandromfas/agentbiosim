@@ -447,3 +447,28 @@ P1 #30 - Helper SoA para agentes
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Como o helper SoA ainda nao entra no runtime, o
   ganho de tempo deve ser tratado como variacao de benchmark, nao ganho real.
+
+P1 #31 - Export compacto de substrato
+- Run id: 20260516_022723_p1_31_compact_substrate_export
+- Alteracao: export de substrato nao grava/recalcula ativacoes neurais por
+  padrao; ativacoes e JSON legivel viraram opcoes explicitas; JSON compacto usa
+  separators sem espacos.
+- Teste direto: PASS export compacto sem last_brain_activations; export completo
+  recalculou ativacoes para 2 agentes quando a opcao foi ligada.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076765
+- wall_s: 46.980
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Tempo variou dentro do ruido, pois o benchmark
+  headless nao executa export.

@@ -279,6 +279,8 @@ class SimulationUI(QMainWindow):
             self.widgets[name]=w; grid4.addWidget(QLabel(label), r_auto,0); grid4.addWidget(w,r_auto,1); r_auto+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate',False)); cb.toggled.connect(self._on_toggle_auto_export); add_auto("Auto Export Substrato:",'auto_export_substrate',cb)
         w=_spin_double(0.1,1440.0,0.5,2); w.setValue(self.params.get('auto_export_interval_minutes',10.0)); add_auto("Intervalo export (min):",'auto_export_interval_minutes',w)
+        cb=QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations',False)); add_auto("Exportar ativacoes neurais:",'export_substrate_include_brain_activations',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('export_substrate_pretty_json',False)); add_auto("JSON legivel manual:",'export_substrate_pretty_json',cb)
         # Quando o intervalo muda e o auto-export estiver ativo, reagenda imediatamente
         def _on_interval_changed(_):
             if bool(self._get_widget_value('auto_export_substrate')):
@@ -872,8 +874,15 @@ class SimulationUI(QMainWindow):
 
     def apply_all_params(self):
         self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
-        self.params.set('auto_export_substrate', bool(self._get_widget_value('auto_export_substrate')), validate=False)
-        self.params.set('auto_export_interval_minutes', self._get_widget_value('auto_export_interval_minutes'), validate=False)
+        for name in [
+            'auto_export_substrate',
+            'export_substrate_include_brain_activations',
+            'export_substrate_pretty_json',
+        ]:
+            if name in self.widgets:
+                self.params.set(name, bool(self._get_widget_value(name)), validate=False)
+        if 'auto_export_interval_minutes' in self.widgets:
+            self.params.set('auto_export_interval_minutes', self._get_widget_value('auto_export_interval_minutes'), validate=False)
         print("Todos os parâmetros aplicados")
 
     # ------------------------------------------------------------------
@@ -1255,6 +1264,15 @@ class SimulationUI(QMainWindow):
             ui_snapshot = {k:self._get_widget_value(k) for k in self.widgets.keys()}
             from .random_utils import capture_rng_state
             rng_state = capture_rng_state()
+            include_brain_activations = bool(self.params.get('export_substrate_include_brain_activations', False))
+            pretty_json = manual and bool(self.params.get('export_substrate_pretty_json', False))
+            brain_outputs_recomputed = 0
+            brain_activations_recomputed = 0
+            if include_brain_activations and getattr(engine, 'scene_query', None) is None and hasattr(engine, '_update_spatial_hash'):
+                try:
+                    engine._update_spatial_hash(force=True)
+                except Exception:
+                    pass
             world = engine.world; camera = engine.camera
             foods_data = []
             for food in engine.entities['foods']:
@@ -1308,23 +1326,29 @@ class SimulationUI(QMainWindow):
                         ad['energy_loss_idle'] = getattr(energy_model,'v0_cost')
                     if 'vmax_cost' in exported_energy_keys and 'loss_move' not in exported_energy_keys:
                         ad['energy_loss_move'] = getattr(energy_model,'vmax_cost')
-                # On-demand forward/activations para snapshot completo sem manter arrays históricos
+                # Brain debug arrays are optional; recalculating them for every agent makes snapshots heavy.
                 out = getattr(agent,'last_brain_output', [])
-                if (not out) and brain and sensor:
+                if out:
+                    ad['last_brain_output'] = out
+                elif include_brain_activations and brain and sensor:
                     try:
                         sensor_inputs = sensor.sense(agent, self.engine.scene_query, self.params)
-                        out = brain.forward(sensor_inputs)
+                        ad['last_brain_output'] = brain.forward(sensor_inputs)
+                        brain_outputs_recomputed += 1
                     except Exception:
-                        out = []
-                ad['last_brain_output'] = out
-                acts = getattr(agent,'last_brain_activations', [])
-                if (not acts) and brain and sensor:
-                    try:
-                        sensor_inputs = sensor.sense(agent, self.engine.scene_query, self.params)
-                        acts = brain.activations(sensor_inputs)
-                    except Exception:
-                        acts = []
-                ad['last_brain_activations'] = acts
+                        ad['last_brain_output'] = []
+                else:
+                    ad['last_brain_output'] = []
+                if include_brain_activations:
+                    acts = getattr(agent,'last_brain_activations', [])
+                    if (not acts) and brain and sensor:
+                        try:
+                            sensor_inputs = sensor.sense(agent, self.engine.scene_query, self.params)
+                            acts = brain.activations(sensor_inputs)
+                            brain_activations_recomputed += 1
+                        except Exception:
+                            acts = []
+                    ad['last_brain_activations'] = acts
                 agents_data.append(ad)
             snapshot = {
                 'version':2,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
@@ -1332,11 +1356,22 @@ class SimulationUI(QMainWindow):
                 'camera': {'x': engine.camera.x,'y': engine.camera.y,'zoom': engine.camera.zoom},
                 'simulation': {'total_simulation_time': engine.total_simulation_time},
                 'rng_state': rng_state,
+                'export_options': {
+                    'include_brain_activations': include_brain_activations,
+                    'pretty_json': pretty_json,
+                    'brain_outputs_recomputed': brain_outputs_recomputed,
+                    'brain_activations_recomputed': brain_activations_recomputed,
+                },
                 'food': {'count': len(engine.entities['foods']), 'target': self.params.get('food_target',0)},
                 'foods': foods_data,
                 'agents': agents_data
             }
-            with open(path,'w', encoding='utf-8') as f: json.dump(snapshot, f, ensure_ascii=False)
+            dump_kwargs = {'ensure_ascii': False}
+            if pretty_json:
+                dump_kwargs['indent'] = 2
+            else:
+                dump_kwargs['separators'] = (',', ':')
+            with open(path,'w', encoding='utf-8') as f: json.dump(snapshot, f, **dump_kwargs)
             print(f"Substrato exportado para {path}")
             return path
         finally:

@@ -858,6 +858,31 @@ Acao recomendada:
 - Tornar activations opcionais no snapshot.
 - Salvar JSON com indent opcional apenas em modo humano; usar formato compacto ou comprimido para autosave.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Params agora tem export_substrate_include_brain_activations=False e
+  export_substrate_pretty_json=False como padrao.
+- A UI ganhou controles para exportar ativacoes neurais no substrato e para
+  salvar JSON legivel manualmente.
+- _export_substrate nao recalcula nem grava last_brain_activations por padrao.
+- Quando ativacoes sao explicitamente ligadas, o export garante SceneQuery e
+  recalcula o estado neural de debug sob demanda.
+- JSON passa a usar separators compactos por padrao; indent=2 fica opcional e
+  apenas para export manual.
+- Snapshot registra export_options com as escolhas e contadores de recalculo.
+
+Teste/validacao:
+- Teste direto validou export compacto sem last_brain_activations e export
+  completo com ativacoes recalculadas para 2 agentes.
+- compileall passou para controllers.py e ui.py.
+- Benchmark p1_31_compact_substrate_export preservou exatamente os eventos do P1 #30.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.076765 contra 0.074563 no P1 #30.
+- A diferenca e ruido esperado, porque o benchmark headless nao executa export.
+- Integridade critica preservada; outside_world_objects continuou 10.
+
 
 ===============================================================================
 PRIORIDADE P1 - UI, THREADS E PERSISTENCIA
