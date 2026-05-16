@@ -1009,6 +1009,31 @@ Acao recomendada:
 - Trocar por excecoes especificas onde possivel.
 - Em operacoes de UI, mostrar erro com traceback resumido em modo debug.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Params ganhou debug_tracebacks=False.
+- UI ganhou checkbox "Tracebacks no debug".
+- Adicionado _format_exception/_log_exception/_warn_exception em SimulationUI.
+- Erros de callbacks, thread Pygame, save/load de parametros, export/import de
+  agente/substrato e auto-export agora usam mensagem simples por padrao e
+  traceback resumido quando debug_tracebacks=True.
+
+Teste/validacao:
+- Teste direto validou que _format_exception retorna apenas a mensagem com debug
+  desligado e inclui traceback com debug ligado.
+- compileall passou para controllers.py e ui.py.
+- Benchmark p1_35_debug_tracebacks_ui preservou exatamente os eventos do P1 #34.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.076657 contra 0.077468 no P1 #34.
+- Integridade critica preservada.
+
+Pendente:
+- Ainda existem except Exception amplos em engine.py, ui.py e main.py. Esta etapa
+  nao tenta estreitar todos porque isso exige revisar caso a caso os modos de
+  falha esperados.
+
 
 ===============================================================================
 PRIORIDADE P2 - TESTES, HIGIENE E ORGANIZACAO

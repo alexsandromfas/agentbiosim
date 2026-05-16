@@ -544,3 +544,28 @@ P1 #34 - Indentacao dos prints de apply params
 - integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Mudanca so remove ruido de import/UI.
+
+P1 #35 - Tracebacks resumidos em modo debug da UI
+- Run id: 20260516_024307_p1_35_debug_tracebacks_ui
+- Alteracao: criado debug_tracebacks e helpers _format_exception/_log_exception/
+  _warn_exception; callbacks, thread Pygame, save/load, export/import e
+  auto-export passam a mostrar traceback resumido quando debug esta ligado.
+- Teste direto: PASS formatador retorna so mensagem com debug off e inclui
+  traceback com debug on.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076657
+- wall_s: 46.914
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Item parcial: excecoes amplas restantes precisam
+  ser estreitadas caso a caso.

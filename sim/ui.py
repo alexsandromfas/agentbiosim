@@ -23,6 +23,7 @@ import math
 import csv
 import json
 import threading
+import traceback
 from typing import Dict, Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QSize
@@ -193,6 +194,18 @@ class SimulationUI(QMainWindow):
             return w.text()
         return None
 
+    def _format_exception(self, exc: BaseException) -> str:
+        if self.params.get('debug_tracebacks', False):
+            message = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__, limit=12))
+            return message[-4000:]
+        return str(exc)
+
+    def _log_exception(self, prefix: str, exc: BaseException):
+        print(f"{prefix}: {self._format_exception(exc)}")
+
+    def _warn_exception(self, title: str, exc: BaseException):
+        QMessageBox.warning(self, title, self._format_exception(exc))
+
     # ---------------------- Tabs: Simulation -------------------------
     def _build_tab_simulation(self):
         tab = QWidget()
@@ -273,6 +286,7 @@ class SimulationUI(QMainWindow):
             self.widgets[name]=w; grid3.addWidget(QLabel(label), r_vis,0); grid3.addWidget(w,r_vis,1); r_vis+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('show_selected_details',True)); add_vis("Detalhes agente selecionado:",'show_selected_details',cb)
         cb=QCheckBox(); cb.setChecked(not self.params.get('disable_brain_activations',False)); cb.toggled.connect(self._on_toggle_brain_activations); add_vis("Mostrar ativações neurais:",'enable_brain_activations',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks',False)); add_vis("Tracebacks no debug:",'debug_tracebacks',cb)
         v.addWidget(g_vis)
         # Grupo: Auto Export
         g_auto = QGroupBox("Auto Export"); g_auto.setStyleSheet(card_style); grid4=QGridLayout(g_auto); r_auto=0
@@ -781,7 +795,7 @@ class SimulationUI(QMainWindow):
             if name == 'simple_render':
                 self.engine.send_command('change_renderer', simple=bool(value))
         except Exception as e:
-            print(f"Erro callback {name}: {e}")
+            self._log_exception(f"Erro callback {name}", e)
 
     def _init_pygame_view(self):
         try:
@@ -791,17 +805,17 @@ class SimulationUI(QMainWindow):
                 try:
                     self.pygame_view.run()
                 except Exception as e:
-                    print(f"Erro thread sim: {e}")
+                    self._log_exception("Erro thread sim", e)
             self._sim_thread = threading.Thread(target=runner, daemon=True)
             self._sim_thread.start()
         except Exception as e:
-            print(f"Falha ao inicializar pygame embutido: {e}")
+            self._log_exception("Falha ao inicializar pygame embutido", e)
 
     # ------------------------------------------------------------------
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','reproduction_min_age','reproduction_cooldown','show_selected_details']:
+        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -937,7 +951,7 @@ class SimulationUI(QMainWindow):
                 writer = csv.DictWriter(f, fieldnames=['name','value']); writer.writeheader(); writer.writerows(rows)
             print(f"Parâmetros UI salvos em {self._ui_params_csv}")
         except Exception as e:
-            print(f"Erro ao salvar parâmetros UI: {e}")
+            self._log_exception("Erro ao salvar parâmetros UI", e)
 
     def _load_ui_params_csv(self):
         load_path = self._ui_params_csv
@@ -1058,7 +1072,7 @@ class SimulationUI(QMainWindow):
                 self._schedule_next_auto_export(initial=True)
             print(f"Parâmetros UI carregados de {load_path}")
         except Exception as e:
-            print(f"Erro ao carregar parâmetros UI: {e}")
+            self._log_exception("Erro ao carregar parâmetros UI", e)
 
     # ------------------------------------------------------------------
     # Agent export/import
@@ -1077,7 +1091,7 @@ class SimulationUI(QMainWindow):
             self._export_selected_agent(agent, name)
             QMessageBox.information(self, "Exportar Agente", f"Agente exportado em {name}")
         except Exception as e:
-            QMessageBox.warning(self, "Erro", str(e))
+            self._warn_exception("Erro", e)
 
     def _export_selected_agent(self, agent, path_or_name: str) -> str:
         agents_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'agents'))
@@ -1177,7 +1191,7 @@ class SimulationUI(QMainWindow):
             self._load_agent_from_csv(path)
             QMessageBox.information(self, "Carregar Agente", "Carregado com sucesso.")
         except Exception as e:
-            QMessageBox.warning(self, "Erro", str(e))
+            self._warn_exception("Erro", e)
 
     def _load_agent_from_csv(self, path: str):
         data = {}
@@ -1216,7 +1230,7 @@ class SimulationUI(QMainWindow):
             out = self._export_substrate(prefix=prefix, manual=True)
             QMessageBox.information(self, "Exportar Substrato", f"Exportado: {os.path.basename(out)}")
         except Exception as e:
-            QMessageBox.warning(self, "Erro", str(e))
+            self._warn_exception("Erro", e)
 
     def open_import_substrate_window(self):
         manual_dir, auto_dir = self._get_substrate_dirs()
@@ -1227,7 +1241,7 @@ class SimulationUI(QMainWindow):
             self._import_substrate(path)
             QMessageBox.information(self, "Importar Substrato", "Importado.")
         except Exception as e:
-            QMessageBox.warning(self, "Erro", str(e))
+            self._warn_exception("Erro", e)
 
     def _export_substrate(self, prefix: str='substrato', manual: bool=True) -> str:
         import time
@@ -1546,7 +1560,7 @@ class SimulationUI(QMainWindow):
             path = self._export_substrate(manual=False)
             print(f"[AUTO-EXPORT] Concluído: {path}")
         except Exception as e:
-            print(f"[AUTO-EXPORT] Erro: {e}")
+            self._log_exception("[AUTO-EXPORT] Erro", e)
         finally:
             self._schedule_next_auto_export()
 
