@@ -43,3 +43,18 @@ P0 #8 - Remover fallback Tkinter inexistente
 - integrity_errors: 0
 - Leitura: dinamica preservada; alteracao afeta somente entrada/UI e reduz
   risco de mascarar erro real de PyQt como fallback inexistente.
+
+P0 #9 - Corrigir apply_substrate_params
+- Run id: 20260516_005815_p0_09_apply_substrate_params
+- Alteracao: apply_substrate_params usa engine.all_agents e
+  engine.entities['foods']; clamp circular/retangular sem atributos
+  inexistentes; except amplo removido.
+- Teste direto: PASS clamp circular e retangular com agente e comida.
+- ms/agente/step: 0.129317
+- wall_s: 79.142
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; correcao afeta aplicacao de parametros da UI
+  e evita falha silenciosa ao mudar formato/tamanho do substrato.

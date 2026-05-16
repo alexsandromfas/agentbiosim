@@ -200,9 +200,18 @@ Acao recomendada:
 
 
 9. apply_substrate_params referencia atributos inexistentes
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/ui.py:797 define apply_substrate_params.
 - sim/ui.py:810 usa self.engine.agents e self.engine.foods, que nao existem.
+
+Correcao aplicada:
+- apply_substrate_params agora usa self.engine.all_agents e self.engine.entities['foods'].
+- O clamp usa world.clamp_position para agentes e comidas.
+- O clamp tambem roda em mundo retangular, pois reduzir width/height pode deixar objetos fora.
+- O except amplo que escondia a falha foi removido; erros reais passam a aparecer.
+- Teste direto validou clamp circular e retangular sem acessar atributos inexistentes.
+- Benchmark p0_09_apply_substrate_params preservou eventos e integridade do P0 #8.
 
 Impacto:
 - Ao aplicar substrato circular, o clamp dos objetos falha e cai no except.

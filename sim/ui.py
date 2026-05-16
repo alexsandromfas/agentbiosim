@@ -799,21 +799,18 @@ class SimulationUI(QMainWindow):
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
         # world reconfigure
-        try:
-            shape = self.params.get('substrate_shape','rectangular')
-            radius = self.params.get('substrate_radius',350.0)
-            world = self.engine.world
-            world_w = self.params.get('world_w', world.width)
-            world_h = self.params.get('world_h', world.height)
-            world.configure(shape, radius, world_w, world_h)
-            if shape == 'circular':
-                for entity in list(self.engine.agents) + list(self.engine.foods):
-                    if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
-                        entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
-            # color pickers already update params and propagate; nothing else to do here
-            print("Parâmetros de substrato aplicados")
-        except Exception as e:
-            print(f"Erro apply substrate: {e}")
+        shape = self.params.get('substrate_shape','rectangular')
+        radius = self.params.get('substrate_radius',350.0)
+        world = self.engine.world
+        world_w = self.params.get('world_w', world.width)
+        world_h = self.params.get('world_h', world.height)
+        world.configure(shape, radius, world_w, world_h)
+        entities = list(self.engine.all_agents) + list(self.engine.entities.get('foods', []))
+        for entity in entities:
+            if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
+                entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
+        # color pickers already update params and propagate; nothing else to do here
+        print("Parâmetros de substrato aplicados")
 
     def apply_bacteria_params(self):
         for name in [
