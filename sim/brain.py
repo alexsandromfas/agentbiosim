@@ -209,18 +209,30 @@ class NeuralNet:
             strength: Desvio padrão das mutações
             structural_jitter: 0=desligado, 1=permite mudanças estruturais leves
         """
-        # Mutações nos pesos
-        for layer_idx in range(len(self.weights)):
-            for neuron_idx in range(len(self.weights[layer_idx])):
-                for weight_idx in range(len(self.weights[layer_idx][neuron_idx])):
-                    if random.random() < rate:
-                        self.weights[layer_idx][neuron_idx][weight_idx] += random.gauss(0, strength)
-        
-        # Mutações nos biases
-        for layer_idx in range(len(self.biases)):
-            for neuron_idx in range(len(self.biases[layer_idx])):
-                if random.random() < rate:
-                    self.biases[layer_idx][neuron_idx] += random.gauss(0, strength)
+        rate = max(0.0, min(1.0, float(rate)))
+        strength = max(0.0, float(strength))
+
+        # Mutacoes numericas vetorizadas nos pesos.
+        for layer_idx, weights in enumerate(self.weights):
+            weights_arr = weights if isinstance(weights, np.ndarray) else np.array(weights, dtype=np.float32)
+            if rate > 0.0 and strength > 0.0:
+                mask = np.random.random(weights_arr.shape) < rate
+                mutation_count = int(mask.sum())
+                if mutation_count:
+                    noise = np.random.normal(0.0, strength, mutation_count).astype(np.float32)
+                    weights_arr[mask] += noise
+            self.weights[layer_idx] = weights_arr
+
+        # Mutacoes numericas vetorizadas nos biases.
+        for layer_idx, biases in enumerate(self.biases):
+            biases_arr = biases if isinstance(biases, np.ndarray) else np.array(biases, dtype=np.float32)
+            if rate > 0.0 and strength > 0.0:
+                mask = np.random.random(biases_arr.shape) < rate
+                mutation_count = int(mask.sum())
+                if mutation_count:
+                    noise = np.random.normal(0.0, strength, mutation_count).astype(np.float32)
+                    biases_arr[mask] += noise
+            self.biases[layer_idx] = biases_arr
         
         # Mutações estruturais leves (se habilitado)
         if structural_jitter > 0:

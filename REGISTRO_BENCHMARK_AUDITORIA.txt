@@ -259,3 +259,26 @@ P1 #22 - Cooldown/idade minima opcional de reproducao
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica preservada porque os novos parametros padrao sao 0. Agora
   existe controle experimental para explosoes por reproducao em substeps.
+
+P1 #23 - Mutacao numerica vetorizada com NumPy
+- Run id: 20260516_015303_p1_23_vectorized_mutation
+- Alteracao: NeuralNet.mutate usa mascaras NumPy para pesos/biases, mantendo
+  mutacao estrutural separada e suporte a listas legadas.
+- Teste direto: PASS rate=0 preserva pesos, rate=1 altera pesos/biases e listas
+  legadas viram ndarray.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.078870
+- wall_s: 48.260
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: pequeno ganho de performance. A trajetoria mudou porque a fonte e a
+  ordem dos sorteios de mutacao mudaram de random para np.random; distribuicao
+  equivalente, sequencia diferente. Monitorar outside_world_objects.

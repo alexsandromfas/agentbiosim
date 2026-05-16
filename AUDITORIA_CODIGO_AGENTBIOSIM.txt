@@ -595,6 +595,28 @@ Impacto:
 Acao recomendada:
 - Usar numpy: mask = rng.random(W.shape) < rate; W += mask * rng.normal(...).
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- NeuralNet.mutate agora vetoriza mutacoes numericas de pesos e biases com
+  mascaras NumPy, preservando suporte a pesos/biases legados em listas.
+- rate e strength sao normalizados para faixas seguras.
+- Mutacao estrutural continua separada e com a regra anterior.
+
+Teste/validacao:
+- Teste direto validou rate=0 sem alterar pesos, rate=1 alterando pesos/biases
+  e conversao de pesos/biases legados em lista para ndarray.
+- compileall passou para brain.py.
+- Benchmark p1_23_vectorized_mutation rodou completo.
+
+Leitura do benchmark:
+- ms/agente/step caiu de 0.079638 para 0.078870 em relacao ao P1 #22.
+- Eventos mudaram: foods_eaten 2003->2028, predations 184->213,
+  births 187->217, deaths 3->4.
+- Essa mudanca e esperada porque a mutacao passou de random/random.gauss para
+  np.random, alterando a sequencia estocastica mesmo com distribuicao equivalente.
+- Integridade critica permaneceu ok (all_agents/entities, NaN, energia negativa,
+  spatial_hash). outside_world_objects subiu 12->20 e deve continuar monitorado.
+
 
 24. Retina batch ainda aloca muitos arrays por agente
 Evidencia:
