@@ -1154,6 +1154,24 @@ Impacto:
 Acao recomendada:
 - Transformar em teste pytest parametrizado e assertar equivalencia por grupo.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- tests/check_batch_forward.py agora calcula diffs dentro do loop por grupo.
+- analyze retorna a lista de resultados por grupo, permitindo teste automatizado.
+- Removido import math nao usado.
+- Adicionado tests/unit/test_check_batch_forward.py para assertar equivalencia
+  batched/per-agent por grupo com tolerancia.
+
+Teste/validacao:
+- python tests/check_batch_forward.py passou e reportou grupo OK.
+- python -m pytest passou: 5 testes.
+- Benchmark p2_39_check_batch_forward_groups preservou exatamente os eventos do P2 #38.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.076983 contra 0.076569 no P2 #38.
+- Integridade critica preservada.
+
 
 40. Arquivos duplicados/stale confundem manutencao
 Evidencia:
