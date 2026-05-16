@@ -660,3 +660,25 @@ P2 #39 - check_batch_forward por grupo
 - integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Mudanca corrige diagnostico auxiliar.
+
+P2 #40 - Arquivamento de arquivos stale
+- Run id: 20260516_025847_p2_40_archive_stale_files
+- Alteracao: controllers_fixed.py, ui_tk.txt e test_pyqt6_pygame.py movidos
+  para docs/archive, com README explicando que nao sao fonte ativa.
+- Teste direto: PASS rg sem referencias operacionais; python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077517
+- wall_s: 47.441
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca de organizacao apenas.

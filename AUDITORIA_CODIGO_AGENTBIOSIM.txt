@@ -1187,6 +1187,25 @@ Acao recomendada:
 - Mover historicos para docs/archive ou remover.
 - Manter uma unica implementacao viva por responsabilidade.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- sim/controllers_fixed.py movido para docs/archive/controllers_fixed.py.
+- tests/ui_tk.txt movido para docs/archive/ui_tk.txt.
+- tests/test_pyqt6_pygame.py movido para docs/archive/test_pyqt6_pygame.py.
+- Criado docs/archive/README.md explicando que estes arquivos nao sao fonte
+  ativa de manutencao.
+
+Teste/validacao:
+- rg confirmou que referencias restantes estao apenas na auditoria e no README
+  do arquivo arquivado.
+- python -m pytest passou: 5 testes.
+- Benchmark p2_40_archive_stale_files preservou exatamente os eventos do P2 #39.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.077517 contra 0.076983 no P2 #39.
+- Integridade critica preservada.
+
 
 41. Dados experimentais estao versionados junto com codigo
 Evidencia:
