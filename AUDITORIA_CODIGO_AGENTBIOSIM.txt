@@ -18,12 +18,18 @@ PRIORIDADE P0 - BUGS QUE AFETAM A VALIDADE DA SIMULACAO
 ===============================================================================
 
 1. Spatial hash e montado antes dos agentes se moverem
-Evidencia:
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Evidencia original:
 - sim/engine.py:359 inicia _simulate_substep
 - sim/engine.py:362 chama _update_spatial_hash()
 - sim/engine.py:371-381 atualiza agentes e move posicoes
 - sim/engine.py:384 usa interaction_system com o spatial_hash antigo
 - sim/engine.py:411 usa collision_system com o spatial_hash antigo
+
+Correcao aplicada:
+- O substep agora repoe comida antes de montar a cena usada pelos sensores.
+- Depois do movimento dos agentes, o spatial hash e reconstruido antes de interacao.
+- Se houve nascimento, morte ou predacao, o spatial hash e reconstruido novamente antes de colisao.
 
 Impacto:
 - Comer, predar e colidir usam posicoes antigas.
@@ -69,11 +75,18 @@ Acao recomendada:
 
 
 4. Cache do batch neural pode reutilizar pesos errados
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/brain.py:439 usa cache_key = (sizes_key, versions_key).
 - A chave nao inclui identidade dos cerebros nem hash dos pesos.
 - Engine.start limpa cache em sim/engine.py:121-126, mas reset/import/spawn nao garantem limpeza.
 - Importacao de substrato nao restaura brain.version em sim/ui.py:1342.
+
+Correcao aplicada:
+- A chave do cache agora inclui tuple((id(brain), brain.version), ...), alem da arquitetura.
+- O cache e limpo em reinicializacao de populacao, spawn de agente importado e importacao de substrato.
+- A importacao de substrato volta a restaurar brain_version.
+- Teste validou dois grupos com mesma arquitetura e mesma version, mas pesos diferentes.
 
 Impacto:
 - Dois grupos com mesma arquitetura e mesma sequencia de version podem receber stacks de pesos antigos.
@@ -89,11 +102,19 @@ Acao recomendada:
 
 
 5. Export/import de substrato nao e snapshot completo
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - Export salva apenas contagem de comida em sim/ui.py:1294.
 - Import recria comida aleatoria em sim/ui.py:1327-1329.
 - Export de agentes do substrato nao salva cor do agente.
 - Import em sim/ui.py:1342 carrega pesos/biases, mas nao restaura brain_version.
+
+Correcao aplicada:
+- Export de substrato agora salva a lista completa de foods com x, y, r, energy e color.
+- Import de substrato restaura foods exatamente quando a lista existe no snapshot.
+- O campo antigo food.count/food.target foi mantido para compatibilidade com snapshots legados.
+- Agentes exportados/importados no substrato agora preservam color e brain_version.
+- Teste round-trip validou contagens, posicoes/atributos de comida, cor e brain_version.
 
 Impacto:
 - Um substrato importado nao reproduz o estado exportado.
@@ -108,11 +129,16 @@ Acao recomendada:
 
 
 6. Engine.start sempre reinicializa a populacao
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/engine.py:116 define start.
 - sim/engine.py:129 chama _initialize_population().
 - sim/ui.py:874-878 chama engine.start() quando usuario clica Iniciar.
 - sim/ui.py:1304 importa substrato, mas se isso ocorrer antes de start, start apaga o substrato importado.
+
+Correcao aplicada:
+- Engine.start agora inicializa populacao somente quando o engine esta vazio, ou quando initialize=True e passado explicitamente.
+- Teste validou que start preserva estado ja carregado e ainda inicializa um engine vazio.
 
 Impacto:
 - Usuario pode importar um substrato antes de iniciar e perder tudo ao clicar Iniciar.
@@ -199,10 +225,17 @@ Acao recomendada:
 
 
 12. Exportacao de agente ignora caminho escolhido e duplica sufixo
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/ui.py:1045 chama _export_selected_agent com basename.
 - sim/ui.py:1053 sempre salva em agents_dir com filename = f"{name}.agent.csv".
 - Arquivos existentes em agents/ incluem nomes como vermelho.agent.agent.csv.
+
+Correcao aplicada:
+- A exportacao de agente agora passa o caminho completo escolhido pela UI.
+- _export_selected_agent aceita caminho completo ou nome simples.
+- O sufixo .agent.csv e normalizado uma unica vez.
+- Teste validou que um caminho escolhido fora de agents/ e respeitado e nao vira .agent.agent.csv.
 
 Impacto:
 - A UI informa que salvou no caminho escolhido, mas o arquivo e gravado na pasta agents/.
@@ -641,16 +674,16 @@ ORDEM SUGERIDA DE CORRECAO
 
 Fase 1 - Corrigir validade do estado da simulacao:
 1. [FEITO; TESTADO/VALIDADO] add_bacteria_at deve atualizar all_agents.
-2. Corrigir ordem do spatial hash no substep.
+2. [FEITO; TESTADO/VALIDADO] Corrigir ordem do spatial hash no substep.
 3. [FEITO; TESTADO/VALIDADO] Remover predados de all_agents antes da reproducao.
-4. Corrigir cache neural ou desabilitar temporariamente.
+4. [FEITO; TESTADO/VALIDADO] Corrigir cache neural ou desabilitar temporariamente.
 5. Corrigir tempo pausado e fixed timestep.
 
 Fase 2 - Corrigir persistencia/import/export:
-1. Snapshot completo de foods.
-2. Restaurar cor, brain_version e estado dinamico.
-3. Corrigir exportacao de agente por path completo.
-4. Separar start() de initialize_population().
+1. [FEITO; TESTADO/VALIDADO] Snapshot completo de foods.
+2. [FEITO; TESTADO/VALIDADO] Restaurar cor, brain_version e estado dinamico.
+3. [FEITO; TESTADO/VALIDADO] Corrigir exportacao de agente por path completo.
+4. [FEITO; TESTADO/VALIDADO] Separar start() de initialize_population().
 
 Fase 3 - Testes minimos obrigatorios:
 1. Invariante entities <-> all_agents.

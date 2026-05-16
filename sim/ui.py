@@ -1042,16 +1042,23 @@ class SimulationUI(QMainWindow):
         if not name.endswith('.agent.csv'):
             name += '.agent.csv'
         try:
-            self._export_selected_agent(agent, os.path.splitext(os.path.basename(name))[0])
+            self._export_selected_agent(agent, name)
             QMessageBox.information(self, "Exportar Agente", f"Agente exportado em {name}")
         except Exception as e:
             QMessageBox.warning(self, "Erro", str(e))
 
-    def _export_selected_agent(self, agent, name: str) -> str:
+    def _export_selected_agent(self, agent, path_or_name: str) -> str:
         agents_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'agents'))
-        os.makedirs(agents_dir, exist_ok=True)
-        filename = f"{name}.agent.csv"
-        path = os.path.join(agents_dir, filename)
+        if os.path.dirname(path_or_name):
+            path = path_or_name
+            if not path.endswith('.agent.csv'):
+                path += '.agent.csv'
+        else:
+            filename = path_or_name
+            if not filename.endswith('.agent.csv'):
+                filename += '.agent.csv'
+            path = os.path.join(agents_dir, filename)
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         # Garante que todos os widgets atuais estejam aplicados aos params antes do export
         try:
             self.apply_all_params()
@@ -1234,6 +1241,19 @@ class SimulationUI(QMainWindow):
             params_snapshot = dict(self.params._data)
             ui_snapshot = {k:self._get_widget_value(k) for k in self.widgets.keys()}
             world = engine.world; camera = engine.camera
+            foods_data = []
+            for food in engine.entities['foods']:
+                fd = {
+                    'x': food.x,
+                    'y': food.y,
+                    'r': food.r,
+                    'energy': getattr(food, 'energy', food.r * food.r)
+                }
+                try:
+                    fd['color'] = list(getattr(food, 'color', (220, 30, 30)))
+                except Exception:
+                    pass
+                foods_data.append(fd)
             agents_data = []
             for agent in engine.all_agents:
                 brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
@@ -1242,6 +1262,10 @@ class SimulationUI(QMainWindow):
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
                     'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0)
                 }
+                try:
+                    ad['color'] = list(getattr(agent, 'color', (220, 220, 220)))
+                except Exception:
+                    pass
                 if brain and hasattr(brain,'sizes'):
                     ad['brain_sizes'] = list(brain.sizes); ad['brain_version'] = getattr(brain,'version',0)
                     try:
@@ -1292,9 +1316,10 @@ class SimulationUI(QMainWindow):
                 'camera': {'x': engine.camera.x,'y': engine.camera.y,'zoom': engine.camera.zoom},
                 'simulation': {'total_simulation_time': engine.total_simulation_time},
                 'food': {'count': len(engine.entities['foods']), 'target': self.params.get('food_target',0)},
+                'foods': foods_data,
                 'agents': agents_data
             }
-            with open(path,'w', encoding='utf-8') as f: json.dump(snapshot, f)
+            with open(path,'w', encoding='utf-8') as f: json.dump(snapshot, f, ensure_ascii=False)
             print(f"Substrato exportado para {path}")
             return path
         finally:
@@ -1322,11 +1347,24 @@ class SimulationUI(QMainWindow):
             # Clear current entities
             for lst in self.engine.entities.values(): lst.clear()
             self.engine.all_agents.clear(); self.engine.selected_agent = None
-            from .entities import create_random_food
-            food_count = int(data.get('food', {}).get('count', 0))
-            for _ in range(food_count):
-                food = create_random_food(self.engine.entities['foods'], self.params, world.width, world.height)
-                self.engine.entities['foods'].append(food)
+            from .entities import create_random_food, Food
+            food_items = data.get('foods') or data.get('food_items')
+            if food_items:
+                for fd in food_items:
+                    food = Food(fd.get('x', 0.0), fd.get('y', 0.0), fd.get('r', 4.5))
+                    food.energy = fd.get('energy', getattr(food, 'energy', food.r * food.r))
+                    try:
+                        color = fd.get('color')
+                        if isinstance(color, (list, tuple)) and len(color) >= 3:
+                            food.color = (int(color[0]), int(color[1]), int(color[2]))
+                    except Exception:
+                        pass
+                    self.engine.entities['foods'].append(food)
+            else:
+                food_count = int(data.get('food', {}).get('count', 0))
+                for _ in range(food_count):
+                    food = create_random_food(self.engine.entities['foods'], self.params, world.width, world.height)
+                    self.engine.entities['foods'].append(food)
             from .brain import NeuralNet
             from .sensors import RetinaSensor
             from .actuators import Locomotion, EnergyModel
@@ -1340,6 +1378,7 @@ class SimulationUI(QMainWindow):
                         bw = ad.get('brain_weights', []); bb = ad.get('brain_biases', [])
                         if bw and bb and len(bw)==len(bb):
                             brain.weights = bw; brain.biases = bb
+                        brain.version = int(ad.get('brain_version', getattr(brain, 'version', 0)))
                     except Exception: pass
                 sensor = RetinaSensor(
                     retina_count=ad.get('sensor_retina_count',18), vision_radius=ad.get('sensor_vision_radius',120.0),
@@ -1364,9 +1403,20 @@ class SimulationUI(QMainWindow):
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
                 agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
                 agent.last_brain_output = ad.get('last_brain_output', []); agent.last_brain_activations = ad.get('last_brain_activations', [])
+                try:
+                    color = ad.get('color')
+                    if isinstance(color, (list, tuple)) and len(color) >= 3:
+                        agent.color = (int(color[0]), int(color[1]), int(color[2]))
+                except Exception:
+                    pass
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
+            try:
+                from .brain import clear_multi_brain_cache
+                clear_multi_brain_cache()
+            except Exception:
+                pass
             print(f"Substrato importado de {path}")
         finally:
             self.widgets['paused'].setChecked(prev_paused)

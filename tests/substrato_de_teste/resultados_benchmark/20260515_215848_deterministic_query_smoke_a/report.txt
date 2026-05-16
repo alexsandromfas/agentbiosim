@@ -1,0 +1,36 @@
+RELATORIO DO BENCHMARK DO SUBSTRATO DE TESTE
+Run id: 20260515_215848_deterministic_query_smoke_a
+Commit: 7ed46e0
+Substrato: C:\Users\Alex Martins\Desktop\Meus Projetos\simulacoes_biologicas\AgentBioSim_Clonado_GIT_2026\agentbiosim\tests\substrato_de_teste\substrato_de_teste_20260515_210719.json
+Duracao solicitada: 2.0s | FPS logico: 60
+Wall time: 15.515s | Steps: 120 | ms/agente/step: 0.126757
+
+Contagens:
+- Inicial: {'bacteria': 1000, 'predators': 20, 'foods': 480, 'all_agents': 1020}
+- Final:   {'bacteria': 1000, 'predators': 20, 'foods': 457, 'all_agents': 1020}
+
+Eventos acumulados:
+- Comidas consumidas: 402
+- Predacoes: 39
+- Nascimentos: 39
+- Mortes por energia: 0
+
+Energia final:
+- Bacterias: {'count': 1000, 'mean': 160.40604545757338, 'std': 42.476486181095225, 'min': 2.819271301657677, 'p05': 80.48230133054435, 'p25': 131.5193106447322, 'p50': 179.83550528821905, 'p75': 194.36555145984116, 'p95': 199.30041428437477, 'max': 206.2220657156031}
+- Predadores: {'count': 20, 'mean': 392.264060825396, 'std': 7.827639089675904, 'min': 374.75659767285737, 'p05': 376.69149812957306, 'p25': 387.33916308123594, 'p50': 396.11108899230027, 'p75': 397.706196486657, 'p95': 399.3875000118262, 'max': 399.6250002313642}
+
+Integridade final:
+{"all_agents_missing_from_entities": 0, "entities_missing_from_all_agents": 0, "duplicate_all_agents": 0, "bad_numeric_objects": 0, "outside_world_objects": 21, "negative_energy_objects": 0, "spatial_hash_sample_misses": 0}
+
+Top secoes do profiler:
+- agents_update: total=12.0123s calls=120 avg=100.102ms
+- agent_sensor: total=9.9535s calls=240 avg=41.473ms
+- spatial_hash: total=1.0962s calls=280 avg=3.915ms
+- collision: total=1.0951s calls=120 avg=9.126ms
+- interaction: total=1.0711s calls=120 avg=8.926ms
+- agent_brain_forward: total=0.9119s calls=240 avg=3.800ms
+- agent_locomotion: total=0.2711s calls=122394 avg=0.002ms
+- agent_energy: total=0.2347s calls=122394 avg=0.002ms
+- food_control: total=0.0617s calls=120 avg=0.514ms
+- reproduction: total=0.0613s calls=120 avg=0.511ms
+- death: total=0.0269s calls=120 avg=0.224ms

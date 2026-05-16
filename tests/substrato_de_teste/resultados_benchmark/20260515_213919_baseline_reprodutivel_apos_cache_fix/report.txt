@@ -1,0 +1,36 @@
+RELATORIO DO BENCHMARK DO SUBSTRATO DE TESTE
+Run id: 20260515_213919_baseline_reprodutivel_apos_cache_fix
+Commit: 7ed46e0
+Substrato: C:\Users\Alex Martins\Desktop\Meus Projetos\simulacoes_biologicas\AgentBioSim_Clonado_GIT_2026\agentbiosim\tests\substrato_de_teste\substrato_de_teste_20260515_210719.json
+Duracao solicitada: 10.0s | FPS logico: 60
+Wall time: 62.333s | Steps: 600 | ms/agente/step: 0.101878
+
+Contagens:
+- Inicial: {'bacteria': 1000, 'predators': 20, 'foods': 480, 'all_agents': 1020}
+- Final:   {'bacteria': 1000, 'predators': 20, 'foods': 461, 'all_agents': 1020}
+
+Eventos acumulados:
+- Comidas consumidas: 2047
+- Predacoes: 201
+- Nascimentos: 205
+- Mortes por energia: 4
+
+Energia final:
+- Bacterias: {'count': 1000, 'mean': 161.09992239400486, 'std': 42.3838175109726, 'min': 0.6687524358961104, 'p05': 80.59631269477737, 'p25': 130.2723156926272, 'p50': 181.31831044899485, 'p75': 194.1507039468031, 'p95': 198.95568722308406, 'max': 277.2375155263833}
+- Predadores: {'count': 20, 'mean': 392.15972827025627, 'std': 7.479662852753033, 'min': 373.55093150065085, 'p05': 379.7996697590763, 'p25': 388.526757182598, 'p50': 395.40388742106813, 'p75': 397.8692356134419, 'p95': 399.2967232034447, 'max': 399.8800448258926}
+
+Integridade final:
+{"all_agents_missing_from_entities": 0, "entities_missing_from_all_agents": 0, "duplicate_all_agents": 0, "bad_numeric_objects": 0, "outside_world_objects": 16, "negative_energy_objects": 0, "spatial_hash_sample_misses": 0}
+
+Top secoes do profiler:
+- agents_update: total=51.0504s calls=600 avg=85.084ms
+- agent_sensor: total=39.1828s calls=1200 avg=32.652ms
+- agent_brain_forward: total=5.9188s calls=1200 avg=4.932ms
+- spatial_hash: total=5.3586s calls=1406 avg=3.811ms
+- collision: total=2.6265s calls=600 avg=4.378ms
+- interaction: total=2.2237s calls=600 avg=3.706ms
+- agent_locomotion: total=1.4020s calls=611947 avg=0.002ms
+- agent_energy: total=1.2365s calls=611947 avg=0.002ms
+- food_control: total=0.3592s calls=600 avg=0.599ms
+- reproduction: total=0.2996s calls=600 avg=0.499ms
+- death: total=0.1174s calls=600 avg=0.196ms

@@ -1,0 +1,36 @@
+RELATORIO DO BENCHMARK DO SUBSTRATO DE TESTE
+Run id: 20260515_213346_smoke_substrate_metrics
+Commit: 7ed46e0
+Substrato: C:\Users\Alex Martins\Desktop\Meus Projetos\simulacoes_biologicas\AgentBioSim_Clonado_GIT_2026\agentbiosim\tests\substrato_de_teste\substrato_de_teste_20260515_210719.json
+Duracao solicitada: 1.0s | FPS logico: 60
+Wall time: 4.128s | Steps: 60 | ms/agente/step: 0.067456
+
+Contagens:
+- Inicial: {'bacteria': 1000, 'predators': 20, 'foods': 480, 'all_agents': 1020}
+- Final:   {'bacteria': 1000, 'predators': 20, 'foods': 461, 'all_agents': 1020}
+
+Eventos acumulados:
+- Comidas consumidas: 179
+- Predacoes: 22
+- Nascimentos: 22
+- Mortes por energia: 0
+
+Energia final:
+- Bacterias: {'count': 1000, 'mean': 158.63145266602896, 'std': 42.48607976772027, 'min': 5.818078176968379, 'p05': 80.4452371411136, 'p25': 127.36128230748167, 'p50': 177.69666242757984, 'p75': 193.1643233020487, 'p95': 199.05153482979046, 'max': 273.60204563032676}
+- Predadores: {'count': 20, 'mean': 392.03486536848067, 'std': 10.624087541203634, 'min': 352.705894523834, 'p05': 379.49718603705077, 'p25': 389.5332918447207, 'p50': 396.2517171485526, 'p75': 398.78556117551, 'p95': 400.0, 'max': 400.0}
+
+Integridade final:
+{"all_agents_missing_from_entities": 0, "entities_missing_from_all_agents": 0, "duplicate_all_agents": 0, "bad_numeric_objects": 0, "outside_world_objects": 16, "negative_energy_objects": 0, "spatial_hash_sample_misses": 0}
+
+Top secoes do profiler:
+- agents_update: total=3.3447s calls=60 avg=55.746ms
+- agent_sensor: total=2.6740s calls=120 avg=22.284ms
+- spatial_hash: total=0.3591s calls=142 avg=2.529ms
+- agent_brain_forward: total=0.2841s calls=120 avg=2.367ms
+- collision: total=0.1553s calls=60 avg=2.588ms
+- interaction: total=0.1377s calls=60 avg=2.295ms
+- agent_locomotion: total=0.0932s calls=61197 avg=0.002ms
+- agent_energy: total=0.0781s calls=61197 avg=0.001ms
+- reproduction: total=0.0214s calls=60 avg=0.357ms
+- food_control: total=0.0157s calls=60 avg=0.262ms
+- death: total=0.0085s calls=60 avg=0.141ms

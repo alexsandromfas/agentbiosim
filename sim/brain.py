@@ -335,8 +335,11 @@ class NeuralNet:
 # ============================================================
 from typing import Sequence, Tuple, Dict, Any
 
-# Cache simples: chave = (tuple(sizes), tuple(versions)) -> (weights_stack_list, biases_stack_list)
-_multi_brain_cache: Dict[Tuple[Tuple[int, ...], Tuple[int, ...]], Tuple[list, list]] = {}
+# Cache simples: chave = (tuple(sizes), tuple((id(brain), version), ...)).
+# A identidade dos cérebros é parte da chave para evitar reutilizar pesos de
+# outro grupo que por acaso tenha a mesma arquitetura e a mesma sequência de
+# versões.
+_multi_brain_cache: Dict[Tuple[Tuple[int, ...], Tuple[Tuple[int, int], ...]], Tuple[list, list]] = {}
 # Ordem de inserção para LRU simples
 _multi_brain_cache_order: list = []  # lista de keys
 # Limites (podem ser ajustados via setters externos)
@@ -435,8 +438,8 @@ def _build_stacks(brains: Sequence[NeuralNet]):
             bias_stacks.append(np.stack(layer_biases, axis=0))
         return weight_stacks, bias_stacks
     sizes_key = tuple(brains[0].sizes)
-    versions_key = tuple(b.version for b in brains)
-    cache_key = (sizes_key, versions_key)
+    brain_identity_key = tuple((id(b), int(getattr(b, 'version', 0))) for b in brains)
+    cache_key = (sizes_key, brain_identity_key)
     cached = _multi_brain_cache.get(cache_key)
     if cached is not None:
         # move para o final (mais recente)
@@ -552,10 +555,10 @@ def get_multi_brain_cache_stats(limit_detail: int = 5) -> dict:
     entry_sizes.sort(reverse=True)
     top = []
     for b, key in entry_sizes[:limit_detail]:
-        sizes_key, versions_key = key
+        sizes_key, brain_identity_key = key
         top.append({
             'sizes': sizes_key,
-            'num_brains': len(versions_key),
+            'num_brains': len(brain_identity_key),
             'approx_mb': round(b / (1024*1024), 2)
         })
     return {

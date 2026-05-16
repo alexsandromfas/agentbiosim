@@ -24,6 +24,8 @@ class InteractionSystem:
     def __init__(self):
         self._foods_to_remove: Set['Food'] = set()
         self._agents_to_remove: Set['Agent'] = set()
+        self.last_foods_eaten = 0
+        self.last_agents_predated = 0
     
     def apply(self, bacteria: List['Bacteria'], predators: List['Predator'],
               foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params') -> Set['Agent']:
@@ -43,6 +45,8 @@ class InteractionSystem:
 
         # Remove bactérias predadas
         bacteria[:] = [b for b in bacteria if b not in self._agents_to_remove]
+        self.last_foods_eaten = len(self._foods_to_remove)
+        self.last_agents_predated = len(self._agents_to_remove)
         return set(self._agents_to_remove)
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
@@ -120,6 +124,9 @@ class ReproductionSystem:
     Sistema de reprodução para agentes.
     Aplica regras de reprodução assexuada com mutação.
     """
+
+    def __init__(self):
+        self.last_births = []
     
     def apply(self, agents: List['Agent'], params: 'Params') -> List['Agent']:
         """
@@ -133,6 +140,7 @@ class ReproductionSystem:
             Lista de novos agentes criados
         """
         new_agents = []
+        self.last_births = []
         
         # Determina limites de população por tipo
         bacteria_count = sum(1 for a in agents if not getattr(a, 'is_predator', False))
@@ -170,6 +178,7 @@ class ReproductionSystem:
                 print(f"Erro na reprodução: {e}")
                 continue
         
+        self.last_births = list(new_agents)
         return new_agents
 
 
@@ -183,6 +192,7 @@ class DeathSystem:
     def __init__(self, max_deaths_per_step: int = 1):
         self.max_deaths_per_step = max_deaths_per_step
         self._death_queue = []  # Fila de agentes marcados para morrer
+        self.last_deaths = []
     
     def apply(self, bacteria: List['Bacteria'], predators: List['Predator'], 
               params: 'Params') -> tuple:
@@ -197,6 +207,8 @@ class DeathSystem:
         Returns:
             Tuple (bacteria_survivors, predator_survivors)
         """
+        self.last_deaths = []
+
         # Processa morte de bactérias
         bacteria_survivors = self._process_deaths(
             bacteria,
@@ -240,6 +252,7 @@ class DeathSystem:
 
         death_candidates.sort(key=lambda a: a.energy)
         agents_to_kill = death_candidates[:deaths_available]
+        self.last_deaths.extend(agents_to_kill)
         for a in death_candidates[deaths_available:]:
             a.energy = max(a.energy, death_energy + 0.001)
         return [a for a in agents if a not in agents_to_kill]

@@ -113,8 +113,12 @@ class Engine:
         self.loaded_agent_prototypes = {}
         self.current_agent_prototype = None  # nome da chave ativa
     
-    def start(self):
-        """Inicia a simulação."""
+    def start(self, initialize: Optional[bool] = None):
+        """Inicia a simulação.
+
+        Por padrão, só cria uma população nova se o engine estiver vazio.
+        Isso preserva substratos importados antes de clicar em "Iniciar".
+        """
         self.running = True
         # Limpa/Configura cache multi_brain para evitar crescimento prévio
         try:
@@ -126,7 +130,10 @@ class Engine:
             clear_multi_brain_cache(verbose=True)
         except Exception:
             pass
-        self._initialize_population()
+        has_loaded_state = bool(self.all_agents or self.entities['foods'])
+        should_initialize = (not has_loaded_state) if initialize is None else bool(initialize)
+        if should_initialize:
+            self._initialize_population()
     
     def stop(self):
         """Para a simulação."""
@@ -359,15 +366,16 @@ class Engine:
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
-        with profile_section('spatial_hash'):
-            self._update_spatial_hash()
-
         with profile_section('food_control'):
             target_food = self.params.get('food_target', 300)
             new_foods = self.food_controller.update(
                 self.entities['foods'], target_food, self.world.width, self.world.height, self.params, dt
             )
             self.entities['foods'].extend(new_foods)
+
+        # Cena atual para sensores: inclui comida recém-reposta e posições pré-movimento.
+        with profile_section('spatial_hash'):
+            self._update_spatial_hash()
 
         from .entities import update_agents_batch
         with profile_section('agents_update'):
@@ -381,12 +389,18 @@ class Engine:
             for group in agent_groups.values():
                 update_agents_batch(group, dt, self.world, self.scene_query, self.params, selected_agent=self.selected_agent)
 
+        # Agentes se moveram; interações precisam do hash com as posições atuais.
+        with profile_section('spatial_hash'):
+            self._update_spatial_hash()
+
+        topology_changed = False
         with profile_section('interaction'):
             removed_agents = self.interaction_system.apply(
                 self.entities['bacteria'], self.entities['predators'],
                 self.entities['foods'], self.spatial_hash, self.params
             )
             if removed_agents:
+                topology_changed = True
                 self.all_agents = [a for a in self.all_agents if a not in removed_agents]
                 if self.selected_agent in removed_agents:
                     self.selected_agent = None
@@ -402,8 +416,10 @@ class Engine:
                     self.entities['bacteria'].append(agent)
             # Acrescenta em bloco (ordem não crítica)
             self.all_agents.extend(new_agents)
+            topology_changed = True
 
         with profile_section('death'):
+            before_death_count = len(self.entities['bacteria']) + len(self.entities['predators'])
             surviving_bacteria, surviving_predators = self.death_system.apply(
                 self.entities['bacteria'], self.entities['predators'], self.params
             )
@@ -411,6 +427,14 @@ class Engine:
             self.entities['predators'] = surviving_predators
             # Reconstroi lista unificada (custo O(n) mas uma vez por frame; elimina concatenações)
             self.all_agents = surviving_bacteria + surviving_predators
+            after_death_count = len(self.all_agents)
+            if after_death_count != before_death_count:
+                topology_changed = True
+
+        if topology_changed:
+            # Nascimentos, mortes ou predação mudam os objetos presentes no broad-phase.
+            with profile_section('spatial_hash'):
+                self._update_spatial_hash()
 
         with profile_section('collision'):
             self.collision_system.apply(self.all_agents, self.spatial_hash, self.params)
@@ -588,11 +612,22 @@ class Engine:
                 self.entities['bacteria'].append(agent)
             self.all_agents.append(agent)
             self.selected_agent = agent
+            try:
+                from .brain import clear_multi_brain_cache
+                clear_multi_brain_cache()
+            except Exception:
+                pass
         except Exception as e:
             print(f"Falha ao spawnar protótipo: {e}")
     
     def _initialize_population(self):
         """Inicializa população baseada nos parâmetros."""
+        try:
+            from .brain import clear_multi_brain_cache
+            clear_multi_brain_cache()
+        except Exception:
+            pass
+
         # Limpa entidades existentes
         for entity_list in self.entities.values():
             entity_list.clear()
