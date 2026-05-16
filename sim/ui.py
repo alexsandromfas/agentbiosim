@@ -147,6 +147,8 @@ class SimulationUI(QMainWindow):
                             value_num = int(value)
                     except Exception:
                         return
+                elif value is None and name == 'random_seed':
+                    value_num = -1
                 elif isinstance(value, float):
                     value_num = int(round(value))
                 else:
@@ -230,6 +232,10 @@ class SimulationUI(QMainWindow):
         w = _spin_int(0, 10)
         w.setValue(self.params.get('retina_skip', 0))
         add_perf("Retina skip:", 'retina_skip', w)
+
+        w = _spin_int(-1, 2147483647)
+        w.setValue(int(self.params.get('random_seed', -1)))
+        add_perf("Seed RNG (-1 aleatoria):", 'random_seed', w)
 
         # Retina vision mode selector (single = centroid per object, fullbody = span-aware)
         mode_cb = QComboBox()
@@ -783,7 +789,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
+        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -1238,6 +1244,8 @@ class SimulationUI(QMainWindow):
             path = os.path.join(out_dir, filename)
             params_snapshot = dict(self.params._data)
             ui_snapshot = {k:self._get_widget_value(k) for k in self.widgets.keys()}
+            from .random_utils import capture_rng_state
+            rng_state = capture_rng_state()
             world = engine.world; camera = engine.camera
             foods_data = []
             for food in engine.entities['foods']:
@@ -1313,6 +1321,7 @@ class SimulationUI(QMainWindow):
                 'world': {'width': world.width,'height': world.height,'shape': world.shape,'radius': world.radius},
                 'camera': {'x': engine.camera.x,'y': engine.camera.y,'zoom': engine.camera.zoom},
                 'simulation': {'total_simulation_time': engine.total_simulation_time},
+                'rng_state': rng_state,
                 'food': {'count': len(engine.entities['foods']), 'target': self.params.get('food_target',0)},
                 'foods': foods_data,
                 'agents': agents_data
@@ -1410,6 +1419,13 @@ class SimulationUI(QMainWindow):
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
+            rng_state = data.get('rng_state') or data.get('random_state')
+            if rng_state:
+                try:
+                    from .random_utils import restore_rng_state
+                    restore_rng_state(rng_state)
+                except Exception as exc:
+                    print(f"Falha ao restaurar estado RNG: {exc}")
             try:
                 from .brain import clear_multi_brain_cache
                 clear_multi_brain_cache()

@@ -192,3 +192,25 @@ P1 #19 - Spawn inicial usa raio final de corpo
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica preservada. A correcao afeta criacao nova/populacao inicial,
   sem alterar o substrato carregado ja com agentes.
+
+P1 #20 - Seed experimental e estado RNG em snapshots
+- Run id: 20260516_014031_p1_20_experimental_seed_state
+- Alteracao: Params ganhou random_seed; Engine aplica seed ao inicializar/resetar
+  populacao; snapshots exportam/importam estado RNG de random e numpy.random;
+  benchmark registra params_random_seed.
+- Teste direto: PASS normalize_seed, apply_global_seed repetivel, captura/restauro
+  de RNG e Engine com mesma seed gerando populacao inicial identica.
+- Status: parcial, porque RNG injetado por subsistema ainda fica pendente.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079914
+- wall_s: 48.903
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. O ganho principal e reprodutibilidade para
+  reset/start e continuidade de snapshots novos com rng_state.

@@ -29,6 +29,7 @@ class Params:
             'world_w': 1000.0,  # Largura do substrato (retangular)
             'world_h': 700.0,   # Altura do substrato (retangular)
             'substrate_radius': 400.0,  # Raio do substrato (circular)
+            'random_seed': -1,  # -1 disables fixed seeding; >=0 makes reset/start reproducible
             'max_deaths_per_step': 5,
             'population_min_rescue_enabled': True,
             
@@ -182,6 +183,11 @@ class Params:
     def _validate_param(self, key: str, value: Any) -> Any:
         """Valida e clamp valores de parâmetros."""
         # Validações básicas por padrão de nome
+        if key == 'random_seed':
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return -1
         if 'count' in key or 'limit' in key:
             return max(0, int(value))
         elif 'energy' in key or 'radius' in key or key.endswith('_r'):

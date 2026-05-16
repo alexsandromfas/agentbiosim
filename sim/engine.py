@@ -19,6 +19,7 @@ from .spatial import SpatialHash
 from .controllers import Params, FoodController, PopulationController
 from .entities import Agent, Bacteria, Predator, Food, create_random_bacteria, create_random_predator, create_random_food
 from .sensors import SceneQuery
+from .random_utils import apply_global_seed, normalize_seed
 from .systems import InteractionSystem, ReproductionSystem, DeathSystem, CollisionSystem
 try:
     from .render import RendererStrategy, SimpleRenderer, EllipseRenderer  # noqa
@@ -109,6 +110,7 @@ class Engine:
 
         # Estado para debugging
         self.selected_agent = None
+        self._applied_random_seed = None
         # Protótipos de agentes carregados via UI (dict name->data dict)
         self.loaded_agent_prototypes = {}
         self.current_agent_prototype = None  # nome da chave ativa
@@ -617,8 +619,18 @@ class Engine:
         except Exception as e:
             print(f"Falha ao spawnar protótipo: {e}")
     
+    def _apply_configured_random_seed(self, force: bool = False) -> Optional[int]:
+        seed = normalize_seed(self.params.get('random_seed', -1))
+        if seed is None:
+            return None
+        if force or self._applied_random_seed != seed:
+            apply_global_seed(seed)
+            self._applied_random_seed = seed
+        return seed
+
     def _initialize_population(self):
         """Inicializa população baseada nos parâmetros."""
+        self._apply_configured_random_seed(force=True)
         try:
             from .brain import clear_multi_brain_cache
             clear_multi_brain_cache()

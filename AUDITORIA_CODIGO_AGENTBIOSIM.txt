@@ -492,6 +492,30 @@ Acao recomendada:
 - Adicionar seed em Params e RNGs injetados.
 - Salvar seed e estado RNG no snapshot.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Adicionado parametro random_seed em Params (-1 = aleatorio/desativado,
+  >=0 = seed fixa).
+- Engine aplica random_seed antes de inicializar/resetar populacao, cobrindo
+  random e numpy.random.
+- Novo modulo sim/random_utils.py centraliza normalize_seed, apply_global_seed,
+  capture_rng_state e restore_rng_state.
+- Exportacao de substrato salva rng_state com estado do random do Python e do
+  numpy.random; importacao restaura esse estado quando presente.
+- UI expoe Seed RNG (-1 aleatoria) e benchmark registra params_random_seed.
+
+Teste/validacao:
+- Teste direto validou normalize_seed, repetibilidade de apply_global_seed,
+  captura/restauracao de estado RNG e inicializacao reproduzivel do Engine com
+  a mesma seed.
+- compileall passou para random_utils, controllers, engine, ui e benchmark.
+- Benchmark p1_20_experimental_seed_state preservou eventos e contagens do P1 #19.
+
+Pendente conceitual:
+- Ainda ha uso direto de random/np.random dentro de factories, brain e systems.
+  A seed global torna os runs reproduziveis, mas RNG injetado por Engine/experimento
+  continua sendo refactor futuro para isolamento cientifico completo.
+
 
 21. FoodController so adiciona comida, nao reduz excesso
 Evidencia:
