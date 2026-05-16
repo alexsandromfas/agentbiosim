@@ -822,6 +822,30 @@ Acao recomendada:
 - Caminho medio prazo: backend SoA com arrays numpy para x, y, vx, vy, angle, energy, radius, type.
 - Manter OO para UI/debug e usar backend vetorizado para experimentos.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Criado sim/soa.py com AgentArrays e agents_to_arrays.
+- O helper copia estado escalar dos agentes para arrays NumPy contiguos
+  float32/int8: x, y, vx, vy, angle, energy, radius, age e type_code.
+- A mudanca ainda nao substitui o runtime OO; ela cria uma ponte testada para
+  kernels vetorizados e benchmarks futuros.
+
+Teste/validacao:
+- Teste direto validou snapshot SoA com 2 agentes e preservacao dos valores.
+- compileall passou para sim/soa.py.
+- Benchmark p1_30_soa_arrays_helper preservou exatamente os eventos do P1 #29.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.074563 contra 0.076524 no P1 #29.
+- Como o helper ainda nao entra no loop principal, esse ganho deve ser tratado
+  como variacao/ruido de benchmark, nao como otimizacao real.
+- Integridade critica preservada; outside_world_objects continuou 10.
+
+Pendente:
+- Backend SoA real para movimento/sensores/interacoes ainda precisa ser
+  desenhado e migrado aos poucos, mantendo compatibilidade com UI/debug.
+
 
 31. Export completo pode ficar muito pesado
 Evidencia:

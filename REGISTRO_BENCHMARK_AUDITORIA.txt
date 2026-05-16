@@ -424,3 +424,26 @@ P1 #29 - Snapshot de parametros por substep
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados e ganho pequeno de overhead; tambem torna cada
   substep consistente contra mudancas da UI no meio da iteracao.
+
+P1 #30 - Helper SoA para agentes
+- Run id: 20260516_021854_p1_30_soa_arrays_helper
+- Alteracao: criado sim/soa.py com AgentArrays e agents_to_arrays para copiar
+  estado escalar dos agentes para arrays NumPy contiguos.
+- Teste direto: PASS snapshot SoA com 2 agentes preservou count e coordenadas.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.074563
+- wall_s: 45.632
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Como o helper SoA ainda nao entra no runtime, o
+  ganho de tempo deve ser tratado como variacao de benchmark, nao ganho real.
