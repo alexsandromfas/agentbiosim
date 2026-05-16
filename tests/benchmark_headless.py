@@ -42,9 +42,11 @@ def configure_params() -> Params:
     # Evitar visão desenhada
     p.set('bacteria_show_vision', False)
     p.set('predator_show_vision', False)
-    # Evitar reprodução (massas de split muito altas)
-    p.set('bacteria_split_mass', 1e9)
-    p.set('predator_split_mass', 1e9)
+    # Evitar reproducao no benchmark: o modelo atual usa energia, nao massa.
+    p.set('bacteria_split_energy', 1e9)
+    p.set('predator_split_energy', 1e9)
+    p.set('reproduction_min_age', 1e9)
+    p.set('reproduction_cooldown', 1e9)
     return p
 
 
@@ -97,6 +99,13 @@ def run_benchmark(sim_seconds: float = 30.0, fps: int = 60, label: str | None = 
     print(f"Bactérias finais: {len(engine.entities['bacteria'])}")
     print(f"Predadores finais: {len(engine.entities['predators'])}")
     print(f"Comidas finais: {len(engine.entities['foods'])}")
+    final_bact = len(engine.entities['bacteria'])
+    final_pred = len(engine.entities['predators'])
+    if final_bact > initial_bact or final_pred > initial_pred:
+        raise AssertionError(
+            "benchmark_headless esperava populacao sem crescimento: "
+            f"bacterias {initial_bact}->{final_bact}, predadores {initial_pred}->{final_pred}"
+        )
     print()
     print(profiler.report())
     # Restaura estado original do profiler
@@ -124,7 +133,8 @@ def run_benchmark(sim_seconds: float = 30.0, fps: int = 60, label: str | None = 
             'sim_time_s': sim_time,
             'wall_s': _prof.total_wall,
             'initial': {'bacteria': initial_bact, 'predators': initial_pred},
-            'final': {'bacteria': len(engine.entities['bacteria']), 'predators': len(engine.entities['predators']), 'foods': len(engine.entities['foods'])},
+            'final': {'bacteria': final_bact, 'predators': final_pred, 'foods': len(engine.entities['foods'])},
+            'no_population_growth_asserted': True,
             'avg_agents': avg_agents,
             'ms_per_agent_step': ms_per_agent,
             'params_snapshot': params._data,  # interno mas útil

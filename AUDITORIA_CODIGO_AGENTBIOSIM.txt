@@ -1122,6 +1122,27 @@ Acao recomendada:
 - Atualizar para split_energy.
 - Adicionar assert de que populacao nao cresce quando benchmark pedir isso.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- tests/benchmark_headless.py agora usa bacteria_split_energy e
+  predator_split_energy em vez de chaves *_split_mass inexistentes no modelo.
+- Tambem define reproduction_min_age e reproduction_cooldown altos para impedir
+  reproducao no benchmark.
+- run_benchmark agora falha com AssertionError se bacterias ou predadores
+  crescerem acima da populacao inicial.
+- Export JSON do benchmark registra no_population_growth_asserted=True.
+- Adicionado tests/unit/test_benchmark_headless.py para travar esses parametros.
+
+Teste/validacao:
+- Smoke: python tests/benchmark_headless.py --seconds 0.2 --fps 10 --no-activations passou.
+- python -m pytest passou: 4 testes.
+- Benchmark p2_38_headless_split_energy_assert preservou exatamente os eventos do P2 #37.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.076569 contra 0.076573 no P2 #37.
+- Integridade critica preservada.
+
 
 39. check_batch_forward tem problema de indentacao logica
 Evidencia:

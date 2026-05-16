@@ -615,3 +615,26 @@ P2 #37 - Bootstrap para scripts legados de teste
 - integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Mudanca e de higiene de testes.
+
+P2 #38 - benchmark_headless usa split_energy e assert populacional
+- Run id: 20260516_025225_p2_38_headless_split_energy_assert
+- Alteracao: benchmark_headless usa bacteria_split_energy/predator_split_energy,
+  define idade/cooldown altos e falha se bacterias ou predadores crescerem acima
+  da contagem inicial; export registra no_population_growth_asserted.
+- Teste direto: PASS smoke benchmark_headless 0.2s; python -m pytest -> 4 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076569
+- wall_s: 46.860
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca corrige apenas benchmark auxiliar.
