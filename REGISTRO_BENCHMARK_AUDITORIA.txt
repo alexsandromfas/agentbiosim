@@ -472,3 +472,28 @@ P1 #31 - Export compacto de substrato
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Tempo variou dentro do ruido, pois o benchmark
   headless nao executa export.
+
+P1 #32 - Lock de estado e comandos UI/Pygame
+- Run id: 20260516_023248_p1_32_engine_state_lock_queue
+- Alteracao: Engine ganhou state_lock; Pygame segura lock em step/render; clique
+  esquerdo envia select_or_add_food pela command_queue; export/import seguram o
+  lock enquanto acessam o estado do Engine.
+- Teste direto: PASS select_or_add_food adicionou comida em espaco vazio e
+  selecionou agente quando clicado sobre ele.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075705
+- wall_s: 46.331
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Esta e uma primeira camada pratica de
+  sincronizacao; snapshots imutaveis/respostas assincronas ainda seriam melhores.

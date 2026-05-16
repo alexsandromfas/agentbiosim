@@ -902,6 +902,32 @@ Acao recomendada:
 - Todas as mutacoes do estado do Engine devem passar por command_queue.
 - Para export/import, usar lock do Engine ou pausar e aguardar confirmacao de frame parado.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Engine agora possui state_lock reentrante.
+- O loop Pygame segura state_lock durante engine.step e engine.render.
+- Clique esquerdo no Pygame deixou de ler/mutar selected_agent diretamente; agora
+  envia comando select_or_add_food pela command_queue.
+- Engine processa select_or_add_food dentro do fluxo normal de comandos.
+- Export/import de substrato seguram state_lock enquanto leem ou alteram o
+  estado do Engine.
+
+Teste/validacao:
+- Teste direto validou state_lock e o comando select_or_add_food: clique em
+  espaco vazio adiciona comida; clique sobre agente seleciona o agente.
+- compileall passou para engine.py, game.py e ui.py.
+- Benchmark p1_32_engine_state_lock_queue preservou exatamente os eventos do P1 #31.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.075705 contra 0.076765 no P1 #31.
+- Eventos e integridade critica preservados.
+
+Pendente:
+- Nem toda API publica do Engine e transacional; esta etapa cobre o caminho
+  pratico UI/Pygame/export/import. Uma arquitetura completa deveria mover mais
+  comandos de UI para respostas assincronas ou snapshots imutaveis.
+
 
 33. ui_params.csv e estado runtime dentro do pacote sim
 Evidencia:

@@ -1223,8 +1223,12 @@ class SimulationUI(QMainWindow):
         prev_paused = bool(self._get_widget_value('paused'))
         self.widgets['paused'].setChecked(True)
         self.params.set('paused', True, validate=False)
+        state_lock = None
         try:
             engine = self.engine
+            state_lock = getattr(engine, 'state_lock', None)
+            if state_lock is not None:
+                state_lock.acquire()
             # Aplica todos os parâmetros atuais antes de capturar snapshot
             try:
                 self.apply_all_params()
@@ -1375,6 +1379,8 @@ class SimulationUI(QMainWindow):
             print(f"Substrato exportado para {path}")
             return path
         finally:
+            if state_lock is not None:
+                state_lock.release()
             self.widgets['paused'].setChecked(prev_paused)
             self.params.set('paused', prev_paused, validate=False)
 
@@ -1383,9 +1389,13 @@ class SimulationUI(QMainWindow):
         prev_paused = bool(self._get_widget_value('paused'))
         self.widgets['paused'].setChecked(True)
         self.params.set('paused', True, validate=False)
+        state_lock = None
         try:
             with open(path,'r', encoding='utf-8') as f:
                 data = json.load(f)
+            state_lock = getattr(self.engine, 'state_lock', None)
+            if state_lock is not None:
+                state_lock.acquire()
             for k,v in data.get('params', {}).items():
                 self.params.set(k, v, validate=False)
                 if k in self.widgets:
@@ -1480,6 +1490,8 @@ class SimulationUI(QMainWindow):
                 pass
             print(f"Substrato importado de {path}")
         finally:
+            if state_lock is not None:
+                state_lock.release()
             self.widgets['paused'].setChecked(prev_paused)
             self.params.set('paused', prev_paused, validate=False)
 

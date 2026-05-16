@@ -7,6 +7,7 @@ import time
 import os
 import sys
 import ctypes
+import threading
 try:
     import psutil  # type: ignore
 except Exception:  # ImportError ou outros
@@ -80,6 +81,7 @@ class Engine:
         # Controle de execução
         self.running = False
         self.command_queue = Queue()
+        self.state_lock = threading.RLock()
 
         # Métricas
         self.total_simulation_time = 0.0
@@ -519,6 +521,16 @@ class Engine:
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
             self.selected_agent = self.get_agent_at_position(world_x, world_y)
+
+        elif command == 'select_or_add_food':
+            world_x = kwargs.get('world_x', 0)
+            world_y = kwargs.get('world_y', 0)
+            agent = self.get_agent_at_position(world_x, world_y)
+            if agent:
+                self.selected_agent = agent
+            else:
+                self.add_food_at(world_x, world_y)
+                self.selected_agent = None
         
         elif command == 'add_food':
             world_x = kwargs.get('world_x', 0)

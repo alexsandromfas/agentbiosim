@@ -71,11 +71,20 @@ class PygameView:
             
             # Atualiza simulação
             real_dt = self.clock.tick(self.engine.params.get('fps', 60)) / 1000.0
-            self.engine.step(real_dt)
+            state_lock = getattr(self.engine, 'state_lock', None)
+            if state_lock is None:
+                self.engine.step(real_dt)
+            else:
+                with state_lock:
+                    self.engine.step(real_dt)
             
             # Renderiza
             if self.screen:
-                self.engine.render(self.screen)
+                if state_lock is None:
+                    self.engine.render(self.screen)
+                else:
+                    with state_lock:
+                        self.engine.render(self.screen)
                 pygame.display.flip()
     
     def stop(self):
@@ -133,15 +142,7 @@ class PygameView:
         """Trata clique do mouse."""
         if event.button == 1:  # Botão esquerdo
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
-            
-            # Tenta selecionar agente
-            agent = self.engine.get_agent_at_position(world_x, world_y)
-            if agent:
-                self.engine.selected_agent = agent
-            else:
-                # Adiciona comida se não selecionou nada
-                self.engine.send_command('add_food', world_x=world_x, world_y=world_y)
-                self.engine.selected_agent = None
+            self.engine.send_command('select_or_add_food', world_x=world_x, world_y=world_y)
         
         elif event.button == 2:  # Botão do meio
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
