@@ -330,3 +330,27 @@ P1 #25 - Dirty flag/instrumentacao para SpatialHash
   spatial_hash_misses=0; outside_world_objects=20.
 - Leitura: eventos preservados. Performance neutra no substrato denso porque
   colisoes deixam o hash sujo quase sempre. Incremental por celula segue pendente.
+
+P1 #26 - Contador incremental de bacterias predadas
+- Run id: 20260516_020546_p1_26_interaction_removed_counter
+- Alteracao: InteractionSystem usa _removed_bacteria_count em vez de contar
+  _agents_to_remove por list comprehension dentro do loop.
+- Teste direto: PASS com min_limit=1, 2 bacterias e 2 predadores, apenas 1
+  bacteria foi predada.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077726
+- wall_s: 47.560
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1426, skips=1
+- collisions_resolved: 62559
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: eventos preservados. Sem ganho global confirmado nesta rodada, mas a
+  complexidade local do loop de predacao foi corrigida.

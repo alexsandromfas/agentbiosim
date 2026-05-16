@@ -24,6 +24,7 @@ class InteractionSystem:
     def __init__(self):
         self._foods_to_remove: Set['Food'] = set()
         self._agents_to_remove: Set['Agent'] = set()
+        self._removed_bacteria_count = 0
         self.last_foods_eaten = 0
         self.last_agents_predated = 0
     
@@ -32,6 +33,7 @@ class InteractionSystem:
         """Aplica interações por um frame e retorna agentes removidos."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
+        self._removed_bacteria_count = 0
 
         # Bactérias comem comida (ganham energia)
         self._bacteria_eat_food(bacteria, foods, spatial_hash, params)
@@ -99,7 +101,7 @@ class InteractionSystem:
             
             # Se já estamos no mínimo de bactérias permitido, impedir predação adicional
             min_bact = params.get('bacteria_min_limit', 0)
-            if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
+            if len(bacteria) - self._removed_bacteria_count <= min_bact:
                 continue
 
             for bacterium in nearby_bacteria:
@@ -115,9 +117,10 @@ class InteractionSystem:
                     cap = params.get('predator_energy_cap', getattr(predator.energy_model, 'energy_cap', None))
                     predator.add_energy(bacterium.energy * 0.7, cap=cap)
                     # Rechecar mínimo antes de remover
-                    if len(bacteria) - len([a for a in self._agents_to_remove if getattr(a, 'type_code', -1) == 1]) <= min_bact:
+                    if len(bacteria) - self._removed_bacteria_count <= min_bact:
                         break
                     self._agents_to_remove.add(bacterium)
+                    self._removed_bacteria_count += 1
                     break  # Uma bactéria por frame por predador
 
 

@@ -700,6 +700,25 @@ Impacto:
 Acao recomendada:
 - Manter contador removed_bacteria_count.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- InteractionSystem mantem _removed_bacteria_count incremental.
+- Checagens de bacteria_min_limit nao fazem mais list comprehension sobre
+  _agents_to_remove dentro do loop de predadores.
+
+Teste/validacao:
+- Teste direto validou que, com 2 bacterias, 2 predadores e min_limit=1, apenas
+  1 bacteria e predada e o contador incremental fica correto.
+- compileall passou para systems.py.
+- Benchmark p1_26_interaction_removed_counter preservou exatamente os eventos
+  do P1 #25.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.077726 contra 0.077535 no P1 #25; sem ganho global
+  confirmado nesta rodada, provavelmente por ruido e porque o custo dominante
+  segue nos sensores/colisoes.
+- A complexidade local da prechecada de predacao foi corrigida.
+
 
 27. ReproductionSystem recalcula contagens e listas auxiliares
 Evidencia:
