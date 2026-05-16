@@ -1255,6 +1255,27 @@ Impacto:
 Acao recomendada:
 - Ignorar padroes gerais para __pycache__, .venv, *.pyc, exports locais e relatorios gerados.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- .gitignore foi trocado por padroes gerais para caches Python, .pytest_cache,
+  ambientes virtuais, config/user_params.csv, exports locais de agents/,
+  substrates/manual_exports, substrates/auto_exports e relatorios JSON de
+  tests/otimizacoes.
+- READMEs de agents/, substrates/ e tests/otimizacoes ficam explicitamente
+  liberados por excecoes !README.md.
+
+Teste/validacao:
+- git check-ignore confirmou ignore para agents/novo.agent.csv,
+  substrates/manual_exports/novo.json, substrates/auto_exports/2026/novo.json,
+  tests/otimizacoes/novo.json e config/user_params.csv.
+- python -m pytest passou: 5 testes.
+- Benchmark p2_42_generic_gitignore preservou exatamente os eventos do P2 #41.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.075017 contra 0.075702 no P2 #41.
+- Integridade critica preservada.
+
 
 ===============================================================================
 ORDEM SUGERIDA DE CORRECAO

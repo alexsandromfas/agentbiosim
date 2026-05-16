@@ -704,3 +704,26 @@ P2 #41 - Politica de dados locais e examples/
 - integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
   spatial_hash_misses=0; outside_world_objects=10.
 - Leitura: eventos preservados. Item parcial: .gitignore generico fica para P2 #42.
+
+P2 #42 - .gitignore generico para artefatos locais
+- Run id: 20260516_030422_p2_42_generic_gitignore
+- Alteracao: .gitignore agora cobre caches Python, venvs, config local, exports
+  locais de agents/substrates e relatorios JSON de tests/otimizacoes, preservando
+  READMEs por excecao.
+- Teste direto: PASS git check-ignore para novos exports locais; python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075017
+- wall_s: 45.910
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca de higiene de repositorio.
