@@ -176,10 +176,19 @@ Acao recomendada:
 
 
 8. Fallback Tkinter documentado nao existe
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - main.py:24 tenta importar sim.ui_tk.
 - Test-Path sim/ui_tk.py retorna False.
 - README diz que ha fallback Tkinter.
+
+Correcao aplicada:
+- main.py foi simplificado para usar apenas o backend PyQt6, que e o unico backend real atual.
+- O import de sim.ui so captura ModuleNotFoundError causado por PyQt6 ausente; outros erros deixam de ser mascarados como fallback.
+- A opcao --ui agora aceita apenas qt; --ui tk e rejeitado pelo argparse.
+- README deixou de prometer fallback Tkinter inexistente.
+- Teste direto validou import do main e rejeicao de --ui tk.
+- Benchmark p0_08_remove_fallback_tk preservou os mesmos eventos e integridade do P0 #7.
 
 Impacto:
 - Se PyQt6 falhar, o app nao tem fallback real.

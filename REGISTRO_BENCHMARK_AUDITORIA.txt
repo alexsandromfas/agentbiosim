@@ -29,3 +29,17 @@ P0 #7 - Tempo fisico e tempo contabilizado
 - integrity_errors: 0
 - Leitura: dinamica preservada contra o baseline deterministico; correcao
   melhora a validade temporal sem alterar eventos observados neste benchmark.
+
+P0 #8 - Remover fallback Tkinter inexistente
+- Run id: 20260516_005351_p0_08_remove_fallback_tk
+- Alteracao: main.py usa apenas PyQt6, nao tenta importar sim.ui_tk
+  inexistente, e README nao documenta mais fallback Tk.
+- Teste direto: PASS main importa; --ui tk rejeitado pelo argparse.
+- ms/agente/step: 0.141794
+- wall_s: 86.778
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; alteracao afeta somente entrada/UI e reduz
+  risco de mascarar erro real de PyQt como fallback inexistente.

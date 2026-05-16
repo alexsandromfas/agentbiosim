@@ -1,83 +1,64 @@
 #!/usr/bin/env python3
 """
-Ponto de entrada principal da simulação.
+Ponto de entrada principal da simulacao.
 Cria Params, Engine, UI; conecta sinais/comandos.
 """
-import sys
-import os
 import argparse
-# teste
-# Adiciona diretório atual ao path para imports
+import os
+import sys
+
+# Adiciona diretorio atual ao path para imports.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from sim.controllers import Params
 from sim.engine import Engine
 from sim.game import PygameView
-# Integração UI: preferir PyQt6 (ui.py) com fallback para Tkinter (ui_tk.py)
+
+_QT_IMPORT_ERROR = None
 try:
     from sim.ui import SimulationUI as QtSimulationUI
     _HAS_QT = True
-except Exception:
+except ModuleNotFoundError as exc:
+    if (exc.name or "").split(".")[0] != "PyQt6":
+        raise
     QtSimulationUI = None  # type: ignore
     _HAS_QT = False
-try:
-    from sim.ui_tk import SimulationUI as TkSimulationUI
-    _HAS_TK = True
-except Exception:
-    TkSimulationUI = None  # type: ignore
-    _HAS_TK = False
-from sim.world import World, Camera
+    _QT_IMPORT_ERROR = exc
+
+from sim.world import Camera, World
 
 
 def main(argv=None):
-    """Função principal - inicializa engine e UI.
+    """Inicializa engine e UI.
 
-    Opções de linha de comando:
-        --ui qt    Força interface PyQt6
-        --ui tk    Força interface Tkinter
-        (padrão: tenta qt, fallback tk)
+    Opcoes de linha de comando:
+        --ui qt    Forca interface PyQt6
+        padrao: usa PyQt6
     """
     argv = argv or sys.argv[1:]
     parser = argparse.ArgumentParser(description="AgentBioSim V1.0.0")
-    parser.add_argument('--ui', choices=['qt','tk'], help='Escolhe backend de interface (qt ou tk).')
+    parser.add_argument("--ui", choices=["qt"], help="Backend de interface suportado atualmente: qt.")
     args = parser.parse_args(argv)
 
-    requested_ui = args.ui
-
-    # Seleção de backend
-    backend = None
-    if requested_ui == 'qt':
-        if not _HAS_QT:
-            print("[WARN] PyQt6 não disponível; abortando.")
-            return 1
-        backend = 'qt'
-    elif requested_ui == 'tk':
-        if not _HAS_TK:
-            print("[WARN] Tkinter UI não disponível.")
-            return 1
-        backend = 'tk'
-    else:
-        # Auto: preferir qt
-        if _HAS_QT:
-            backend = 'qt'
-        elif _HAS_TK:
-            backend = 'tk'
-        else:
-            print("Nenhuma UI disponível (PyQt6 ou Tkinter). Instale PyQt6 ou habilite Tk.")
-            return 1
+    backend = args.ui or "qt"
+    if not _HAS_QT:
+        print("PyQt6 nao disponivel; instale as dependencias com: python -m pip install -r requirements.txt")
+        if _QT_IMPORT_ERROR is not None:
+            print(f"Detalhe: {_QT_IMPORT_ERROR}")
+        return 1
 
     try:
-        print(f"Inicializando simulação... (UI={backend})")
+        print(f"Inicializando simulacao... (UI={backend})")
 
         # 1. Config
         params = Params()
 
-        # 2. Mundo / câmera
+        # 2. Mundo / camera
         world = World(
-            width=params.get('world_w', 1000.0),
-            height=params.get('world_h', 700.0),
-            shape=params.get('substrate_shape', 'rectangular'),
-            radius=params.get('substrate_radius', 350.0)
+            width=params.get("world_w", 1000.0),
+            height=params.get("world_h", 700.0),
+            shape=params.get("substrate_shape", "rectangular"),
+            radius=params.get("substrate_radius", 350.0),
         )
         camera = Camera()
 
@@ -87,34 +68,30 @@ def main(argv=None):
         # 4. View Pygame
         pygame_view = PygameView(engine, screen_width=800, screen_height=600)
 
-        # 5. UI conforme backend
-        if backend == 'qt':
-            from PyQt6.QtWidgets import QApplication  # local import para evitar custo se tk
-            app = QApplication.instance() or QApplication([])
-            ui = QtSimulationUI(params, engine, pygame_view)  # type: ignore
-        else:
-            ui = TkSimulationUI(params, engine, pygame_view)  # type: ignore
+        # 5. UI PyQt6
+        from PyQt6.QtWidgets import QApplication
 
-        # 6. Conexões
+        app = QApplication.instance() or QApplication([])
+        ui = QtSimulationUI(params, engine, pygame_view)  # type: ignore
+
+        # 6. Conexoes
         setup_connections(params, engine, pygame_view, ui)
 
-        print("Configuração concluída. Iniciando interface...")
+        print("Configuracao concluida. Iniciando interface...")
 
         # 7. Run loop
-        if backend == 'qt':
-            ui.run()  # chama show() + exec()
-        else:
-            ui.run()
+        ui.run()  # chama show() + exec()
 
     except KeyboardInterrupt:
-        print("\nSimulação interrompida pelo usuário")
+        print("\nSimulacao interrompida pelo usuario")
     except Exception as e:
-        print(f"Erro crítico: {e}")
+        print(f"Erro critico: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
     finally:
-        print("Simulação encerrada")
+        print("Simulacao encerrada")
     return 0
 
 
@@ -122,34 +99,20 @@ def setup_connections(params: Params, engine: Engine, pygame_view: PygameView, u
     """
     Conecta callbacks e sinais entre componentes principais.
     """
-    # Exemplo de callbacks que podem ser configurados:
-    
-    # Quando parâmetros mudarem, notificar componentes relevantes
+
     def on_param_change(param_name: str, old_value, new_value):
-        """Callback quando um parâmetro muda."""
-        # Engine automaticamente lê params durante simulação
-        
-        # Casos especiais que precisam notificação imediata
-        if param_name == 'fps':
+        """Callback quando um parametro muda."""
+        if param_name == "fps":
             pygame_view.set_fps(new_value)
-        elif param_name == 'time_scale':
+        elif param_name == "time_scale":
             engine.set_time_scale(new_value)
-        elif param_name.endswith('_show_vision'):
-            # UI já mostra/oculta visão via rendering
+        elif param_name.endswith("_show_vision"):
             pass
-    
-    # Registra callback de parâmetros
-    # Note: Params usa add_callback por parâmetro específico, não um callback global
-    # Para simplicidade inicial, não configuramos callbacks automáticos
-    # params.add_callback('fps', on_param_change)
-    # params.add_callback('time_scale', on_param_change)
-    
-    # Outros callbacks podem ser adicionados aqui conforme necessário:
-    # - Estado de pause/resume
-    # - Mudanças de população
-    # - Estatísticas da simulação
-    # - etc.
+
+    # Params usa callbacks por parametro especifico. Mantemos este ponto de
+    # extensao documentado para futuras conexoes automaticas.
+    _ = on_param_change, params, ui
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())
