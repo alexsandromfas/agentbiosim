@@ -141,6 +141,7 @@ class Params:
             
             # Física geral
             'agents_inertia': 1.0,  # Inércia global (antes derivada de massa individual)
+            'allow_reverse_locomotion': False,
             'reproduction_min_age': 0.0,
             'reproduction_cooldown': 0.0,
 

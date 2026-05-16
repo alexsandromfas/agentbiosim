@@ -357,7 +357,7 @@ Acao recomendada:
 
 
 16. Locomocao nao usa inercia e nao permite re
-Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/actuators.py:49-58 define velocidade instantanea a partir da saida neural.
 - sim/controllers.py:137 define agents_inertia.
@@ -368,11 +368,15 @@ Correcao aplicada:
 - Locomotion.step agora usa agents_inertia para suavizar a velocidade comandada.
 - Para compatibilidade, agents_inertia <= 1.0 preserva o comportamento instantaneo antigo.
 - Valores maiores que 1.0 aplicam interpolacao parcial da velocidade atual ate a velocidade desejada.
+- Adicionado allow_reverse_locomotion=False como parametro explicito.
+- Quando allow_reverse_locomotion=True, Locomotion usa tanh no comando de
+  velocidade e permite velocidade assinada/marcha re.
+- UI ganhou controle "Permitir marcha re".
 - Teste direto validou que agents_inertia=1 preserva resposta instantanea e agents_inertia=4 suaviza a velocidade.
 - Benchmark p1_16_agents_inertia preservou eventos e integridade do P1 #15, pois o substrato usa agents_inertia=1.0.
-
-Pendente conceitual:
-- Movimento para tras ainda nao foi habilitado; isso deve ser decisao explicita de modelo antes de trocar sigmoid por tanh.
+- Teste unitario validou que o modo padrao continua forward-only e que o modo
+  allow_reverse_locomotion=True permite velocidade negativa.
+- Benchmark p1_16_reverse_locomotion_option preservou exatamente os eventos do P2 #42.
 
 Impacto:
 - O comportamento fisico e mais "controle arcade" do que dinamica organica.
@@ -380,8 +384,8 @@ Impacto:
 - Agentes nao conseguem andar para tras porque velocidade passa por sigmoid 0..1.
 
 Acao recomendada:
-- Ou remover agents_inertia da UI, ou implementar aceleracao/inercia real.
-- Se biologicamente desejado, permitir velocidade assinada via tanh.
+- Concluida: agents_inertia tem efeito, e velocidade assinada existe como modo
+  opcional desligado por padrao.
 
 
 17. Sensor retina tem dois modelos com semanticas diferentes

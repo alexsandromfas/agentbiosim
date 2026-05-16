@@ -270,6 +270,10 @@ class SimulationUI(QMainWindow):
         w2.setValue(self.params.get('agents_inertia', 1.0))
         add_perf("Inércia global:", 'agents_inertia', w2)
 
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('allow_reverse_locomotion', False))
+        add_perf("Permitir marcha re:", 'allow_reverse_locomotion', cb)
+
         w = _spin_double(0.0, 3600.0, 0.1, 2)
         w.setValue(self.params.get('reproduction_min_age', 0.0))
         add_perf("Idade min. reproducao:", 'reproduction_min_age', w)
@@ -815,7 +819,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':

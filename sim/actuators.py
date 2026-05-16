@@ -38,9 +38,13 @@ class Locomotion:
         speed_raw = control_output[0]
         steer_raw = control_output[1]
         
-        # Normaliza comandos
-        speed_cmd = self._sigmoid(speed_raw)  # 0..1
-        steer_cmd = math.tanh(steer_raw)      # -1..1
+        # Normaliza comandos. Por padrao preserva o modelo antigo 0..1.
+        # Quando habilitado explicitamente, tanh permite velocidade assinada.
+        if params.get('allow_reverse_locomotion', False):
+            speed_cmd = math.tanh(speed_raw)   # -1..1
+        else:
+            speed_cmd = self._sigmoid(speed_raw)  # 0..1
+        steer_cmd = math.tanh(steer_raw)       # -1..1
         
         # Aplica velocidade desejada
         desired_speed = speed_cmd * self.max_speed
