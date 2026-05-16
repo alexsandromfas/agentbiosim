@@ -1051,6 +1051,28 @@ Acao recomendada:
 - Padronizar pytest.
 - Criar testes unitarios para Brain, Sensors, Systems, Engine invariants, export/import.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Adicionado pytest.ini com testpaths=tests/unit e pythonpath=.
+- requirements.txt agora declara pytest>=8,<10.
+- Criado tests/unit/test_engine_invariants.py com teste de listas do Engine,
+  duplicatas, state_lock e estado numerico finito/energia nao negativa.
+- Criado tests/unit/test_ui_persistence.py cobrindo persistencia local da UI,
+  filtro de test_param_* e fallback legado.
+
+Teste/validacao:
+- python -m pytest passou: 3 testes.
+- Benchmark p2_36_pytest_unit_suite preservou exatamente os eventos do P1 #35.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.075208 contra 0.076657 no P1 #35.
+- Integridade critica preservada.
+
+Pendente:
+- Ainda falta converter Brain, Sensors, Systems e export/import completo para
+  uma suite maior. Esta etapa cria a infraestrutura e os primeiros invariantes.
+
 
 37. Alguns testes nao rodam diretamente
 Verificacao realizada:
