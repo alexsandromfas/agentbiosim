@@ -155,12 +155,12 @@ class Engine:
         # Calcula tempo físico com time_scale
         world_dt = real_dt * max(0.0, self.params.get('time_scale', 1.0))
         
-        # Executa substeps com tempo fixo
+        simulated_dt = 0.0
         if world_dt > 0 and not self.params.get('paused', False):
-            self._simulate_physics(world_dt)
+            simulated_dt = self._simulate_physics(world_dt)
         
         # Atualiza métricas
-        self.total_simulation_time += world_dt
+        self.total_simulation_time += simulated_dt
         self.frame_count += 1
         
         # Calcula FPS
@@ -340,29 +340,23 @@ class Engine:
         self.entities['bacteria'].append(bacterium)
         self.all_agents.append(bacterium)
     
-    def _simulate_physics(self, world_dt: float):
+    def _simulate_physics(self, world_dt: float) -> float:
         """Simula física por um delta tempo do mundo."""
-        # Calcula substeps com tempo fixo
+        # Divide em substeps pequenos, conservando exatamente o tempo simulado.
         physics_dt = 1.0 / 60.0  # 60 FPS físico
         max_substeps = 8
         
         if world_dt <= 0:
-            return
+            return 0.0
         
-        estimated_steps = int(round(world_dt / physics_dt))
-        if estimated_steps <= 0:
-            steps = 1
-            step_dt = world_dt
-        elif estimated_steps > max_substeps:
-            steps = max_substeps
-            step_dt = world_dt / steps
-        else:
-            steps = estimated_steps  
-            step_dt = physics_dt
+        steps = max(1, int(math.ceil(world_dt / physics_dt)))
+        steps = min(steps, max_substeps)
+        step_dt = world_dt / steps
         
         # Executa substeps
         for _ in range(steps):
             self._simulate_substep(step_dt)
+        return step_dt * steps
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""

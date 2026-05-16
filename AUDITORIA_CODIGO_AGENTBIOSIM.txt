@@ -150,11 +150,20 @@ Acao recomendada:
 
 
 7. Tempo fisico e tempo contabilizado podem divergir
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/engine.py:149 calcula world_dt.
 - sim/engine.py:152 so simula se nao estiver pausado.
 - sim/engine.py:156 soma total_simulation_time mesmo pausado.
 - sim/engine.py:344-353 usa round(world_dt / physics_dt) e step_dt=physics_dt em muitos casos.
+
+Correcao aplicada:
+- Engine.step agora soma em total_simulation_time apenas o delta realmente simulado.
+- Quando paused=True, nenhum substep roda e total_simulation_time nao avanca.
+- _simulate_physics agora retorna o tempo simulado e divide world_dt em substeps que conservam exatamente o delta total.
+- O arredondamento por round(world_dt / physics_dt) foi trocado por ceil + divisao exata por substeps.
+- Teste direto validou pausa, dt nao multiplo de 1/60, time_scale e max_substeps.
+- Benchmark p0_07_tempo_simulado: eventos iguais ao baseline deterministico anterior e sim_delta=5.0s.
 
 Impacto:
 - total_simulation_time cresce durante pausa.
@@ -677,7 +686,7 @@ Fase 1 - Corrigir validade do estado da simulacao:
 2. [FEITO; TESTADO/VALIDADO] Corrigir ordem do spatial hash no substep.
 3. [FEITO; TESTADO/VALIDADO] Remover predados de all_agents antes da reproducao.
 4. [FEITO; TESTADO/VALIDADO] Corrigir cache neural ou desabilitar temporariamente.
-5. Corrigir tempo pausado e fixed timestep.
+5. [FEITO; TESTADO/VALIDADO] Corrigir tempo pausado e fixed timestep.
 
 Fase 2 - Corrigir persistencia/import/export:
 1. [FEITO; TESTADO/VALIDADO] Snapshot completo de foods.

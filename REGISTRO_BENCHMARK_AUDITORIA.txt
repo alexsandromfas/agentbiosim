@@ -1,0 +1,31 @@
+REGISTRO DE BENCHMARKS POR CORRECAO - AGENTBIOSIM
+Data inicial: 2026-05-16
+
+Objetivo:
+- Guardar, em formato humano, os principais valores de benchmark apos cada
+  correcao feita a partir da auditoria.
+- Os dados completos ficam em tests/substrato_de_teste/resultados_benchmark/.
+- O historico estruturado fica em tests/substrato_de_teste/fatores_comparativos.jsonl.
+
+Baseline de comparacao deterministico:
+- Run id: 20260515_215934_apos_export_import_snapshot_fix_deterministic
+- ms/agente/step: 0.142043
+- wall_s: 86.930
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+
+P0 #7 - Tempo fisico e tempo contabilizado
+- Run id: 20260516_004922_p0_07_tempo_simulado
+- Alteracao: total_simulation_time soma apenas tempo simulado; pausa nao avanca
+  tempo; substeps conservam exatamente world_dt.
+- Teste direto: PASS tempo pausado, dt nao multiplo, time_scale e max_substeps.
+- ms/agente/step: 0.141629
+- wall_s: 86.677
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada contra o baseline deterministico; correcao
+  melhora a validade temporal sem alterar eventos observados neste benchmark.
