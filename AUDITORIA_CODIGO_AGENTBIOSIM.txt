@@ -399,6 +399,26 @@ Acao recomendada:
 - Se single for aproximacao proposital, documentar como tal e testar.
 - Para ciencia, preferir fullbody ou outra percepcao matematicamente definida.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Formalizados os modos de retina no codigo:
+  single = aproximacao historica por centroide, um raio por objeto;
+  fullbody = intersecao geometrica raio-corpo, objetos largos podem ativar
+  varios raios.
+- normalize_retina_vision_mode valida o parametro e evita que valores invalidos
+  caiam silenciosamente em um comportamento diferente.
+- O benchmark agora registra retina_vision_mode no summary e no
+  fator_comparativo para dar contexto cientifico as comparacoes.
+- README_BENCHMARK_SUBSTRATO documenta que trocar single/fullbody e mudanca
+  experimental de percepcao, nao apenas detalhe de performance.
+
+Teste/validacao:
+- Teste direto validou normalize_retina_vision_mode, modo single, modo fullbody
+  e fallback de valor invalido.
+- Benchmark p1_17_retina_semantics preservou os eventos principais do P1 #16.
+  O substrato de teste usa retina_vision_mode=fullbody; a correcao nao mudou
+  esse valor, apenas formalizou/validou a semantica e registrou o modo.
+
 
 18. retina_skip nao e atualizado dinamicamente em sensores existentes
 Evidencia:

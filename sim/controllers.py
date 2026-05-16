@@ -34,7 +34,9 @@ class Params:
             
             # Performance
             'retina_skip': 0,
-            # Retina vision mode: 'single' (centroid per object) or 'fullbody' (span-aware)
+            # Retina vision mode:
+            # 'single' = fast centroid approximation, kept as compatibility default.
+            # 'fullbody' = geometric ray/body intersection for stricter experiments.
             'retina_vision_mode': 'single',
             'simple_render': False,
             'reuse_spatial_grid': True,

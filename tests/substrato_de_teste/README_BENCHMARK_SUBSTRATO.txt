@@ -68,6 +68,14 @@ Metricas coletadas:
   negativa e amostra de consistencia do spatial hash.
 - Performance: tempo por step, ms/agente/step, secoes do profiler, CPU/RAM.
 
+Semantica da retina:
+- O benchmark registra retina_vision_mode no summary e no fator comparativo.
+- single e a aproximacao historica: o centro de cada objeto ativa um raio.
+- fullbody e o modelo geometrico: cada raio testa intersecao com o corpo
+  circular visivel, entao objetos largos ou proximos podem ativar varios raios.
+- Trocar esse modo muda a percepcao dos agentes e deve ser tratado como uma
+  mudanca experimental, nao como detalhe de performance.
+
 Observacao importante:
 - O snapshot v2 atual salva apenas a quantidade de comida, nao as posicoes
   exatas das comidas. Portanto este runner restaura agentes exatamente e usa um

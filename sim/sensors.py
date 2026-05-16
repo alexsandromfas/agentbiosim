@@ -5,6 +5,28 @@ import math
 import numpy as np
 from typing import List, Optional, TYPE_CHECKING, Set, Any, Sequence
 
+
+RETINA_VISION_MODE_SINGLE = "single"
+RETINA_VISION_MODE_FULLBODY = "fullbody"
+RETINA_VISION_MODES = {RETINA_VISION_MODE_SINGLE, RETINA_VISION_MODE_FULLBODY}
+
+
+def normalize_retina_vision_mode(value: Any) -> str:
+    """Return a supported retina mapping mode.
+
+    ``single`` maps each visible object's centroid to one retina ray. It is the
+    historical fast approximation and is kept as the default for compatibility.
+
+    ``fullbody`` casts each retina ray against the circular body of visible
+    objects, so wide/near objects can activate more than one retina ray. It is
+    the geometrically defined mode for stricter experiments.
+    """
+    if isinstance(value, str):
+        value = value.strip().lower()
+        if value in RETINA_VISION_MODES:
+            return value
+    return RETINA_VISION_MODE_SINGLE
+
 if TYPE_CHECKING:
     from .entities import Agent
     from .controllers import Params
@@ -166,6 +188,9 @@ class SceneQuery:
         return 'food'
 
 
+# Retina mode semantics:
+# - single: historical centroid approximation, at most one ray per object.
+# - fullbody: geometric ray-circle intersection, wide objects can hit many rays.
 class RetinaSensor:
     """
     Sensor de retina para visão dos agentes.
@@ -303,6 +328,9 @@ class RetinaSensor:
         return (eye_x, eye_y, end_x, end_y, activation)
 
 
+# Batch semantics are selected by params['retina_vision_mode']:
+# - single preserves the historical fast centroid approximation.
+# - fullbody is the stricter geometric ray/body intersection mode.
 def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Params') -> List[List[float]]:
     """Processa percepção (retina) em lote para vários agentes que usam RetinaSensor.
     Combina pré-filtragem por tipo e operações numpy para reduzir custo de loops Python.
@@ -459,7 +487,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
 
         # Decide modo de mapeamento: 'single' usa centro (idéia antiga), 'fullbody' ativa
         # todas as retinas cujo ângulo cai dentro do span angular do objeto.
-        vision_mode = params.get('retina_vision_mode', 'single') if params is not None else 'single'
+        vision_mode = normalize_retina_vision_mode(params.get('retina_vision_mode') if params is not None else None)
 
         half_fov = math.radians(sensor.fov_degrees/2.0)
         if half_fov <= 0:
