@@ -209,6 +209,7 @@ class SimulationUI(QMainWindow):
         w=_spin_double(0.01,100.0,0.01,3); w.setValue(self.params.get('time_scale',1.0)); add_exec("Escala de tempo (x):",'time_scale',w)
         w=_spin_int(1,240); w.setValue(self.params.get('fps',60)); add_exec("FPS:",'fps',w)
         cb=QCheckBox(); cb.setChecked(self.params.get('paused',False)); add_exec("Pausado:",'paused',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled',True)); add_exec("Resgate pop. minima:",'population_min_rescue_enabled',cb)
         v.addWidget(g_exec)
         # Grupo: Performance & Render
         g_perf = QGroupBox("Performance & Render")
@@ -782,7 +783,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','use_spatial','retina_skip','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
+        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':

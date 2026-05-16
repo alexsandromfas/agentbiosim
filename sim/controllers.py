@@ -30,6 +30,7 @@ class Params:
             'world_h': 700.0,   # Altura do substrato (retangular)
             'substrate_radius': 400.0,  # Raio do substrato (circular)
             'max_deaths_per_step': 5,
+            'population_min_rescue_enabled': True,
             
             # Performance
             'retina_skip': 0,

@@ -104,3 +104,19 @@ P1 #14 - Cap de energia apos comer/predar
 - Leitura: dinamica mudou por motivo correto. Antes, bacterias passavam do cap
   de 200.0 apos comer; agora o max final respeita 200.0. Predacoes e
   nascimentos cairam porque ha menos excesso energetico acima do limite.
+
+P1 #15 - Modo estrito sem resgate populacional artificial
+- Run id: 20260516_011647_p1_15_population_rescue_mode
+- Alteracao: novo parametro population_min_rescue_enabled. Ligado mantem o
+  comportamento de UI; desligado deixa candidatos morrerem mesmo abaixo do
+  minimo, sem energia artificial.
+- Teste direto: PASS resgate padrao e modo estrito sem energia artificial.
+- ms/agente/step: 0.095560
+- wall_s: 58.477
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias max: 200.000
+- integrity_errors: 0
+- Leitura: dinamica padrao preservada; agora existe uma separacao clara entre
+  modo UI com resgate e modo experimental estrito.

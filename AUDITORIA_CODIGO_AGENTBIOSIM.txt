@@ -334,9 +334,18 @@ Acao recomendada:
 
 
 15. Limite minimo de populacao cria imortalidade artificial
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/systems.py:217 _process_deaths.
 - Quando current_count <= min_limit, agentes candidatos a morte recebem death_energy + 0.001.
+
+Correcao aplicada:
+- Foi adicionado o parametro population_min_rescue_enabled.
+- Com population_min_rescue_enabled=True, a UI preserva o comportamento antigo de resgate populacional minimo.
+- Com population_min_rescue_enabled=False, o DeathSystem entra em modo experimental estrito: agentes abaixo da energia de morte morrem mesmo abaixo do minimo e nao recebem energia artificial.
+- A UI ganhou controle explicito para esse resgate minimo.
+- Teste direto validou resgate ligado e modo estrito desligando energia artificial.
+- Benchmark p1_15_population_rescue_mode preservou a dinamica padrao do P1 #14.
 
 Impacto:
 - A selecao natural e alterada: agentes ruins sao mantidos vivos por regra externa.

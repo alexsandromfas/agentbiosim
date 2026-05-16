@@ -237,26 +237,30 @@ class DeathSystem:
 
         current_count = len(agents)
         death_candidates = [a for a in agents if a.should_die(params)]
+        min_rescue_enabled = bool(params.get('population_min_rescue_enabled', True))
+        protected_min = min_limit if min_rescue_enabled else 0
 
         # Limite mínimo preservado
-        if current_count <= min_limit:
+        if min_rescue_enabled and current_count <= min_limit:
             for a in death_candidates:
                 a.energy = max(a.energy, death_energy + 0.001)
             return agents
 
-        deaths_available = min(current_count - min_limit,
+        deaths_available = min(current_count - protected_min,
                                 self.max_deaths_per_step,
                                 len(death_candidates))
         if deaths_available <= 0:
-            for a in death_candidates:
-                a.energy = max(a.energy, death_energy + 0.001)
+            if min_rescue_enabled:
+                for a in death_candidates:
+                    a.energy = max(a.energy, death_energy + 0.001)
             return agents
 
         death_candidates.sort(key=lambda a: a.energy)
         agents_to_kill = death_candidates[:deaths_available]
         self.last_deaths.extend(agents_to_kill)
-        for a in death_candidates[deaths_available:]:
-            a.energy = max(a.energy, death_energy + 0.001)
+        if min_rescue_enabled:
+            for a in death_candidates[deaths_available:]:
+                a.energy = max(a.energy, death_energy + 0.001)
         return [a for a in agents if a not in agents_to_kill]
 
 
