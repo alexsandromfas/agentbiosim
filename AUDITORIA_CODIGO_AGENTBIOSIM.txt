@@ -943,6 +943,29 @@ Acao recomendada:
 - Remover test_param_* do persist.
 - Evitar chaves duplicadas como substrate_shape.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- UI agora salva parametros locais em config/user_params.csv.
+- sim/ui_params.csv foi removido do codigo versionado.
+- .gitignore ignora config/user_params.csv para evitar sujeira de repositorio.
+- Loader mantem fallback para sim/ui_params.csv legado se ele existir localmente.
+- save_ui_params ignora test_param_* e usa dicionario por nome para evitar
+  duplicatas como substrate_shape.
+- _load_ui_params_csv tambem ignora test_param_* vindos de arquivos antigos.
+
+Teste/validacao:
+- Teste direto validou que user_params.csv e criado em config/, que test_param_*
+  nao e salvo, que substrate_shape aparece uma unica vez e que fallback legado
+  ainda carrega substrate_shape.
+- compileall passou para ui.py.
+- Benchmark p1_33_ui_params_config_path preservou exatamente os eventos do P1 #32.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.077884 contra 0.075705 no P1 #32.
+- Diferenca tratada como ruido; a mudanca nao entra no loop headless.
+- Integridade critica preservada.
+
 
 34. Prints de aplicacao de parametros estao no corpo da classe, nao nos metodos
 Evidencia:

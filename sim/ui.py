@@ -66,7 +66,9 @@ class SimulationUI(QMainWindow):
         self.params = params
         self.engine = engine
         self.pygame_view = pygame_view
-        self._ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
+        root_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..'))
+        self._ui_params_csv = os.path.join(root_dir, 'config', 'user_params.csv')
+        self._legacy_ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
 
         self.setWindowTitle("AgentBioSim V1.0.0")
         # Define icon from project assets (only for main UI window)
@@ -904,29 +906,33 @@ class SimulationUI(QMainWindow):
     # ------------------------------------------------------------------
     def save_ui_params(self):
         try:
-            rows = []
+            rows_by_name = {}
             for name in sorted(self.widgets.keys()):
+                if name.startswith('test_param_'):
+                    continue
                 val = self._get_widget_value(name)
-                rows.append({'name': name, 'value': val})
+                rows_by_name[name] = {'name': name, 'value': val}
             # Ensure color params and substrate shape are saved too
             try:
                 import json as _json
-                rows.append({'name': 'substrate_shape', 'value': self._get_widget_value('substrate_shape')})
-                rows.append({'name': 'substrate_bg_color', 'value': _json.dumps(list(self.params.get('substrate_bg_color', (10,10,20))))})
-                rows.append({'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))})
-                rows.append({'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))})
-                rows.append({'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))})
+                rows_by_name['substrate_shape'] = {'name': 'substrate_shape', 'value': self._get_widget_value('substrate_shape')}
+                rows_by_name['substrate_bg_color'] = {'name': 'substrate_bg_color', 'value': _json.dumps(list(self.params.get('substrate_bg_color', (10,10,20))))}
+                rows_by_name['food_color'] = {'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))}
+                rows_by_name['bacteria_color'] = {'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))}
+                rows_by_name['predator_color'] = {'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))}
                 # Camera position/zoom
                 try:
                     cam = getattr(self.engine, 'camera', None)
                     if cam is not None:
-                        rows.append({'name': 'camera_x', 'value': cam.x})
-                        rows.append({'name': 'camera_y', 'value': cam.y})
-                        rows.append({'name': 'camera_zoom', 'value': cam.zoom})
+                        rows_by_name['camera_x'] = {'name': 'camera_x', 'value': cam.x}
+                        rows_by_name['camera_y'] = {'name': 'camera_y', 'value': cam.y}
+                        rows_by_name['camera_zoom'] = {'name': 'camera_zoom', 'value': cam.zoom}
                 except Exception:
                     pass
             except Exception:
                 pass
+            rows = [rows_by_name[name] for name in sorted(rows_by_name.keys())]
+            os.makedirs(os.path.dirname(self._ui_params_csv), exist_ok=True)
             with open(self._ui_params_csv,'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['name','value']); writer.writeheader(); writer.writerows(rows)
             print(f"Parâmetros UI salvos em {self._ui_params_csv}")
@@ -934,13 +940,18 @@ class SimulationUI(QMainWindow):
             print(f"Erro ao salvar parâmetros UI: {e}")
 
     def _load_ui_params_csv(self):
-        if not os.path.exists(self._ui_params_csv):
+        load_path = self._ui_params_csv
+        if not os.path.exists(load_path) and os.path.exists(getattr(self, '_legacy_ui_params_csv', '')):
+            load_path = self._legacy_ui_params_csv
+        if not os.path.exists(load_path):
             return
         try:
-            with open(self._ui_params_csv,'r', encoding='utf-8') as f:
+            with open(load_path,'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
                     name = row.get('name'); value = row.get('value')
+                    if not name or name.startswith('test_param_'):
+                        continue
                     if name in self.widgets:
                         w = self.widgets[name]
                         try:
@@ -1045,7 +1056,7 @@ class SimulationUI(QMainWindow):
             # schedule auto export if active
             if self._get_widget_value('auto_export_substrate'):
                 self._schedule_next_auto_export(initial=True)
-            print(f"Parâmetros UI carregados de {self._ui_params_csv}")
+            print(f"Parâmetros UI carregados de {load_path}")
         except Exception as e:
             print(f"Erro ao carregar parâmetros UI: {e}")
 
