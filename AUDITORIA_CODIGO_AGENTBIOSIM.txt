@@ -223,11 +223,19 @@ Acao recomendada:
 
 
 10. Parametros de mostrar visao nao sao usados no render
+Status: FEITO no codigo; TESTADO/VALIDADO.
 Evidencia:
 - sim/ui.py:528 e 652 criam controles bacteria_show_vision e predator_show_vision.
 - sim/game.py:201-204 tecla V alterna bacteria_show_vision.
 - sim/engine.py:289 e 294 chama draw_agent(... show_vision=False) sempre.
 - sim/render.py:76 e 254 so desenha visao se show_vision ou selected.
+
+Correcao aplicada:
+- Engine.render agora passa predator_show_vision para predadores.
+- Engine.render agora passa bacteria_show_vision para bacterias.
+- O comportamento de selected foi preservado; o renderer continua desenhando visao do agente selecionado.
+- Teste direto com renderer falso validou flags por tipo e selected.
+- Benchmark p0_10_show_vision_render preservou eventos e integridade do P0 #9.
 
 Impacto:
 - O controle da UI e a tecla V nao fazem o que prometem, exceto visao do agente selecionado.

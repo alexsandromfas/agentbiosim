@@ -58,3 +58,17 @@ P0 #9 - Corrigir apply_substrate_params
 - integrity_errors: 0
 - Leitura: dinamica preservada; correcao afeta aplicacao de parametros da UI
   e evita falha silenciosa ao mudar formato/tamanho do substrato.
+
+P0 #10 - Parametros de mostrar visao no render
+- Run id: 20260516_010149_p0_10_show_vision_render
+- Alteracao: Engine.render passa predator_show_vision e bacteria_show_vision
+  para renderer.draw_agent por tipo.
+- Teste direto: PASS renderer recebeu flags corretos para predador/bacteria e
+  preservou selected.
+- ms/agente/step: 0.140553
+- wall_s: 86.019
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; correcao afeta somente visualizacao.

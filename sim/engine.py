@@ -290,15 +290,18 @@ class Engine:
         for food in self.entities['foods']:
             self.renderer.draw_food(food, surface, self.camera)
         
+        predator_show_vision = bool(self.params.get('predator_show_vision', False))
+        bacteria_show_vision = bool(self.params.get('bacteria_show_vision', False))
+
         for predator in self.entities['predators']:
             selected = (predator is self.selected_agent)
             self.renderer.draw_agent(predator, surface, self.camera, 
-                                   show_head=True, show_vision=False, selected=selected)
+                                   show_head=True, show_vision=predator_show_vision, selected=selected)
         
         for bacterium in self.entities['bacteria']:
             selected = (bacterium is self.selected_agent)
             self.renderer.draw_agent(bacterium, surface, self.camera,
-                                   show_head=True, show_vision=False, selected=selected)
+                                   show_head=True, show_vision=bacteria_show_vision, selected=selected)
         
         # Desenha overlay de informações
         info = self._gather_render_info()
