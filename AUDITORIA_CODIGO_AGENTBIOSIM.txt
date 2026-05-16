@@ -1220,6 +1220,30 @@ Acao recomendada:
 - Separar exemplos pequenos versionados de dados locais.
 - Ignorar exports locais por padrao e manter uma pasta examples/ controlada.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+
+Alteracao feita:
+- Criado examples/README.md como area controlada para exemplos pequenos e
+  documentados.
+- Criado agents/README.md explicando que novos agentes exportados sao dados
+  locais e que exemplos versionados devem ir para examples/.
+- Criado substrates/README.md explicando que exports/autosaves sao dados locais.
+- Criado tests/otimizacoes/README.md explicando que relatorios JSON sao artefatos
+  locais de benchmark auxiliar.
+
+Teste/validacao:
+- python -m pytest passou: 5 testes.
+- Benchmark p2_41_data_policy_examples preservou exatamente os eventos do P2 #40.
+
+Leitura do benchmark:
+- ms/agente/step ficou 0.075702 contra 0.077517 no P2 #40.
+- Integridade critica preservada.
+
+Pendente:
+- O .gitignore generico para exports locais sera tratado no P2 #42.
+- Dados historicos ja rastreados ainda precisam de decisao explicita antes de
+  serem removidos ou migrados para exemplos menores.
+
 
 42. .gitignore e muito especifico
 Evidencia:
