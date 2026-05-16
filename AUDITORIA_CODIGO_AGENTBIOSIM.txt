@@ -792,6 +792,24 @@ Acao recomendada:
 - Criar snapshot/cache de parametros por frame ou por tipo.
 - Atualizar apenas quando UI marcar dirty.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Engine cria um snapshot dict dos parametros no inicio de cada substep.
+- Sistemas/agentes recebem esse dict no substep, reduzindo chamadas ao metodo
+  Params.get dentro de loops quentes.
+- O snapshot tambem evita que uma mudanca de UI no meio do substep misture
+  parametros antigos e novos dentro da mesma iteracao fisica.
+
+Teste/validacao:
+- Teste direto validou que _params_snapshot retorna dict independente e que o
+  Engine roda um step usando esse caminho.
+- compileall passou para engine.py.
+- Benchmark p1_29_params_snapshot_substep preservou exatamente os eventos do P1 #28.
+
+Leitura do benchmark:
+- ms/agente/step caiu de 0.076984 para 0.076524.
+- Integridade critica preservada.
+
 
 30. Objetos Python por agente limitam escala
 Evidencia:

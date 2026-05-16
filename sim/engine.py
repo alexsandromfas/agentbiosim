@@ -370,10 +370,11 @@ class Engine:
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
+        step_params = self._params_snapshot()
         with profile_section('food_control'):
-            target_food = self.params.get('food_target', 300)
+            target_food = step_params.get('food_target', 300)
             new_foods = self.food_controller.update(
-                self.entities['foods'], target_food, self.world.width, self.world.height, self.params, dt
+                self.entities['foods'], target_food, self.world.width, self.world.height, step_params, dt
             )
             self.entities['foods'].extend(new_foods)
             if new_foods or getattr(self.food_controller, 'last_foods_removed', 0):
@@ -393,7 +394,7 @@ class Engine:
                     agent_groups[key] = []
                 agent_groups[key].append(agent)
             for group in agent_groups.values():
-                update_agents_batch(group, dt, self.world, self.scene_query, self.params, selected_agent=self.selected_agent)
+                update_agents_batch(group, dt, self.world, self.scene_query, step_params, selected_agent=self.selected_agent)
 
         # Agentes se moveram; interações precisam do hash com as posições atuais.
         with profile_section('spatial_hash'):
@@ -403,7 +404,7 @@ class Engine:
         with profile_section('interaction'):
             removed_agents = self.interaction_system.apply(
                 self.entities['bacteria'], self.entities['predators'],
-                self.entities['foods'], self.spatial_hash, self.params
+                self.entities['foods'], self.spatial_hash, step_params
             )
             if removed_agents:
                 topology_changed = True
@@ -412,7 +413,7 @@ class Engine:
                     self.selected_agent = None
 
         with profile_section('reproduction'):
-            new_agents = self.reproduction_system.apply(self.all_agents, self.params)
+            new_agents = self.reproduction_system.apply(self.all_agents, step_params)
 
         if new_agents:
             for agent in new_agents:
@@ -427,7 +428,7 @@ class Engine:
         with profile_section('death'):
             before_death_count = len(self.entities['bacteria']) + len(self.entities['predators'])
             surviving_bacteria, surviving_predators = self.death_system.apply(
-                self.entities['bacteria'], self.entities['predators'], self.params
+                self.entities['bacteria'], self.entities['predators'], step_params
             )
             self.entities['bacteria'] = surviving_bacteria
             self.entities['predators'] = surviving_predators
@@ -443,10 +444,16 @@ class Engine:
                 self._update_spatial_hash(force=True)
 
         with profile_section('collision'):
-            collisions_resolved = self.collision_system.apply(self.all_agents, self.spatial_hash, self.params)
+            collisions_resolved = self.collision_system.apply(self.all_agents, self.spatial_hash, step_params)
             if collisions_resolved:
                 self._spatial_hash_dirty = True
     
+    def _params_snapshot(self):
+        data = getattr(self.params, '_data', None)
+        if isinstance(data, dict):
+            return dict(data)
+        return self.params
+
     def _update_spatial_hash(self, force: bool = True):
         """Atualiza ou recria spatial hash."""
         if (not force and not self._spatial_hash_dirty and
