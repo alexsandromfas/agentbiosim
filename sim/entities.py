@@ -120,7 +120,7 @@ class Agent(Entity):
     """
 
     __slots__ = Entity.__slots__ + (
-        "angle", "vx", "vy", "m", "age", "selected", "brain", "sensor",
+        "angle", "vx", "vy", "m", "age", "last_reproduction_age", "selected", "brain", "sensor",
         "locomotion", "energy_model", "last_brain_output", "last_brain_activations",
         "is_predator", "energy"
     )
@@ -138,6 +138,7 @@ class Agent(Entity):
         self.m = r * r  # mantido para cálculos físicos existentes
         self.energy = 0.0  # bateria interna
         self.age = 0.0
+        self.last_reproduction_age = None
         self.selected = False
 
         # Componentes

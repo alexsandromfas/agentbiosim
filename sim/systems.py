@@ -129,6 +129,8 @@ class ReproductionSystem:
 
     def __init__(self):
         self.last_births = []
+        self.last_blocked_by_age = 0
+        self.last_blocked_by_cooldown = 0
     
     def apply(self, agents: List['Agent'], params: 'Params') -> List['Agent']:
         """
@@ -143,6 +145,10 @@ class ReproductionSystem:
         """
         new_agents = []
         self.last_births = []
+        self.last_blocked_by_age = 0
+        self.last_blocked_by_cooldown = 0
+        min_age = max(0.0, float(params.get('reproduction_min_age', 0.0)))
+        cooldown = max(0.0, float(params.get('reproduction_cooldown', 0.0)))
         
         # Determina limites de população por tipo
         bacteria_count = sum(1 for a in agents if not getattr(a, 'is_predator', False))
@@ -152,6 +158,15 @@ class ReproductionSystem:
         predator_max = params.get('predator_max_limit', 100)
         
         for agent in agents:
+            if min_age > 0.0 and getattr(agent, 'age', 0.0) < min_age:
+                self.last_blocked_by_age += 1
+                continue
+            last_reproduction_age = getattr(agent, 'last_reproduction_age', None)
+            if cooldown > 0.0 and last_reproduction_age is not None:
+                if getattr(agent, 'age', 0.0) - float(last_reproduction_age) < cooldown:
+                    self.last_blocked_by_cooldown += 1
+                    continue
+
             # Verifica se pode se reproduzir
             if not agent.can_reproduce(params):
                 continue
@@ -168,6 +183,10 @@ class ReproductionSystem:
             # Cria filho
             try:
                 child = agent.reproduce(params)
+                if hasattr(agent, 'last_reproduction_age'):
+                    agent.last_reproduction_age = getattr(agent, 'age', 0.0)
+                if hasattr(child, 'last_reproduction_age'):
+                    child.last_reproduction_age = getattr(child, 'age', 0.0)
                 new_agents.append(child)
                 
                 # Atualiza contadores

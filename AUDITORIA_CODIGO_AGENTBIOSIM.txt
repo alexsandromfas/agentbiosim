@@ -561,6 +561,25 @@ Acao recomendada:
 - Adicionar cooldown/idade minima opcional.
 - Registrar eventos de nascimento para auditar explosoes populacionais.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Adicionados parametros opcionais reproduction_min_age e reproduction_cooldown
+  com default 0.0 para preservar a dinamica atual.
+- Agent ganhou last_reproduction_age.
+- ReproductionSystem bloqueia nascimento por idade minima ou cooldown quando
+  os parametros forem maiores que zero.
+- Ao reproduzir, parent e child atualizam last_reproduction_age para impedir
+  loops imediatos quando cooldown estiver ativo.
+- Snapshots e export/import de agente preservam last_reproduction_age.
+- Benchmark registra births_blocked_age e births_blocked_cooldown.
+
+Teste/validacao:
+- Teste direto validou bloqueio por idade minima, bloqueio por cooldown e
+  nascimento permitido quando o cooldown ja passou.
+- compileall passou para controllers, entities, systems, ui, engine e benchmark.
+- Benchmark p1_22_reproduction_cooldown preservou eventos biologicos e contagens
+  do P1 #21; bloqueios por idade/cooldown foram 0 com parametros padrao.
+
 
 ===============================================================================
 PRIORIDADE P1 - PERFORMANCE E ESCALA

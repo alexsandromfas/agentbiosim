@@ -585,6 +585,8 @@ class Engine:
             # Ajustes adicionais
             agent.energy = _f('energy', 0.0)
             agent.age = _f('age', 0.0)
+            if 'last_reproduction_age' in data:
+                agent.last_reproduction_age = _f('last_reproduction_age', agent.age)
             # Cor importada (suporta JSON array ou legacy tuple string)
             try:
                 if 'color' in data:

@@ -141,6 +141,8 @@ class Params:
             
             # Física geral
             'agents_inertia': 1.0,  # Inércia global (antes derivada de massa individual)
+            'reproduction_min_age': 0.0,
+            'reproduction_cooldown': 0.0,
 
             # UI/Debug
             'show_selected_details': True,
@@ -190,6 +192,8 @@ class Params:
                 return int(float(value))
             except (TypeError, ValueError):
                 return -1
+        if key in ['reproduction_min_age', 'reproduction_cooldown']:
+            return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
             return max(0, int(value))
         elif 'energy' in key or 'radius' in key or key.endswith('_r'):

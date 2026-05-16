@@ -236,3 +236,26 @@ P1 #21 - FoodController remove excesso gradualmente
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica preservada. A nova remocao nao atuou no benchmark porque a
   comida estava abaixo do alvo, mas agora reduzir food_target converge.
+
+P1 #22 - Cooldown/idade minima opcional de reproducao
+- Run id: 20260516_015011_p1_22_reproduction_cooldown
+- Alteracao: adicionados reproduction_min_age, reproduction_cooldown e
+  last_reproduction_age; snapshots/export de agente preservam o marcador;
+  benchmark registra bloqueios por idade/cooldown.
+- Teste direto: PASS bloqueio por idade minima, bloqueio por cooldown e
+  reproducao liberada quando cooldown ja passou.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079638
+- wall_s: 48.734
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2003, predations=184, births=187, deaths=3
+- eventos food_controller: added=1982, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada porque os novos parametros padrao sao 0. Agora
+  existe controle experimental para explosoes por reproducao em substeps.

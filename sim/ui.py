@@ -255,6 +255,14 @@ class SimulationUI(QMainWindow):
         w2.setValue(self.params.get('agents_inertia', 1.0))
         add_perf("Inércia global:", 'agents_inertia', w2)
 
+        w = _spin_double(0.0, 3600.0, 0.1, 2)
+        w.setValue(self.params.get('reproduction_min_age', 0.0))
+        add_perf("Idade min. reproducao:", 'reproduction_min_age', w)
+
+        w = _spin_double(0.0, 3600.0, 0.1, 2)
+        w.setValue(self.params.get('reproduction_cooldown', 0.0))
+        add_perf("Cooldown reproducao:", 'reproduction_cooldown', w)
+
         v.addWidget(g_perf)
         # Grupo: Visualização / Debug
         g_vis = QGroupBox("Visualização / Debug"); g_vis.setStyleSheet(card_style); grid3=QGridLayout(g_vis); r_vis=0
@@ -789,7 +797,7 @@ class SimulationUI(QMainWindow):
     # Apply parameter groups
     # ------------------------------------------------------------------
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','show_selected_details']:
+        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','reproduction_min_age','reproduction_cooldown','show_selected_details']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -1074,6 +1082,7 @@ class SimulationUI(QMainWindow):
         add('type', 'predator' if getattr(agent,'is_predator', False) else 'bacteria')
         for attr in ['x','y','r','angle','vx','vy','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
+        add('last_reproduction_age', getattr(agent, 'last_reproduction_age', ''))
         # Cor do agente (RGB tuple) - exportada em JSON para compatibilidade
         try:
             col = getattr(agent, 'color', None)
@@ -1266,7 +1275,8 @@ class SimulationUI(QMainWindow):
                 ad = {
                     'type': 'predator' if getattr(agent,'is_predator', False) else 'bacteria',
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
-                    'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0)
+                    'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0),
+                    'last_reproduction_age': getattr(agent, 'last_reproduction_age', None)
                 }
                 try:
                     ad['color'] = list(getattr(agent, 'color', (220, 220, 220)))
@@ -1409,6 +1419,7 @@ class SimulationUI(QMainWindow):
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
                 agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
+                agent.last_reproduction_age = ad.get('last_reproduction_age', getattr(agent, 'last_reproduction_age', None))
                 agent.last_brain_output = ad.get('last_brain_output', []); agent.last_brain_activations = ad.get('last_brain_activations', [])
                 try:
                     color = ad.get('color')
