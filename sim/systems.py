@@ -156,6 +156,8 @@ class ReproductionSystem:
         # Determina limites de população por tipo
         bacteria_count = sum(1 for a in agents if not getattr(a, 'is_predator', False))
         predator_count = sum(1 for a in agents if getattr(a, 'is_predator', False))
+        bacteria_new_count = 0
+        predator_new_count = 0
         
         bacteria_max = params.get('bacteria_max_limit', 300)
         predator_max = params.get('predator_max_limit', 100)
@@ -177,10 +179,10 @@ class ReproductionSystem:
             # Verifica limites de população
             is_predator = getattr(agent, 'is_predator', False)
             if is_predator:
-                if predator_count + len([a for a in new_agents if getattr(a, 'is_predator', False)]) >= predator_max:
+                if predator_count + predator_new_count >= predator_max:
                     continue
             else:
-                if bacteria_count + len([a for a in new_agents if not getattr(a, 'is_predator', False)]) >= bacteria_max:
+                if bacteria_count + bacteria_new_count >= bacteria_max:
                     continue
             
             # Cria filho
@@ -194,9 +196,9 @@ class ReproductionSystem:
                 
                 # Atualiza contadores
                 if is_predator:
-                    predator_count += 1
+                    predator_new_count += 1
                 else:
-                    bacteria_count += 1
+                    bacteria_new_count += 1
                     
             except Exception as e:
                 print(f"Erro na reprodução: {e}")

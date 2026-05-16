@@ -731,6 +731,25 @@ Impacto:
 Acao recomendada:
 - Manter counters incrementais bacteria_new_count e predator_new_count.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- ReproductionSystem usa bacteria_new_count e predator_new_count incrementais.
+- Removidas list comprehensions sobre new_agents dentro do loop.
+- Corrigido bug de limite: antes o codigo incrementava bacteria_count/predator_count
+  e tambem somava len(new_agents), podendo bloquear nascimentos cedo demais.
+
+Teste/validacao:
+- Teste direto validou 2 bacterias atuais com limite 4 gerando 2 filhas, e com
+  limite 3 gerando apenas 1 filha.
+- compileall passou para systems.py.
+- Benchmark p1_27_reproduction_incremental_counters rodou completo.
+
+Leitura do benchmark:
+- ms/agente/step caiu de 0.077726 para 0.075131.
+- Eventos mudaram por correcao de regra/ordem de reproducao: foods_eaten 2028->2020,
+  predations 213->207, births 217->211, deaths 4->4.
+- Integridade critica ok; outside_world_objects caiu de 20 para 10.
+
 
 28. Render detalhado cria Surface e rotaciona por agente a cada frame
 Evidencia:
