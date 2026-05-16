@@ -239,15 +239,18 @@ class RetinaSensor:
         desired_count = params.get(f'{prefix}_retina_count', self.retina_count)
         desired_fov = params.get(f'{prefix}_retina_fov_degrees', self.fov_degrees)
         desired_radius = params.get(f'{prefix}_vision_radius', self.vision_radius)
+        desired_skip = max(0, int(params.get('retina_skip', self.skip)))
         desired_see_food = params.get(f'{prefix}_retina_see_food', self.see_food)
         desired_see_bacteria = params.get(f'{prefix}_retina_see_bacteria', self.see_bacteria)
         desired_see_predators = params.get(f'{prefix}_retina_see_predators', self.see_predators)
         if (desired_count != self.retina_count or desired_fov != self.fov_degrees or
-            desired_radius != self.vision_radius or desired_see_food != self.see_food or
+            desired_radius != self.vision_radius or desired_skip != self.skip or
+            desired_see_food != self.see_food or
             desired_see_bacteria != self.see_bacteria or desired_see_predators != self.see_predators):
             self.retina_count = max(1, int(desired_count))
             self.fov_degrees = float(desired_fov)
             self.vision_radius = float(desired_radius)
+            self.skip = desired_skip
             self.see_food = bool(desired_see_food)
             self.see_bacteria = bool(desired_see_bacteria)
             self.see_predators = bool(desired_see_predators)
@@ -354,15 +357,18 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         desired_count = params.get(f'{prefix}_retina_count', sensor.retina_count)
         desired_fov = params.get(f'{prefix}_retina_fov_degrees', sensor.fov_degrees)
         desired_radius = params.get(f'{prefix}_vision_radius', sensor.vision_radius)
+        desired_skip = max(0, int(params.get('retina_skip', sensor.skip)))
         desired_see_food = params.get(f'{prefix}_retina_see_food', sensor.see_food)
         desired_see_bacteria = params.get(f'{prefix}_retina_see_bacteria', sensor.see_bacteria)
         desired_see_predators = params.get(f'{prefix}_retina_see_predators', sensor.see_predators)
         if (desired_count != sensor.retina_count or desired_fov != sensor.fov_degrees or
-            desired_radius != sensor.vision_radius or desired_see_food != sensor.see_food or
+            desired_radius != sensor.vision_radius or desired_skip != sensor.skip or
+            desired_see_food != sensor.see_food or
             desired_see_bacteria != sensor.see_bacteria or desired_see_predators != sensor.see_predators):
             sensor.retina_count = max(1, int(desired_count))
             sensor.fov_degrees = float(desired_fov)
             sensor.vision_radius = float(desired_radius)
+            sensor.skip = desired_skip
             sensor.see_food = bool(desired_see_food)
             sensor.see_bacteria = bool(desired_see_bacteria)
             sensor.see_predators = bool(desired_see_predators)

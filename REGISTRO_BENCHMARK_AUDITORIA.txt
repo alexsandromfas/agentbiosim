@@ -154,3 +154,22 @@ P1 #17 - Semantica explicita dos modos de retina
   spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
 - Leitura: dinamica principal preservada. A mudanca e de rigor experimental:
   agora cada benchmark deixa claro qual semantica de retina foi usada.
+
+P1 #18 - retina_skip dinamico em sensores existentes
+- Run id: 20260516_013004_p1_18_dynamic_retina_skip
+- Alteracao: RetinaSensor.sense e batch_retina_sense atualizam sensor.skip a
+  partir de params['retina_skip']; mudancas limpam cache/countdown.
+- Teste direto: PASS caminho individual e batch recalculam imediatamente ao
+  trocar retina_skip de 5 para 0; trocar para 4 deixa countdown=4 apos leitura.
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077414
+- wall_s: 47.373
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A correcao afeta mudancas em tempo real pela
+  UI/parametros, sem alterar o substrato quando retina_skip ja estava coerente.

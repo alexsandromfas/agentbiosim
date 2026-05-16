@@ -432,6 +432,20 @@ Impacto:
 Acao recomendada:
 - Atualizar desired_skip junto com os demais parametros dinamicos.
 
+Status: FEITO no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- RetinaSensor.sense agora le retina_skip dinamicamente.
+- batch_retina_sense agora tambem atualiza sensor.skip em agentes existentes.
+- Quando retina_skip muda, o cache de retina e o countdown sao limpos para que
+  a proxima leitura nao reutilize entradas antigas.
+- Valores negativos sao normalizados para 0.
+
+Teste/validacao:
+- Teste direto validou atualizacao dinamica no caminho individual e no batch:
+  mudar retina_skip de 5 para 0 recalcula imediatamente; mudar para 4 deixa
+  countdown=4 apos a leitura.
+- Benchmark p1_18_dynamic_retina_skip preservou eventos e contagens do P1 #17.
+
 
 19. Criacao inicial valida overlap com raio diferente do raio final
 Evidencia:
