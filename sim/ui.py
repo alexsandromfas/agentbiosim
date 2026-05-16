@@ -1430,6 +1430,7 @@ class SimulationUI(QMainWindow):
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
+            self.engine._spatial_hash_dirty = True
             rng_state = data.get('rng_state') or data.get('random_state')
             if rng_state:
                 try:

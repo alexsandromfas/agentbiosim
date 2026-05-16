@@ -306,3 +306,27 @@ P1 #24 - Cache de raios relativos da retina
 - Leitura: preservou exatamente os eventos do P1 #23 e reduziu ms/agente/step
   de 0.078870 para 0.077513. A tentativa trigonometrica cacheada mudou a
   trajetoria e foi descartada do codigo final.
+
+P1 #25 - Dirty flag/instrumentacao para SpatialHash
+- Run id: 20260516_020303_p1_25_spatial_dirty_flag
+- Alteracao: Engine mantem _spatial_hash_dirty; CollisionSystem retorna
+  colisoes resolvidas; benchmark registra rebuilds/skips do spatial hash.
+- Teste direto: PASS rebuild quando sujo, skip quando limpo e contagem de
+  colisao resolvida.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077535
+- wall_s: 47.443
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1426, skips=1
+- collisions_resolved: 62559
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: eventos preservados. Performance neutra no substrato denso porque
+  colisoes deixam o hash sujo quase sempre. Incremental por celula segue pendente.

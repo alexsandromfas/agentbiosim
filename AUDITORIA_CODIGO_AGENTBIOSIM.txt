@@ -663,6 +663,32 @@ Acao recomendada:
 - Guardar celulas ocupadas por objeto e atualizar incrementalmente.
 - Como passo intermediario, manter rebuild, mas corrigir a ordem apos movimento.
 
+Status: FEITO PARCIAL no codigo; TESTADO/VALIDADO.
+Correcao aplicada:
+- Engine agora mantem _spatial_hash_dirty e so pula rebuild pre-sensores quando
+  o hash ainda esta limpo e consistente.
+- Mudancas de comida, spawn manual/prototipo, inicializacao, importacao,
+  topologia e colisoes marcam o hash como sujo.
+- CollisionSystem agora retorna quantas colisoes realmente separaram agentes.
+- Benchmark registra collisions_resolved, spatial_hash_rebuilds e
+  spatial_hash_skips.
+
+Teste/validacao:
+- Teste direto validou rebuild quando sujo, skip quando limpo e retorno de
+  colisoes resolvidas.
+- compileall passou para engine, systems, ui e benchmark.
+- Benchmark p1_25_spatial_dirty_flag preservou exatamente os eventos do P1 #24.
+
+Leitura do benchmark:
+- spatial_hash_rebuilds=1426 e spatial_hash_skips=1 em 600 steps.
+- collisions_resolved=62559: o substrato de teste e denso, entao colisoes
+  deixam o hash sujo quase todo substep.
+- Ganho de performance foi neutro: 0.077513 -> 0.077535 ms/agente/step.
+
+Pendente:
+- A otimizacao real ainda e incremental por objeto/celula. Esta etapa deixou a
+  instrumentacao e a seguranca para pular rebuilds em cenarios menos densos.
+
 
 26. InteractionSystem faz contagens repetidas dentro de loops
 Evidencia:

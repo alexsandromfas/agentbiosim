@@ -565,6 +565,9 @@ def run_benchmark(
         "foods_removed_controller": 0,
         "births_blocked_age": 0,
         "births_blocked_cooldown": 0,
+        "collisions_resolved": 0,
+        "spatial_hash_rebuilds": 0,
+        "spatial_hash_skips": 0,
     }
 
     wall_start = time.perf_counter()
@@ -581,10 +584,13 @@ def run_benchmark(
         events["foods_removed_controller"] += int(getattr(engine.food_controller, "last_foods_removed", 0))
         events["births_blocked_age"] += int(getattr(engine.reproduction_system, "last_blocked_by_age", 0))
         events["births_blocked_cooldown"] += int(getattr(engine.reproduction_system, "last_blocked_by_cooldown", 0))
+        events["collisions_resolved"] += int(getattr(engine.collision_system, "last_collisions_resolved", 0))
         if step % sample_every == 0 or step == steps:
             samples.append(collect_sample(engine, step, engine.total_simulation_time, time.perf_counter() - wall_start, neural_sample))
 
     wall_s = time.perf_counter() - wall_start
+    events["spatial_hash_rebuilds"] = int(getattr(engine, "spatial_hash_rebuilds", 0))
+    events["spatial_hash_skips"] = int(getattr(engine, "spatial_hash_skips", 0))
     profiler.total_wall = wall_s
     profiler_sections = profiler.snapshot()
     profiler.enabled = prev_profiler_enabled

@@ -290,6 +290,7 @@ class CollisionSystem:
     
     def __init__(self):
         self._processed_pairs = set()
+        self.last_collisions_resolved = 0
     
     def apply(self, agents: List['Agent'], spatial_hash: 'SpatialHash', params: 'Params'):
         """
@@ -301,11 +302,13 @@ class CollisionSystem:
             params: Parâmetros da simulação
         """
         self._processed_pairs.clear()
+        self.last_collisions_resolved = 0
         
         if spatial_hash:
             self._resolve_with_spatial_hash(agents, spatial_hash)
         else:
             self._resolve_brute_force(agents)
+        return self.last_collisions_resolved
     
     def _resolve_with_spatial_hash(self, agents: List['Agent'], spatial_hash: 'SpatialHash'):
         """Resolve colisões usando spatial hash."""
@@ -325,14 +328,16 @@ class CollisionSystem:
                     continue
                 self._processed_pairs.add(pair_key)
                 
-                self._resolve_collision_pair(agent, other)
+                if self._resolve_collision_pair(agent, other):
+                    self.last_collisions_resolved += 1
     
     def _resolve_brute_force(self, agents: List['Agent']):
         """Resolve colisões com busca bruta (para populações pequenas)."""
         n = len(agents)
         for i in range(n):
             for j in range(i + 1, n):
-                self._resolve_collision_pair(agents[i], agents[j])
+                if self._resolve_collision_pair(agents[i], agents[j]):
+                    self.last_collisions_resolved += 1
     
     def _resolve_collision_pair(self, agent1: 'Agent', agent2: 'Agent'):
         """
@@ -345,7 +350,7 @@ class CollisionSystem:
         r_sum = agent1.r + agent2.r
         r_sum2 = r_sum * r_sum
         if dist2 >= r_sum2:
-            return  # Sem colisão
+            return False  # Sem colisão
         if dist2 == 0:
             distance = 0.01
             dx = 0.01
@@ -382,7 +387,7 @@ class CollisionSystem:
         relative_velocity_normal = dvx * nx + dvy * ny
 
         if relative_velocity_normal > 0:
-            return  # Objetos se afastando
+            return True  # Objetos separados, mas velocidades ja estavam se afastando
 
         # Impulso elástico
         impulse = (2 * relative_velocity_normal) / total_mass
@@ -393,3 +398,4 @@ class CollisionSystem:
         agent1.vy -= impulse_y * agent2.m
         agent2.vx += impulse_x * agent1.m
         agent2.vy += impulse_y * agent1.m
+        return True

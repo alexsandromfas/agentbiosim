@@ -67,6 +67,9 @@ class Engine:
         # Infraestrutura
         self.spatial_hash = None
         self.scene_query = None
+        self._spatial_hash_dirty = True
+        self.spatial_hash_rebuilds = 0
+        self.spatial_hash_skips = 0
 
         # Renderização
         if headless or SimpleRenderer is None:
@@ -334,6 +337,7 @@ class Engine:
                                 self.world.width, self.world.height, 
                                 at=(world_x, world_y))
         self.entities['foods'].append(food)
+        self._spatial_hash_dirty = True
     
     def add_bacteria_at(self, world_x: float, world_y: float):
         """Adiciona bactéria na posição especificada."""
@@ -344,6 +348,7 @@ class Engine:
                                          at=(world_x, world_y))
         self.entities['bacteria'].append(bacterium)
         self.all_agents.append(bacterium)
+        self._spatial_hash_dirty = True
     
     def _simulate_physics(self, world_dt: float) -> float:
         """Simula física por um delta tempo do mundo."""
@@ -371,10 +376,12 @@ class Engine:
                 self.entities['foods'], target_food, self.world.width, self.world.height, self.params, dt
             )
             self.entities['foods'].extend(new_foods)
+            if new_foods or getattr(self.food_controller, 'last_foods_removed', 0):
+                self._spatial_hash_dirty = True
 
         # Cena atual para sensores: inclui comida recém-reposta e posições pré-movimento.
         with profile_section('spatial_hash'):
-            self._update_spatial_hash()
+            self._update_spatial_hash(force=self._spatial_hash_dirty)
 
         from .entities import update_agents_batch
         with profile_section('agents_update'):
@@ -390,7 +397,7 @@ class Engine:
 
         # Agentes se moveram; interações precisam do hash com as posições atuais.
         with profile_section('spatial_hash'):
-            self._update_spatial_hash()
+            self._update_spatial_hash(force=True)
 
         topology_changed = False
         with profile_section('interaction'):
@@ -433,17 +440,26 @@ class Engine:
         if topology_changed:
             # Nascimentos, mortes ou predação mudam os objetos presentes no broad-phase.
             with profile_section('spatial_hash'):
-                self._update_spatial_hash()
+                self._update_spatial_hash(force=True)
 
         with profile_section('collision'):
-            self.collision_system.apply(self.all_agents, self.spatial_hash, self.params)
+            collisions_resolved = self.collision_system.apply(self.all_agents, self.spatial_hash, self.params)
+            if collisions_resolved:
+                self._spatial_hash_dirty = True
     
-    def _update_spatial_hash(self):
+    def _update_spatial_hash(self, force: bool = True):
         """Atualiza ou recria spatial hash."""
+        if (not force and not self._spatial_hash_dirty and
+            self.scene_query is not None and
+            (self.spatial_hash is not None or not self.params.get('use_spatial', True))):
+            self.spatial_hash_skips += 1
+            return False
         if not self.params.get('use_spatial', True):
             self.spatial_hash = None
             self.scene_query = SceneQuery(None, self.entities, self.params)
-            return
+            self._spatial_hash_dirty = False
+            self.spatial_hash_rebuilds += 1
+            return True
         
         # Calcula tamanho de célula baseado no maior objeto
         max_radius = max(
@@ -477,6 +493,9 @@ class Engine:
         
         # Atualiza scene query
         self.scene_query = SceneQuery(self.spatial_hash, self.entities, self.params)
+        self._spatial_hash_dirty = False
+        self.spatial_hash_rebuilds += 1
+        return True
     
     def _process_commands(self):
         """Processa comandos da fila."""
@@ -613,6 +632,7 @@ class Engine:
                 self.entities['bacteria'].append(agent)
             self.all_agents.append(agent)
             self.selected_agent = agent
+            self._spatial_hash_dirty = True
             try:
                 from .brain import clear_multi_brain_cache
                 clear_multi_brain_cache()
@@ -670,6 +690,7 @@ class Engine:
             food = create_random_food(self.entities['foods'], self.params,
                                       self.world.width, self.world.height)
             self.entities['foods'].append(food)
+        self._spatial_hash_dirty = True
     
     def _draw_world_bounds(self, surface):
         """Desenha limites do mundo.""" 
