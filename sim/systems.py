@@ -29,18 +29,20 @@ class InteractionSystem:
         self.last_agents_predated = 0
     
     def apply(self, bacteria: List['Bacteria'], predators: List['Predator'],
-              foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params') -> Set['Agent']:
+              foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params',
+              frozen_agents: Set['Agent'] | None = None) -> Set['Agent']:
         """Aplica interações por um frame e retorna agentes removidos."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
         self._removed_bacteria_count = 0
+        frozen_agents = frozen_agents or set()
 
         # Bactérias comem comida (ganham energia)
-        self._bacteria_eat_food(bacteria, foods, spatial_hash, params)
+        self._bacteria_eat_food(bacteria, foods, spatial_hash, params, frozen_agents)
 
         # Predadores comem bactérias
         if predators:
-            self._predators_eat_bacteria(predators, bacteria, spatial_hash, params)
+            self._predators_eat_bacteria(predators, bacteria, spatial_hash, params, frozen_agents)
 
         # Remove comida consumida
         foods[:] = [f for f in foods if f not in self._foods_to_remove]
@@ -52,9 +54,12 @@ class InteractionSystem:
         return set(self._agents_to_remove)
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
-                          spatial_hash: 'SpatialHash', params: 'Params'):
+                          spatial_hash: 'SpatialHash', params: 'Params',
+                          frozen_agents: Set['Agent']):
         """Processa bactérias comendo comida (energia += food.energy)."""
         for bacterium in bacteria:
+            if bacterium in frozen_agents:
+                continue
             if spatial_hash:
                 # Usa spatial hash para encontrar comida próxima
                 food_radius = params.get('food_max_r', 5.0)
@@ -84,9 +89,11 @@ class InteractionSystem:
     
     def _predators_eat_bacteria(self, predators: List['Predator'], 
                                bacteria: List['Bacteria'], spatial_hash: 'SpatialHash', 
-                               params: 'Params'):
+                               params: 'Params', frozen_agents: Set['Agent']):
         """Processa predadores comendo bactérias."""
         for predator in predators:
+            if predator in frozen_agents:
+                continue
             if spatial_hash:
                 # Usa spatial hash
                 bacteria_radius = params.get('bacteria_max_r', 12.0)
@@ -105,7 +112,7 @@ class InteractionSystem:
                 continue
 
             for bacterium in nearby_bacteria:
-                if bacterium in self._agents_to_remove:
+                if bacterium in self._agents_to_remove or bacterium in frozen_agents:
                     continue
                 
                 # Verifica colisão

@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
     QLineEdit, QTextEdit, QListWidget, QMessageBox, QFileDialog, QScrollArea,
-    QFormLayout, QGridLayout, QGroupBox
+    QFormLayout, QGridLayout, QGroupBox, QToolTip
     , QColorDialog
 )
 
@@ -57,6 +57,24 @@ def _spin_double(min_v: float, max_v: float, step: float = 0.1, decimals: int = 
     w.setSingleStep(step)
     w.setDecimals(decimals)
     return w
+
+
+class ClickHelpLabel(QLabel):
+    """Label de formulario que mostra explicacao ao clique."""
+
+    def __init__(self, text: str, help_text: str):
+        super().__init__(text)
+        self.help_text = help_text
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Clique para ver uma explicacao.")
+        self.setStyleSheet("QLabel { color: #d8e5f5; } QLabel:hover { color: #9fc8ff; text-decoration: underline; }")
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            QToolTip.showText(self.mapToGlobal(self.rect().bottomLeft()), self.help_text, self)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
 
 class SimulationUI(QMainWindow):
@@ -89,6 +107,10 @@ class SimulationUI(QMainWindow):
         self._build_layout()
         self._build_tabs()
         self._load_ui_params_csv()  # load after widget creation so we can set values
+        if 'obstacle_brush_width' in self.widgets:
+            self._update_brush_width(self._get_widget_value('obstacle_brush_width'))
+        if 'obstacle_brush_erase' in self.widgets:
+            self._update_brush_erase()
         self._setup_live_param_signals()
 
         # Embed pygame view (defer until shown)
@@ -116,11 +138,114 @@ class SimulationUI(QMainWindow):
         self.tabs = QTabWidget()
         v.addWidget(self.tabs, stretch=1)
 
-        # Right pygame placeholder (native window id host)
+        # Right pygame placeholder (native window id host) + canvas tools
+        self.sim_container = QWidget()
+        sim_lay = QVBoxLayout(self.sim_container)
+        sim_lay.setContentsMargins(0, 0, 0, 0)
+        sim_lay.setSpacing(6)
+
         self.pygame_host = QWidget()
         self.pygame_host.setObjectName("pygame_host")
         self.pygame_host.setStyleSheet("#pygame_host { background: #101214; }")
-        lay.addWidget(self.pygame_host, stretch=1)
+        sim_lay.addWidget(self.pygame_host, stretch=1)
+        sim_lay.addWidget(self._build_canvas_tools(), stretch=0)
+        lay.addWidget(self.sim_container, stretch=1)
+
+    def _build_canvas_tools(self):
+        bar = QWidget()
+        bar.setObjectName("canvas_tools")
+        bar.setStyleSheet(
+            "#canvas_tools { background: #15181d; border-top: 1px solid #303741; } "
+            "QPushButton { min-width: 34px; min-height: 30px; padding: 2px 6px; } "
+            "QPushButton[active='true'] { background: #355d8c; border: 1px solid #7fb2ff; }"
+        )
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(6)
+        layout.addStretch(1)
+
+        self._canvas_tool_buttons = {}
+
+        def add_tool(key: str, text: str, tooltip: str, icon_path: str | None = None):
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setToolTip(tooltip)
+            if icon_path and os.path.exists(icon_path):
+                btn.setText("")
+                btn.setIcon(QIcon(icon_path))
+                btn.setIconSize(QSize(22, 22))
+            btn.clicked.connect(lambda _checked=False, k=key: self._set_canvas_tool(k))
+            self._canvas_tool_buttons[key] = btn
+            layout.addWidget(btn)
+            return btn
+
+        add_tool('select', 'S', 'Seletor: clique esquerdo seleciona agente e mostra visao/detalhes.')
+        add_tool('food', 'F', 'Comida: clique esquerdo adiciona comida.')
+        add_tool('agent', 'A', 'Agente importado: clique esquerdo insere o agente carregado.')
+        icon_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'Assets', 'draw_icon.png'))
+        add_tool('draw', 'P', 'Pincel: desenha barreiras solidas no substrato.', icon_path=icon_path)
+        add_tool('move', 'M', 'Mover: clique e arraste comida, bacterias ou predadores.')
+        add_tool('dead', 'D', 'Dead: remove o objeto clicado, inclusive comida.')
+
+        layout.addSpacing(8)
+        layout.addWidget(self._help_label("Pincel:", 'obstacle_brush_width'))
+        width = _spin_double(1.0, 200.0, 1.0, 1)
+        width.setValue(float(getattr(self.pygame_view, 'brush_width', 16.0)))
+        width.setToolTip("Largura do pincel de obstaculos.")
+        width.valueChanged.connect(self._update_brush_width)
+        self.widgets['obstacle_brush_width'] = width
+        layout.addWidget(width)
+
+        self._brush_color_swatch = QLabel()
+        self._brush_color_swatch.setFixedSize(28, 28)
+        self._brush_color_swatch.setToolTip("Cor atual do obstaculo.")
+        color_btn = QPushButton("Cor")
+        color_btn.setToolTip("Selecionar cor dos obstaculos.")
+        color_btn.clicked.connect(self._pick_brush_color)
+        layout.addWidget(self._brush_color_swatch)
+        layout.addWidget(color_btn)
+
+        erase = QCheckBox("Apagar")
+        erase.setToolTip("Quando ligado, o pincel apaga barreiras em vez de desenhar.")
+        erase.setChecked(False)
+        erase.stateChanged.connect(lambda _state: self._update_brush_erase())
+        self.widgets['obstacle_brush_erase'] = erase
+        layout.addWidget(erase)
+
+        self._refresh_brush_color_swatch()
+        self._set_canvas_tool('food')
+        return bar
+
+    def _set_canvas_tool(self, tool: str):
+        if hasattr(self.pygame_view, 'active_tool'):
+            self.pygame_view.active_tool = tool
+        for key, btn in getattr(self, '_canvas_tool_buttons', {}).items():
+            active = key == tool
+            btn.setChecked(active)
+            btn.setProperty('active', 'true' if active else 'false')
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+
+    def _update_brush_width(self, value: float):
+        if hasattr(self.pygame_view, 'brush_width'):
+            self.pygame_view.brush_width = float(value)
+
+    def _update_brush_erase(self):
+        if hasattr(self.pygame_view, 'brush_erase'):
+            self.pygame_view.brush_erase = bool(self.widgets['obstacle_brush_erase'].isChecked())
+
+    def _pick_brush_color(self):
+        current = getattr(self.pygame_view, 'brush_color', (95, 95, 105))
+        col = QColorDialog.getColor(QColor(*current), self, "Cor dos obstaculos")
+        if col.isValid():
+            self.pygame_view.brush_color = (col.red(), col.green(), col.blue())
+            self._refresh_brush_color_swatch()
+
+    def _refresh_brush_color_swatch(self):
+        color = getattr(self.pygame_view, 'brush_color', (95, 95, 105))
+        self._brush_color_swatch.setStyleSheet(
+            f"background: rgb({color[0]},{color[1]},{color[2]}); border: 1px solid #777; border-radius: 4px;"
+        )
 
     def _build_tabs(self):
         """Construct all tabs in a fixed order."""
@@ -206,6 +331,100 @@ class SimulationUI(QMainWindow):
     def _warn_exception(self, title: str, exc: BaseException):
         QMessageBox.warning(self, title, self._format_exception(exc))
 
+    def _help_label(self, label: str, name: str) -> ClickHelpLabel:
+        return ClickHelpLabel(label, self._param_help_text(name, label))
+
+    def _param_help_text(self, name: str, label: str) -> str:
+        help_by_name = {
+            'time_scale': 'Multiplica a velocidade do tempo simulado. Valores altos aceleram a evolucao, mas podem deixar colisoes e dinamicas menos estaveis.',
+            'fps': 'Limite de quadros por segundo da janela. Afeta fluidez visual e quanto tempo de CPU a interface tenta usar.',
+            'paused': 'Pausa ou retoma o avanco da simulacao sem apagar agentes, comida ou obstaculos.',
+            'population_min_rescue_enabled': 'Quando ativo, impede que a simulacao mate individuos abaixo do minimo configurado para aquela populacao.',
+            'use_spatial': 'Usa uma grade espacial para acelerar buscas de proximidade, colisao, alimentacao e visao em populacoes grandes.',
+            'retina_skip': 'Quantidade de frames que cada retina pode reutilizar a leitura anterior. Aumentar melhora desempenho, mas reduz precisao temporal da percepcao.',
+            'random_seed': 'Seed do gerador aleatorio. Use -1 para aleatorio; use um numero fixo para repetir experimentos com o mesmo ponto de partida.',
+            'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
+            'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
+            'reuse_spatial_grid': 'Reutiliza a estrutura da grade espacial entre frames quando possivel, reduzindo alocacoes.',
+            'agents_inertia': 'Controla suavizacao da velocidade. 1 aplica o comando neural imediatamente; valores maiores deixam movimento mais inercial.',
+            'allow_reverse_locomotion': 'Permite que a saida neural gere movimento para tras. Desligado preserva a locomocao historica apenas para frente.',
+            'reproduction_min_age': 'Idade minima para um agente poder reproduzir. Ajuda a evitar reproducao imediata de recem-nascidos.',
+            'reproduction_cooldown': 'Tempo minimo entre duas reproducoes do mesmo agente.',
+            'show_selected_details': 'Mostra no canto da simulacao as metricas do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
+            'enable_brain_activations': 'Habilita calculo e exibicao das ativacoes neurais do agente selecionado. E util para diagnostico, mas tem custo extra.',
+            'debug_tracebacks': 'Mostra tracebacks completos em erros da UI. Use para depurar; desligado deixa mensagens mais curtas.',
+            'auto_export_substrate': 'Ativa salvamento automatico de snapshots do substrato em intervalos regulares.',
+            'auto_export_interval_minutes': 'Intervalo, em minutos, entre exports automaticos do substrato.',
+            'export_substrate_include_brain_activations': 'Inclui ativacoes neurais no snapshot exportado. Aumenta o arquivo e o custo de exportacao.',
+            'export_substrate_pretty_json': 'Exporta JSON manual com indentacao legivel. Facilita inspecao humana, mas gera arquivos maiores.',
+            'food_target': 'Quantidade alvo de comida. O controlador tenta repor comida ate aproximar esse valor.',
+            'food_min_r': 'Raio minimo da comida nova. Afeta tamanho visual e energia disponivel por item.',
+            'food_max_r': 'Raio maximo da comida nova. Tambem influencia energia e espaco ocupado.',
+            'food_replenish_interval': 'Intervalo base de reposicao de comida. Valores menores repoe comida mais rapidamente.',
+            'world_w': 'Largura do substrato retangular base.',
+            'world_h': 'Altura do substrato retangular base.',
+            'substrate_shape': 'Formato fisico do substrato: retangular ou circular.',
+            'substrate_radius': 'Raio usado quando o substrato esta no modo circular.',
+            'bacteria_count': 'Quantidade de bacterias criada ao resetar ou iniciar uma populacao nova.',
+            'bacteria_min_limit': 'Numero minimo de bacterias que o sistema tenta preservar.',
+            'bacteria_max_limit': 'Limite maximo de bacterias vivas permitido pela reproducao.',
+            'bacteria_initial_energy': 'Energia inicial de bacterias novas criadas por reset ou spawn padrao.',
+            'bacteria_death_energy': 'Energia abaixo da qual a bacteria vira candidata a morrer.',
+            'bacteria_split_energy': 'Energia minima para a bacteria poder se dividir.',
+            'bacteria_metab_v0_cost': 'Custo energetico por segundo quando a bacteria esta parada.',
+            'bacteria_metab_vmax_cost': 'Custo energetico por segundo quando a bacteria se move perto da velocidade maxima.',
+            'bacteria_energy_cap': 'Energia maxima que uma bacteria consegue armazenar.',
+            'bacteria_body_size': 'Raio corporal da bacteria. Afeta colisao, renderizacao, area ocupada e posicionamento.',
+            'bacteria_vision_radius': 'Distancia maxima que a retina da bacteria consegue perceber.',
+            'bacteria_retina_count': 'Numero de raios/sensores da retina da bacteria. Mais retinas aumentam resolucao e custo.',
+            'bacteria_retina_fov_degrees': 'Campo angular total de visao da bacteria, em graus.',
+            'bacteria_max_speed': 'Velocidade maxima que a locomocao da bacteria pode atingir.',
+            'bacteria_max_turn_deg': 'Velocidade maxima de rotacao da bacteria em graus por segundo.',
+            'bacteria_hidden_layers': 'Quantidade de camadas ocultas no cerebro neural das novas bacterias. Alterar vivos pode recriar cerebros.',
+            'bacteria_mutation_rate': 'Probabilidade de cada peso neural sofrer mutacao na reproducao.',
+            'bacteria_mutation_strength': 'Intensidade/desvio das mutacoes numericas aplicadas aos pesos neurais.',
+            'bacteria_show_vision': 'Desenha os raios de visao das bacterias quando habilitado.',
+            'bacteria_retina_see_food': 'Define se a retina da bacteria detecta comida.',
+            'bacteria_retina_see_bacteria': 'Define se a retina da bacteria detecta outras bacterias.',
+            'bacteria_retina_see_predators': 'Define se a retina da bacteria detecta predadores.',
+            'predators_enabled': 'Liga ou desliga criacao inicial e presenca configurada de predadores.',
+            'predator_count': 'Quantidade de predadores criada ao resetar ou iniciar populacao nova.',
+            'predator_min_limit': 'Numero minimo de predadores que o sistema tenta preservar.',
+            'predator_max_limit': 'Limite maximo de predadores vivos permitido pela reproducao.',
+            'predator_initial_energy': 'Energia inicial de predadores novos criados por reset ou spawn padrao.',
+            'predator_death_energy': 'Energia abaixo da qual o predador vira candidato a morrer.',
+            'predator_split_energy': 'Energia minima para o predador poder se dividir.',
+            'predator_metab_v0_cost': 'Custo energetico por segundo quando o predador esta parado.',
+            'predator_metab_vmax_cost': 'Custo energetico por segundo quando o predador se move perto da velocidade maxima.',
+            'predator_energy_cap': 'Energia maxima que um predador consegue armazenar.',
+            'predator_body_size': 'Raio corporal do predador. Afeta colisao, renderizacao, area ocupada e posicionamento.',
+            'predator_vision_radius': 'Distancia maxima que a retina do predador consegue perceber.',
+            'predator_retina_count': 'Numero de raios/sensores da retina do predador.',
+            'predator_retina_fov_degrees': 'Campo angular total de visao do predador, em graus.',
+            'predator_max_speed': 'Velocidade maxima que a locomocao do predador pode atingir.',
+            'predator_max_turn_deg': 'Velocidade maxima de rotacao do predador em graus por segundo.',
+            'predator_hidden_layers': 'Quantidade de camadas ocultas no cerebro neural dos novos predadores. Alterar vivos pode recriar cerebros.',
+            'predator_mutation_rate': 'Probabilidade de cada peso neural do predador sofrer mutacao na reproducao.',
+            'predator_mutation_strength': 'Intensidade/desvio das mutacoes numericas aplicadas aos pesos neurais do predador.',
+            'predator_show_vision': 'Desenha os raios de visao dos predadores quando habilitado.',
+            'predator_retina_see_food': 'Define se a retina do predador detecta comida.',
+            'predator_retina_see_bacteria': 'Define se a retina do predador detecta bacterias.',
+            'predator_retina_see_predators': 'Define se a retina do predador detecta outros predadores.',
+            'obstacle_brush_width': 'Largura do pincel usado para desenhar ou apagar obstaculos solidos.',
+            'obstacle_brush_erase': 'Quando ativo, o pincel apaga obstaculos em vez de desenhar novos.',
+        }
+        if name in help_by_name:
+            return help_by_name[name]
+        if name.startswith('bacteria_neurons_layer_'):
+            layer = name.rsplit('_', 1)[-1]
+            return f"Numero de neuronios na camada oculta {layer} das bacterias. Mudar isso em agentes vivos pode recriar o cerebro e apagar pesos atuais."
+        if name.startswith('predator_neurons_layer_'):
+            layer = name.rsplit('_', 1)[-1]
+            return f"Numero de neuronios na camada oculta {layer} dos predadores. Mudar isso em agentes vivos pode recriar o cerebro e apagar pesos atuais."
+        if name.startswith('test_param_'):
+            return "Parametro experimental de teste da interface. Nao altera a simulacao principal."
+        return f"{label} controla o parametro interno '{name}'. Clique no controle ao lado para alterar o valor."
+
     # ---------------------- Tabs: Simulation -------------------------
     def _build_tab_simulation(self):
         tab = QWidget()
@@ -222,7 +441,7 @@ class SimulationUI(QMainWindow):
         g_exec = QGroupBox("Tempo & Execução"); g_exec.setStyleSheet(card_style); grid = QGridLayout(g_exec); r_exec=0
         def add_exec(label,name,w):
             nonlocal r_exec
-            self.widgets[name]=w; grid.addWidget(QLabel(label), r_exec,0); grid.addWidget(w,r_exec,1); r_exec+=1
+            self.widgets[name]=w; grid.addWidget(self._help_label(label, name), r_exec,0); grid.addWidget(w,r_exec,1); r_exec+=1
         w=_spin_double(0.01,100.0,0.01,3); w.setValue(self.params.get('time_scale',1.0)); add_exec("Escala de tempo (x):",'time_scale',w)
         w=_spin_int(1,240); w.setValue(self.params.get('fps',60)); add_exec("FPS:",'fps',w)
         cb=QCheckBox(); cb.setChecked(self.params.get('paused',False)); add_exec("Pausado:",'paused',cb)
@@ -236,7 +455,7 @@ class SimulationUI(QMainWindow):
         def add_perf(label, name, w):
             nonlocal r_perf
             self.widgets[name] = w
-            grid2.addWidget(QLabel(label), r_perf, 0)
+            grid2.addWidget(self._help_label(label, name), r_perf, 0)
             grid2.addWidget(w, r_perf, 1)
             r_perf += 1
 
@@ -287,7 +506,7 @@ class SimulationUI(QMainWindow):
         g_vis = QGroupBox("Visualização / Debug"); g_vis.setStyleSheet(card_style); grid3=QGridLayout(g_vis); r_vis=0
         def add_vis(label,name,w):
             nonlocal r_vis
-            self.widgets[name]=w; grid3.addWidget(QLabel(label), r_vis,0); grid3.addWidget(w,r_vis,1); r_vis+=1
+            self.widgets[name]=w; grid3.addWidget(self._help_label(label, name), r_vis,0); grid3.addWidget(w,r_vis,1); r_vis+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('show_selected_details',True)); add_vis("Detalhes agente selecionado:",'show_selected_details',cb)
         cb=QCheckBox(); cb.setChecked(not self.params.get('disable_brain_activations',False)); cb.toggled.connect(self._on_toggle_brain_activations); add_vis("Mostrar ativações neurais:",'enable_brain_activations',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks',False)); add_vis("Tracebacks no debug:",'debug_tracebacks',cb)
@@ -296,7 +515,7 @@ class SimulationUI(QMainWindow):
         g_auto = QGroupBox("Auto Export"); g_auto.setStyleSheet(card_style); grid4=QGridLayout(g_auto); r_auto=0
         def add_auto(label,name,w):
             nonlocal r_auto
-            self.widgets[name]=w; grid4.addWidget(QLabel(label), r_auto,0); grid4.addWidget(w,r_auto,1); r_auto+=1
+            self.widgets[name]=w; grid4.addWidget(self._help_label(label, name), r_auto,0); grid4.addWidget(w,r_auto,1); r_auto+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate',False)); cb.toggled.connect(self._on_toggle_auto_export); add_auto("Auto Export Substrato:",'auto_export_substrate',cb)
         w=_spin_double(0.1,1440.0,0.5,2); w.setValue(self.params.get('auto_export_interval_minutes',10.0)); add_auto("Intervalo export (min):",'auto_export_interval_minutes',w)
         cb=QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations',False)); add_auto("Exportar ativacoes neurais:",'export_substrate_include_brain_activations',cb)
@@ -353,7 +572,7 @@ class SimulationUI(QMainWindow):
         def add_food(label, name, w):
             nonlocal r_food
             self.widgets[name] = w
-            gf.addWidget(QLabel(label), r_food, 0)
+            gf.addWidget(self._help_label(label, name), r_food, 0)
             gf.addWidget(w, r_food, 1)
             r_food += 1
 
@@ -400,7 +619,7 @@ class SimulationUI(QMainWindow):
         def add_world(label, name, w):
             nonlocal r_world
             self.widgets[name] = w
-            gw.addWidget(QLabel(label), r_world, 0)
+            gw.addWidget(self._help_label(label, name), r_world, 0)
             gw.addWidget(w, r_world, 1)
             r_world += 1
 
@@ -477,7 +696,7 @@ class SimulationUI(QMainWindow):
         def add_pop(label,name,w):
             nonlocal r_bpop
             self.widgets[name]=w
-            gp.addWidget(QLabel(label), r_bpop,0)
+            gp.addWidget(self._help_label(label, name), r_bpop,0)
             gp.addWidget(w, r_bpop,1)
             r_bpop += 1
 
@@ -501,7 +720,7 @@ class SimulationUI(QMainWindow):
         def add_body(label,name,w):
             nonlocal r_bbody
             self.widgets[name]=w
-            gb.addWidget(QLabel(label), r_bbody,0)
+            gb.addWidget(self._help_label(label, name), r_bbody,0)
             gb.addWidget(w, r_bbody,1)
             r_bbody += 1
 
@@ -549,7 +768,7 @@ class SimulationUI(QMainWindow):
         g_nn = QGroupBox("Rede Neural & Mutação"); g_nn.setStyleSheet(card_style); gn = QGridLayout(g_nn); r_bnn=0
         def add_nn(label,name,w):
             nonlocal r_bnn
-            self.widgets[name]=w; gn.addWidget(QLabel(label), r_bnn,0); gn.addWidget(w,r_bnn,1); r_bnn+=1
+            self.widgets[name]=w; gn.addWidget(self._help_label(label, name), r_bnn,0); gn.addWidget(w,r_bnn,1); r_bnn+=1
         w=_spin_int(1,5); w.setValue(self.params.get('bacteria_hidden_layers',4)); add_nn("Camadas ocultas:",'bacteria_hidden_layers',w)
         self._bacteria_neuron_widgets=[]
         for i in range(1,6):
@@ -561,7 +780,7 @@ class SimulationUI(QMainWindow):
         g_vis = QGroupBox("Visão"); g_vis.setStyleSheet(card_style); gv=QGridLayout(g_vis); r_bvis=0
         def add_vis(label,name,w):
             nonlocal r_bvis
-            self.widgets[name]=w; gv.addWidget(QLabel(label), r_bvis,0); gv.addWidget(w,r_bvis,1); r_bvis+=1
+            self.widgets[name]=w; gv.addWidget(self._help_label(label, name), r_bvis,0); gv.addWidget(w,r_bvis,1); r_bvis+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_show_vision',False)); add_vis("Mostrar visão:",'bacteria_show_vision',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_food',True)); add_vis("Ver comida:",'bacteria_retina_see_food',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_bacteria',False)); add_vis("Ver bactérias:",'bacteria_retina_see_bacteria',cb)
@@ -569,7 +788,19 @@ class SimulationUI(QMainWindow):
         v.addWidget(g_vis)
         # Ações
         g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la=QVBoxLayout(g_act)
-        b=QPushButton("Aplicar Parâmetros"); b.clicked.connect(self.apply_bacteria_params); la.addWidget(b); v.addWidget(g_act)
+        hint = QLabel("Novos altera o template. Vivos/Selecionado tambem atualiza agentes existentes; mudancas na rede podem recriar o cerebro.")
+        hint.setWordWrap(True)
+        la.addWidget(hint)
+        b=QPushButton("Aplicar a novos individuos")
+        b.clicked.connect(lambda _checked=False: self.apply_bacteria_params('template'))
+        la.addWidget(b)
+        b=QPushButton("Aplicar a todos vivos")
+        b.clicked.connect(lambda _checked=False: self.apply_bacteria_params('all_alive'))
+        la.addWidget(b)
+        b=QPushButton("Aplicar ao selecionado")
+        b.clicked.connect(lambda _checked=False: self.apply_bacteria_params('selected'))
+        la.addWidget(b)
+        v.addWidget(g_act)
         v.addStretch(1)
         hidden_layers_spin=self.widgets['bacteria_hidden_layers']
         def _update_bacteria_neurons():
@@ -605,7 +836,7 @@ class SimulationUI(QMainWindow):
         def add_pop(label,name,w):
             nonlocal r_ppop
             self.widgets[name]=w
-            gp.addWidget(QLabel(label), r_ppop,0)
+            gp.addWidget(self._help_label(label, name), r_ppop,0)
             gp.addWidget(w, r_ppop,1)
             r_ppop += 1
 
@@ -658,7 +889,7 @@ class SimulationUI(QMainWindow):
         g_body = QGroupBox("Corpo & Movimento"); g_body.setStyleSheet(card_style); gb=QGridLayout(g_body); r_pbody=0
         def add_body(label,name,w):
             nonlocal r_pbody
-            self.widgets[name]=w; gb.addWidget(QLabel(label), r_pbody,0); gb.addWidget(w,r_pbody,1); r_pbody+=1
+            self.widgets[name]=w; gb.addWidget(self._help_label(label, name), r_pbody,0); gb.addWidget(w,r_pbody,1); r_pbody+=1
         w=_spin_double(1.0,1000.0,0.5,1); w.setValue(self.params.get('predator_body_size',14.0)); add_body("Tamanho corpo (raio):",'predator_body_size',w)
         w=_spin_double(1.0,5000.0,10.0,1); w.setValue(self.params.get('predator_vision_radius',120.0)); add_body("Raio visão:",'predator_vision_radius',w)
         w=_spin_int(1,128); w.setValue(self.params.get('predator_retina_count',18)); add_body("Qtd retinas:",'predator_retina_count',w)
@@ -670,7 +901,7 @@ class SimulationUI(QMainWindow):
         g_nn = QGroupBox("Rede Neural & Mutação"); g_nn.setStyleSheet(card_style); gn=QGridLayout(g_nn); r_pnn=0
         def add_nn(label,name,w):
             nonlocal r_pnn
-            self.widgets[name]=w; gn.addWidget(QLabel(label), r_pnn,0); gn.addWidget(w,r_pnn,1); r_pnn+=1
+            self.widgets[name]=w; gn.addWidget(self._help_label(label, name), r_pnn,0); gn.addWidget(w,r_pnn,1); r_pnn+=1
         w=_spin_int(1,5); w.setValue(self.params.get('predator_hidden_layers',2)); add_nn("Camadas ocultas:",'predator_hidden_layers',w)
         self._predator_neuron_widgets=[]
         for i in range(1,6):
@@ -682,7 +913,7 @@ class SimulationUI(QMainWindow):
         g_vis = QGroupBox("Visão"); g_vis.setStyleSheet(card_style); gv=QGridLayout(g_vis); r_pvis=0
         def add_vis(label,name,w):
             nonlocal r_pvis
-            self.widgets[name]=w; gv.addWidget(QLabel(label), r_pvis,0); gv.addWidget(w,r_pvis,1); r_pvis+=1
+            self.widgets[name]=w; gv.addWidget(self._help_label(label, name), r_pvis,0); gv.addWidget(w,r_pvis,1); r_pvis+=1
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_food',True)); add_vis("Ver comida:",'predator_retina_see_food',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_bacteria',True)); add_vis("Ver bactérias:",'predator_retina_see_bacteria',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_predators',False)); add_vis("Ver predadores:",'predator_retina_see_predators',cb)
@@ -690,7 +921,19 @@ class SimulationUI(QMainWindow):
         v.addWidget(g_vis)
         # Ações
         g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la=QVBoxLayout(g_act)
-        b=QPushButton("Aplicar Parâmetros"); b.clicked.connect(self.apply_predator_params); la.addWidget(b); v.addWidget(g_act)
+        hint = QLabel("Novos altera o template. Vivos/Selecionado tambem atualiza agentes existentes; mudancas na rede podem recriar o cerebro.")
+        hint.setWordWrap(True)
+        la.addWidget(hint)
+        b=QPushButton("Aplicar a novos individuos")
+        b.clicked.connect(lambda _checked=False: self.apply_predator_params('template'))
+        la.addWidget(b)
+        b=QPushButton("Aplicar a todos vivos")
+        b.clicked.connect(lambda _checked=False: self.apply_predator_params('all_alive'))
+        la.addWidget(b)
+        b=QPushButton("Aplicar ao selecionado")
+        b.clicked.connect(lambda _checked=False: self.apply_predator_params('selected'))
+        la.addWidget(b)
+        v.addWidget(g_act)
         v.addStretch(1)
         hidden_layers_spin=self.widgets['predator_hidden_layers']
         def _update_predator_neurons():
@@ -760,7 +1003,7 @@ class SimulationUI(QMainWindow):
                     w = _spin_int(0, 10000)
                     w.setValue(param_index)
                 self.widgets[name] = w
-                grid.addWidget(QLabel(label_text), row_idx, 0)
+                grid.addWidget(self._help_label(label_text, name), row_idx, 0)
                 grid.addWidget(w, row_idx, 1)
                 row_idx += 1
                 param_index += 1
@@ -849,48 +1092,237 @@ class SimulationUI(QMainWindow):
         # color pickers already update params and propagate; nothing else to do here
         print("Parâmetros de substrato aplicados")
 
-    def apply_bacteria_params(self):
-        for name in [
-            'bacteria_count','bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
-            'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
-            'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
-            'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
-            'bacteria_max_speed','bacteria_min_limit','bacteria_max_limit','bacteria_hidden_layers','bacteria_mutation_rate',
-            'bacteria_mutation_strength','bacteria_max_turn_deg'
-        ]:
-            if name in self.widgets:
-                v = self._get_widget_value(name)
-                if name == 'bacteria_max_turn_deg':
-                    self.params.set('bacteria_max_turn', math.radians(v))
-                else:
-                    self.params.set(name, v)
-        for i in range(1,6):
-            nm = f'bacteria_neurons_layer_{i}'
-            if nm in self.widgets:
-                self.params.set(nm, self._get_widget_value(nm))
-        # color picker button handles bacteria color persistence/propagation
-        print("Parâmetros de bactérias aplicados")
-
-    def apply_predator_params(self):
-        for name in [
+    def _agent_param_names(self, species: str) -> list[str]:
+        if species == 'bacteria':
+            return [
+                'bacteria_count','bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
+                'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
+                'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
+                'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+                'bacteria_max_speed','bacteria_min_limit','bacteria_max_limit','bacteria_hidden_layers','bacteria_mutation_rate',
+                'bacteria_mutation_strength','bacteria_max_turn_deg'
+            ]
+        return [
             'predators_enabled','predator_count','predator_initial_energy','predator_death_energy','predator_split_energy',
             'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
             'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
             'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
             'predator_min_limit','predator_max_limit','predator_hidden_layers','predator_mutation_rate','predator_mutation_strength','predator_max_turn_deg'
-        ]:
+        ]
+
+    def _collect_agent_params_from_widgets(self, species: str):
+        turn_deg_key = f'{species}_max_turn_deg'
+        turn_key = f'{species}_max_turn'
+        for name in self._agent_param_names(species):
             if name in self.widgets:
-                v = self._get_widget_value(name)
-                if name == 'predator_max_turn_deg':
-                    self.params.set('predator_max_turn', math.radians(v))
+                value = self._get_widget_value(name)
+                if name == turn_deg_key:
+                    self.params.set(turn_key, math.radians(value))
                 else:
-                    self.params.set(name, v)
-        for i in range(1,6):
-            nm = f'predator_neurons_layer_{i}'
-            if nm in self.widgets:
-                self.params.set(nm, self._get_widget_value(nm))
-        # color picker button handles predator color persistence/propagation
-        print("Parâmetros de predadores aplicados")
+                    self.params.set(name, value)
+        for i in range(1, 6):
+            name = f'{species}_neurons_layer_{i}'
+            if name in self.widgets:
+                self.params.set(name, self._get_widget_value(name))
+
+    def _desired_agent_brain_sizes(self, species: str) -> tuple[int, ...]:
+        if species == 'bacteria':
+            default_hidden_layers = 4
+            default_neurons = lambda i: 20
+        else:
+            default_hidden_layers = 2
+            default_neurons = lambda i: 16 if i == 1 else 8
+
+        input_size = int(self.params.get(f'{species}_retina_count', 18))
+        hidden_layers = int(self.params.get(f'{species}_hidden_layers', default_hidden_layers))
+        sizes = [input_size]
+        for i in range(1, 6):
+            if i > hidden_layers:
+                break
+            neurons = int(self.params.get(f'{species}_neurons_layer_{i}', default_neurons(i)))
+            if neurons > 0:
+                sizes.append(neurons)
+        sizes.append(2)
+        return tuple(sizes)
+
+    def _agent_factory_helpers(self, species: str) -> dict[str, Any]:
+        if species == 'bacteria':
+            from .entities import (
+                _create_bacteria_brain,
+                _create_bacteria_sensor,
+                _create_bacteria_locomotion,
+                _create_bacteria_energy_model,
+            )
+            return {
+                'brain': _create_bacteria_brain,
+                'sensor': _create_bacteria_sensor,
+                'locomotion': _create_bacteria_locomotion,
+                'energy': _create_bacteria_energy_model,
+            }
+        from .entities import (
+            _create_predator_brain,
+            _create_predator_sensor,
+            _create_predator_locomotion,
+            _create_predator_energy_model,
+        )
+        return {
+            'brain': _create_predator_brain,
+            'sensor': _create_predator_sensor,
+            'locomotion': _create_predator_locomotion,
+            'energy': _create_predator_energy_model,
+        }
+
+    def _target_live_agents(self, species: str, mode: str) -> list[Any]:
+        is_predator = species == 'predator'
+        if mode == 'all_alive':
+            key = 'predators' if is_predator else 'bacteria'
+            return list(self.engine.entities.get(key, []))
+
+        selected = getattr(self.engine, 'selected_agent', None)
+        if selected is None or bool(getattr(selected, 'is_predator', False)) != is_predator:
+            try:
+                label = "predador" if is_predator else "bacteria"
+                QMessageBox.information(self, "Aplicar ao selecionado", f"Selecione um agente do tipo {label}.")
+            except Exception:
+                pass
+            return []
+        return [selected]
+
+    def _agents_requiring_brain_rebuild(self, species: str, agents: list[Any]) -> list[Any]:
+        desired = self._desired_agent_brain_sizes(species)
+        changed = []
+        for agent in agents:
+            brain = getattr(agent, 'brain', None)
+            current = tuple(getattr(brain, 'sizes', ()) or ())
+            can_resize_input = (
+                brain is not None
+                and len(current) == len(desired)
+                and current[1:] == desired[1:]
+                and hasattr(brain, 'resize_input')
+            )
+            if current != desired and not can_resize_input:
+                changed.append(agent)
+        return changed
+
+    def _confirm_agent_brain_rebuild(self, species: str, count: int) -> bool:
+        label = "predadores" if species == 'predator' else "bacterias"
+        msg = (
+            f"{count} {label} tem arquitetura neural diferente do template atual.\n\n"
+            "Recriar o cerebro apaga os pesos/aprendizado desses agentes. "
+            "Clique em Sim para reconstruir, ou Nao para aplicar apenas corpo, sensor, movimento e metabolismo."
+        )
+        try:
+            answer = QMessageBox.question(
+                self,
+                "Mudanca estrutural da rede neural",
+                msg,
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            return answer == QMessageBox.StandardButton.Yes
+        except Exception:
+            return False
+
+    def _apply_agent_template_to_agents(self, species: str, agents: list[Any], rebuild_brain: bool) -> dict[str, int]:
+        helpers = self._agent_factory_helpers(species)
+        desired_sizes = self._desired_agent_brain_sizes(species)
+        body_key = f'{species}_body_size'
+        color_key = f'{species}_color'
+        stats = {'agents': 0, 'brains_rebuilt': 0, 'brains_resized': 0, 'brains_kept': 0}
+
+        for agent in agents:
+            stats['agents'] += 1
+            try:
+                radius = float(self.params.get(body_key, getattr(agent, 'r', 1.0)))
+                agent.r = max(0.1, radius)
+                agent.m = agent.r * agent.r
+            except Exception:
+                pass
+
+            agent.sensor = helpers['sensor'](self.params)
+            agent.locomotion = helpers['locomotion'](self.params)
+            agent.energy_model = helpers['energy'](self.params)
+            cap = getattr(agent.energy_model, 'energy_cap', None)
+            if cap is not None and getattr(agent, 'energy', 0.0) > cap:
+                agent.energy = float(cap)
+
+            try:
+                color = self.params.get(color_key, None)
+                if color is not None:
+                    agent.color = tuple(color)
+            except Exception:
+                pass
+
+            brain = getattr(agent, 'brain', None)
+            current_sizes = tuple(getattr(brain, 'sizes', ()) or ())
+            if current_sizes != desired_sizes:
+                if brain is not None and len(current_sizes) == len(desired_sizes) and current_sizes[1:] == desired_sizes[1:] and hasattr(brain, 'resize_input'):
+                    brain.resize_input(desired_sizes[0])
+                    brain.version = int(getattr(brain, 'version', 0)) + 1
+                    stats['brains_resized'] += 1
+                elif rebuild_brain:
+                    agent.brain = helpers['brain'](self.params)
+                    stats['brains_rebuilt'] += 1
+                else:
+                    stats['brains_kept'] += 1
+
+            agent.last_brain_output = []
+            agent.last_brain_activations = []
+
+        if stats['agents']:
+            self.engine._spatial_hash_dirty = True
+            try:
+                from .brain import clear_multi_brain_cache
+                clear_multi_brain_cache()
+            except Exception:
+                pass
+        return stats
+
+    def _apply_agent_params(self, species: str, mode: str = 'template', confirm_structural: bool = True):
+        if mode not in {'template', 'all_alive', 'selected'}:
+            mode = 'template'
+
+        self._collect_agent_params_from_widgets(species)
+        label = "predadores" if species == 'predator' else "bacterias"
+        if mode == 'template':
+            print(f"Parametros de {label} aplicados ao template de novos individuos")
+            return
+
+        lock = getattr(self.engine, 'state_lock', None)
+        if lock is not None:
+            with lock:
+                agents = self._target_live_agents(species, mode)
+                structural = self._agents_requiring_brain_rebuild(species, agents)
+        else:
+            agents = self._target_live_agents(species, mode)
+            structural = self._agents_requiring_brain_rebuild(species, agents)
+
+        if not agents:
+            print(f"Nenhum agente vivo de {label} recebeu parametros")
+            return
+
+        rebuild_brain = False
+        if structural:
+            rebuild_brain = True if not confirm_structural else self._confirm_agent_brain_rebuild(species, len(structural))
+
+        if lock is not None:
+            with lock:
+                stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain)
+        else:
+            stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain)
+
+        scope = "selecionado" if mode == 'selected' else "todos vivos"
+        print(
+            f"Parametros de {label} aplicados a {scope}: "
+            f"{stats['agents']} agentes, {stats['brains_rebuilt']} cerebros recriados, "
+            f"{stats['brains_resized']} entradas redimensionadas, {stats['brains_kept']} cerebros preservados"
+        )
+
+    def apply_bacteria_params(self, mode: str = 'template', confirm_structural: bool = True):
+        self._apply_agent_params('bacteria', mode, confirm_structural)
+
+    def apply_predator_params(self, mode: str = 'template', confirm_structural: bool = True):
+        self._apply_agent_params('predator', mode, confirm_structural)
 
     def apply_all_params(self):
         self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
@@ -1395,6 +1827,7 @@ class SimulationUI(QMainWindow):
                     'brain_outputs_recomputed': brain_outputs_recomputed,
                     'brain_activations_recomputed': brain_activations_recomputed,
                 },
+                'obstacles': engine.obstacles.to_dicts() if hasattr(engine, 'obstacles') else [],
                 'food': {'count': len(engine.entities['foods']), 'target': self.params.get('food_target',0)},
                 'foods': foods_data,
                 'agents': agents_data
@@ -1438,6 +1871,8 @@ class SimulationUI(QMainWindow):
             # Clear current entities
             for lst in self.engine.entities.values(): lst.clear()
             self.engine.all_agents.clear(); self.engine.selected_agent = None
+            if hasattr(self.engine, 'obstacles'):
+                self.engine.obstacles.load_dicts(data.get('obstacles', []))
             from .entities import create_random_food, Food
             food_items = data.get('foods') or data.get('food_items')
             if food_items:
@@ -1450,12 +1885,14 @@ class SimulationUI(QMainWindow):
                             food.color = (int(color[0]), int(color[1]), int(color[2]))
                     except Exception:
                         pass
-                    self.engine.entities['foods'].append(food)
+                    if not getattr(self.engine, 'obstacles', None) or not self.engine.obstacles.circle_overlaps(food.x, food.y, food.r):
+                        self.engine.entities['foods'].append(food)
             else:
                 food_count = int(data.get('food', {}).get('count', 0))
                 for _ in range(food_count):
                     food = create_random_food(self.engine.entities['foods'], self.params, world.width, world.height)
-                    self.engine.entities['foods'].append(food)
+                    if food is not None and self.engine.can_place_circle(food.x, food.y, food.r):
+                        self.engine.entities['foods'].append(food)
             from .brain import NeuralNet
             from .sensors import RetinaSensor
             from .actuators import Locomotion, EnergyModel
@@ -1504,6 +1941,10 @@ class SimulationUI(QMainWindow):
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
+            if hasattr(self.engine, '_resolve_obstacle_collisions'):
+                self.engine._resolve_obstacle_collisions()
+            if hasattr(self.engine, 'obstacles'):
+                self.engine.obstacles.remove_food_overlaps(self.engine.entities['foods'])
             self.engine._spatial_hash_dirty = True
             rng_state = data.get('rng_state') or data.get('random_state')
             if rng_state:

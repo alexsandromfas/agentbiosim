@@ -31,6 +31,13 @@ class PygameView:
         # Estado de input
         self.dragging = False
         self.drag_last_pos = (0, 0)
+        self.active_tool = 'food'
+        self.brush_width = 16.0
+        self.brush_color = (95, 95, 105)
+        self.brush_erase = False
+        self.drawing_obstacle = False
+        self.last_brush_world_pos = None
+        self.moving_object = None
         
         # Pygame
         self.screen: Optional[pygame.Surface] = None
@@ -142,27 +149,52 @@ class PygameView:
         """Trata clique do mouse."""
         if event.button == 1:  # Botão esquerdo
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
-            self.engine.send_command('select_or_add_food', world_x=world_x, world_y=world_y)
+            if self.active_tool == 'select':
+                self.engine.send_command('select_agent', world_x=world_x, world_y=world_y)
+            elif self.active_tool == 'food':
+                self.engine.send_command('add_food', world_x=world_x, world_y=world_y)
+            elif self.active_tool == 'agent':
+                self.engine.send_command('spawn_loaded_agent', world_x=world_x, world_y=world_y)
+            elif self.active_tool == 'draw':
+                self.drawing_obstacle = True
+                self.last_brush_world_pos = (world_x, world_y)
+                self.engine.send_command(
+                    'paint_obstacle',
+                    x0=world_x, y0=world_y, x1=world_x, y1=world_y,
+                    radius=self.brush_width * 0.5,
+                    color=self.brush_color,
+                    erase=self.brush_erase,
+                )
+            elif self.active_tool == 'move':
+                state_lock = getattr(self.engine, 'state_lock', None)
+                if state_lock is None:
+                    self.moving_object = self.engine.get_object_at_position(world_x, world_y)
+                else:
+                    with state_lock:
+                        self.moving_object = self.engine.get_object_at_position(world_x, world_y)
+                self.engine.dragged_object = self.moving_object
+                if self.moving_object is not None and hasattr(self.moving_object, 'vx'):
+                    self.moving_object.vx = 0.0
+                    self.moving_object.vy = 0.0
+            elif self.active_tool == 'dead':
+                self.engine.send_command('remove_object_at', world_x=world_x, world_y=world_y)
         
-        elif event.button == 2:  # Botão do meio
-            world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
-            self.engine.send_command('add_bacteria', world_x=world_x, world_y=world_y)
+        elif event.button == 2:  # Botão do meio reservado para ferramentas futuras
+            pass
         
         elif event.button == 3:  # Botão direito - inicia pan
-            # Se existir protótipo carregado, insere instância no local do clique
-            if getattr(self.engine, 'current_agent_prototype', None) and \
-               self.engine.current_agent_prototype in getattr(self.engine, 'loaded_agent_prototypes', {}):
-                world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
-                self.engine.send_command('spawn_loaded_agent', world_x=world_x, world_y=world_y)
-            else:
-                # Comportamento original: iniciar pan
-                self.dragging = True
-                self.drag_last_pos = event.pos
+            self.dragging = True
+            self.drag_last_pos = event.pos
     
     def _handle_mouse_up(self, event):
         """Trata soltar do mouse."""
         if event.button == 3:  # Botão direito
             self.dragging = False
+        elif event.button == 1:
+            self.drawing_obstacle = False
+            self.last_brush_world_pos = None
+            self.engine.dragged_object = None
+            self.moving_object = None
     
     def _handle_mouse_motion(self, event):
         """Trata movimento do mouse."""
@@ -177,6 +209,25 @@ class PygameView:
             
             self.engine.camera.move(world_dx, world_dy)
             self.drag_last_pos = event.pos
+        elif self.drawing_obstacle and self.active_tool == 'draw':
+            world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
+            last_x, last_y = self.last_brush_world_pos or (world_x, world_y)
+            self.engine.send_command(
+                'paint_obstacle',
+                x0=last_x, y0=last_y, x1=world_x, y1=world_y,
+                radius=self.brush_width * 0.5,
+                color=self.brush_color,
+                erase=self.brush_erase,
+            )
+            self.last_brush_world_pos = (world_x, world_y)
+        elif self.moving_object is not None and self.active_tool == 'move':
+            world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
+            state_lock = getattr(self.engine, 'state_lock', None)
+            if state_lock is None:
+                self.engine.move_object_to(self.moving_object, world_x, world_y)
+            else:
+                with state_lock:
+                    self.engine.move_object_to(self.moving_object, world_x, world_y)
     
     def _handle_key_down(self, event):
         """Trata teclas pressionadas."""

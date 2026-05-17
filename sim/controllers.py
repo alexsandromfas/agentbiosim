@@ -309,8 +309,8 @@ class FoodController:
         self.last_foods_removed = 0
         self.last_update_time = 0.0
     
-    def update(self, current_foods: list, target_count: int, world_w: float, 
-               world_h: float, params: 'Params', dt: float) -> list:
+    def update(self, current_foods: list, target_count: int, world_w: float,
+               world_h: float, params: 'Params', dt: float, obstacle_map=None) -> list:
         """
         Atualiza sistema de comida com controle PID simplificado.
         
@@ -351,7 +351,7 @@ class FoodController:
         # Cria comida quando dívida é suficiente
         new_foods = []
         while self.food_debt >= 1.0:
-            food = self._create_random_food(current_foods + new_foods, world_w, world_h, params)
+            food = self._create_random_food(current_foods + new_foods, world_w, world_h, params, obstacle_map=obstacle_map)
             if food:
                 new_foods.append(food)
                 self.last_foods_added += 1
@@ -379,8 +379,8 @@ class FoodController:
         )
         return foods.pop(idx)
     
-    def _create_random_food(self, existing_foods: list, world_w: float, 
-                           world_h: float, params: 'Params'):
+    def _create_random_food(self, existing_foods: list, world_w: float,
+                           world_h: float, params: 'Params', obstacle_map=None):
         """Cria comida em posição aleatória válida."""
         from .entities import Food
         import random
@@ -406,6 +406,9 @@ class FoodController:
             
             # Verifica se está dentro do círculo (segurança extra)
             if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
+                continue
+
+            if obstacle_map is not None and obstacle_map.circle_overlaps(x, y, r):
                 continue
             
             # Verifica sobreposição com comida existente

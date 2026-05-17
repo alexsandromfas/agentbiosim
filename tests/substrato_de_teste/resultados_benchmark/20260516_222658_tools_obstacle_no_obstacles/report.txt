@@ -1,0 +1,37 @@
+RELATORIO DO BENCHMARK DO SUBSTRATO DE TESTE
+Run id: 20260516_222658_tools_obstacle_no_obstacles
+Commit: 582fed6
+Substrato: C:\Users\Alex Martins\Desktop\Meus Projetos\simulacoes_biologicas\AgentBioSim_Clonado_GIT_2026\agentbiosim\tests\substrato_de_teste\substrato_de_teste_20260515_210719.json
+Duracao solicitada: 5.0s | FPS logico: 60
+Wall time: 23.760s | Steps: 300 | ms/agente/step: 0.077646
+
+Contagens:
+- Inicial: {'bacteria': 1000, 'predators': 20, 'foods': 480, 'all_agents': 1020}
+- Final:   {'bacteria': 1000, 'predators': 20, 'foods': 459, 'all_agents': 1020}
+
+Eventos acumulados:
+- Comidas consumidas: 1052
+- Predacoes: 94
+- Nascimentos: 97
+- Mortes por energia: 3
+
+Energia final:
+- Bacterias: {'count': 1000, 'mean': 159.01043257764542, 'std': 43.834069192782565, 'min': 10.646313243560014, 'p05': 84.63699416804958, 'p25': 125.2447095823657, 'p50': 181.50356450410834, 'p75': 194.07107235709535, 'p95': 198.9597420337083, 'max': 200.0}
+- Predadores: {'count': 20, 'mean': 393.40494271147946, 'std': 8.511250834320082, 'min': 364.8023041902036, 'p05': 377.13811371700905, 'p25': 391.59208115901936, 'p50': 396.0894968997945, 'p75': 399.2510455377419, 'p95': 399.8870326950078, 'max': 400.0}
+
+Integridade final:
+{"all_agents_missing_from_entities": 0, "entities_missing_from_all_agents": 0, "duplicate_all_agents": 0, "bad_numeric_objects": 0, "outside_world_objects": 12, "negative_energy_objects": 0, "spatial_hash_sample_misses": 0}
+
+Top secoes do profiler:
+- agents_update: total=18.2714s calls=300 avg=60.905ms
+- agent_sensor: total=14.6288s calls=600 avg=24.381ms
+- agent_brain_forward: total=1.7671s calls=600 avg=2.945ms
+- collision: total=1.7645s calls=300 avg=5.882ms
+- spatial_hash: total=1.6821s calls=691 avg=2.434ms
+- interaction: total=1.6391s calls=300 avg=5.464ms
+- agent_locomotion: total=0.4790s calls=305986 avg=0.002ms
+- agent_energy: total=0.3458s calls=305986 avg=0.001ms
+- food_control: total=0.1203s calls=300 avg=0.401ms
+- reproduction: total=0.1100s calls=300 avg=0.367ms
+- death: total=0.0395s calls=300 avg=0.132ms
+- obstacle_collision: total=0.0007s calls=300 avg=0.002ms

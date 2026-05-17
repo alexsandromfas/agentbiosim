@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .entities import Agent, Food
+    from .obstacles import ObstacleMap
     from .world import Camera
 
 
@@ -26,6 +27,11 @@ class RendererStrategy(ABC):
     @abstractmethod  
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida na superfície."""
+        pass
+
+    @abstractmethod
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+        """Desenha obstáculos sólidos."""
         pass
     
     @abstractmethod
@@ -81,6 +87,15 @@ class SimpleRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+        """Desenha barreiras criadas com o pincel."""
+        if not getattr(obstacles, 'has_obstacles', False):
+            return
+        for stamp in obstacles.stamps:
+            screen_x, screen_y = camera.world_to_screen(stamp.x, stamp.y)
+            screen_radius = max(1, int(stamp.r * camera.zoom))
+            pygame.draw.circle(surface, stamp.color, (int(screen_x), int(screen_y)), screen_radius)
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Desenha informações de overlay."""
@@ -95,7 +110,8 @@ class SimpleRenderer(RendererStrategy):
         resources_available = info.get('resources_available', True)
         fallback_metrics = info.get('fallback_metrics', False)
 
-        main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  FPS: {int(fps)}"
+        obstacle_count = info.get('obstacle_count', 0)
+        main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  Obstáculos: {obstacle_count}  |  FPS: {int(fps)}"
         if cpu_percent is not None and mem_used_mb is not None:
             try:
                 if resources_available:
@@ -260,6 +276,10 @@ class EllipseRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+        """Reutiliza implementação do SimpleRenderer."""
+        self._simple_renderer.draw_obstacles(obstacles, surface, camera)
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Reutiliza implementação do SimpleRenderer."""

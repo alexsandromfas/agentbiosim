@@ -19,6 +19,7 @@ from .world import World, Camera
 from .spatial import SpatialHash
 from .controllers import Params, FoodController, PopulationController
 from .entities import Agent, Bacteria, Predator, Food, create_random_bacteria, create_random_predator, create_random_food
+from .obstacles import ObstacleMap
 from .sensors import SceneQuery
 from .random_utils import apply_global_seed, normalize_seed
 from .systems import InteractionSystem, ReproductionSystem, DeathSystem, CollisionSystem
@@ -52,6 +53,7 @@ class Engine:
             'predators': [],
             'foods': []
         }
+        self.obstacles = ObstacleMap()
         # Lista unificada para evitar concatenações frequentes (bactérias depois predadores)
         self.all_agents = []
 
@@ -119,6 +121,7 @@ class Engine:
         # Protótipos de agentes carregados via UI (dict name->data dict)
         self.loaded_agent_prototypes = {}
         self.current_agent_prototype = None  # nome da chave ativa
+        self.dragged_object = None
     
     def start(self, initialize: Optional[bool] = None):
         """Inicia a simulação.
@@ -296,6 +299,9 @@ class Engine:
         # Desenha entidades
         for food in self.entities['foods']:
             self.renderer.draw_food(food, surface, self.camera)
+
+        if getattr(self.obstacles, 'has_obstacles', False):
+            self.renderer.draw_obstacles(self.obstacles, surface, self.camera)
         
         predator_show_vision = bool(self.params.get('predator_show_vision', False))
         bacteria_show_vision = bool(self.params.get('bacteria_show_vision', False))
@@ -332,25 +338,112 @@ class Engine:
             if distance <= agent.r:
                 return agent
         return None
+
+    def get_object_at_position(self, world_x: float, world_y: float):
+        """Encontra agente ou comida na posição do mundo."""
+        agent = self.get_agent_at_position(world_x, world_y)
+        if agent is not None:
+            return agent
+        for food in reversed(self.entities['foods']):
+            distance = math.hypot(food.x - world_x, food.y - world_y)
+            if distance <= food.r:
+                return food
+        return None
+
+    def can_place_circle(self, world_x: float, world_y: float, radius: float) -> bool:
+        """Valida substrato e obstáculos para criação/movimento de objetos."""
+        radius = max(0.0, float(radius))
+        if not self.world.is_inside(world_x, world_y, radius):
+            return False
+        if self.obstacles.circle_overlaps(world_x, world_y, radius):
+            return False
+        return True
     
     def add_food_at(self, world_x: float, world_y: float):
         """Adiciona comida na posição especificada."""
+        max_r = float(self.params.get('food_max_r', 5.0))
+        if not self.can_place_circle(world_x, world_y, max_r):
+            return None
         food = create_random_food(self.entities['foods'], self.params, 
                                 self.world.width, self.world.height, 
                                 at=(world_x, world_y))
+        if food is None or not self.can_place_circle(food.x, food.y, food.r):
+            return None
         self.entities['foods'].append(food)
         self._spatial_hash_dirty = True
+        return food
     
     def add_bacteria_at(self, world_x: float, world_y: float):
         """Adiciona bactéria na posição especificada."""
+        radius = float(self.params.get('bacteria_body_size', self.params.get('bacteria_max_r', 12.0)))
+        if not self.can_place_circle(world_x, world_y, radius):
+            return None
         all_entities = (self.entities['bacteria'] + self.entities['predators'] + 
                        self.entities['foods'])
         bacterium = create_random_bacteria(all_entities, self.params,
                                          self.world.width, self.world.height,
                                          at=(world_x, world_y))
+        if bacterium is None or not self.can_place_circle(bacterium.x, bacterium.y, bacterium.r):
+            return None
         self.entities['bacteria'].append(bacterium)
         self.all_agents.append(bacterium)
         self._spatial_hash_dirty = True
+        return bacterium
+
+    def remove_object_at(self, world_x: float, world_y: float) -> bool:
+        """Remove agente ou comida sob o cursor."""
+        obj = self.get_object_at_position(world_x, world_y)
+        if obj is None:
+            return False
+        if getattr(obj, 'type_code', None) == 0:
+            try:
+                self.entities['foods'].remove(obj)
+            except ValueError:
+                return False
+        else:
+            key = 'predators' if getattr(obj, 'is_predator', False) else 'bacteria'
+            try:
+                self.entities[key].remove(obj)
+            except ValueError:
+                pass
+            try:
+                self.all_agents.remove(obj)
+            except ValueError:
+                pass
+            if self.selected_agent is obj:
+                self.selected_agent = None
+        if self.dragged_object is obj:
+            self.dragged_object = None
+        self._spatial_hash_dirty = True
+        return True
+
+    def move_object_to(self, obj, world_x: float, world_y: float) -> bool:
+        """Move objeto existente respeitando substrato e obstáculos."""
+        if obj is None:
+            return False
+        radius = float(getattr(obj, 'r', 0.0))
+        if not self.can_place_circle(world_x, world_y, radius):
+            return False
+        obj.x = float(world_x)
+        obj.y = float(world_y)
+        if hasattr(obj, 'vx'):
+            obj.vx = 0.0
+            obj.vy = 0.0
+        self._spatial_hash_dirty = True
+        return True
+
+    def paint_obstacle(self, x0: float, y0: float, x1: float, y1: float,
+                       radius: float, color: tuple[int, int, int], erase: bool = False) -> int:
+        """Desenha ou apaga barreiras sólidas."""
+        if erase:
+            changed = self.obstacles.erase_brush_line(x0, y0, x1, y1, radius, world=self.world)
+        else:
+            changed = self.obstacles.add_brush_line(x0, y0, x1, y1, radius, color, world=self.world)
+        if changed:
+            self.obstacles.remove_food_overlaps(self.entities['foods'])
+            self._resolve_obstacle_collisions()
+            self._spatial_hash_dirty = True
+        return changed
     
     def _simulate_physics(self, world_dt: float) -> float:
         """Simula física por um delta tempo do mundo."""
@@ -369,14 +462,33 @@ class Engine:
         for _ in range(steps):
             self._simulate_substep(step_dt)
         return step_dt * steps
+
+    def _resolve_obstacle_collisions(self, frozen_agents: set | None = None) -> int:
+        """Empurra agentes para fora das barreiras desenhadas."""
+        if not getattr(self.obstacles, 'has_obstacles', False):
+            return 0
+        frozen_agents = frozen_agents or set()
+        resolved = 0
+        for agent in self.all_agents:
+            if agent in frozen_agents:
+                continue
+            resolved += self.obstacles.resolve_agent(agent)
+            agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, agent.r)
+        return resolved
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
         step_params = self._params_snapshot()
+        dragged_agent = self.dragged_object if self.dragged_object in self.all_agents else None
+        frozen_agents = {dragged_agent} if dragged_agent is not None else set()
+        if dragged_agent is not None:
+            dragged_agent.vx = 0.0
+            dragged_agent.vy = 0.0
         with profile_section('food_control'):
             target_food = step_params.get('food_target', 300)
             new_foods = self.food_controller.update(
-                self.entities['foods'], target_food, self.world.width, self.world.height, step_params, dt
+                self.entities['foods'], target_food, self.world.width, self.world.height, step_params, dt,
+                obstacle_map=self.obstacles
             )
             self.entities['foods'].extend(new_foods)
             if new_foods or getattr(self.food_controller, 'last_foods_removed', 0):
@@ -391,12 +503,18 @@ class Engine:
             # Agrupa agentes por classe e arquitetura do cérebro
             agent_groups = {}
             for agent in self.all_agents:
+                if agent in frozen_agents:
+                    continue
                 key = (type(agent), tuple(agent.brain.sizes) if hasattr(agent.brain, 'sizes') else None)
                 if key not in agent_groups:
                     agent_groups[key] = []
                 agent_groups[key].append(agent)
             for group in agent_groups.values():
                 update_agents_batch(group, dt, self.world, self.scene_query, step_params, selected_agent=self.selected_agent)
+
+        with profile_section('obstacle_collision'):
+            if self._resolve_obstacle_collisions(frozen_agents=frozen_agents):
+                self._spatial_hash_dirty = True
 
         # Agentes se moveram; interações precisam do hash com as posições atuais.
         with profile_section('spatial_hash'):
@@ -406,16 +524,20 @@ class Engine:
         with profile_section('interaction'):
             removed_agents = self.interaction_system.apply(
                 self.entities['bacteria'], self.entities['predators'],
-                self.entities['foods'], self.spatial_hash, step_params
+                self.entities['foods'], self.spatial_hash, step_params,
+                frozen_agents=frozen_agents
             )
             if removed_agents:
                 topology_changed = True
                 self.all_agents = [a for a in self.all_agents if a not in removed_agents]
                 if self.selected_agent in removed_agents:
                     self.selected_agent = None
+                if self.dragged_object in removed_agents:
+                    self.dragged_object = None
 
         with profile_section('reproduction'):
-            new_agents = self.reproduction_system.apply(self.all_agents, step_params)
+            reproductive_agents = [a for a in self.all_agents if a not in frozen_agents]
+            new_agents = self.reproduction_system.apply(reproductive_agents, step_params)
 
         if new_agents:
             for agent in new_agents:
@@ -425,6 +547,7 @@ class Engine:
                     self.entities['bacteria'].append(agent)
             # Acrescenta em bloco (ordem não crítica)
             self.all_agents.extend(new_agents)
+            self._resolve_obstacle_collisions()
             topology_changed = True
 
         with profile_section('death'):
@@ -446,7 +569,8 @@ class Engine:
                 self._update_spatial_hash(force=True)
 
         with profile_section('collision'):
-            collisions_resolved = self.collision_system.apply(self.all_agents, self.spatial_hash, step_params)
+            collision_agents = [a for a in self.all_agents if a not in frozen_agents]
+            collisions_resolved = self.collision_system.apply(collision_agents, self.spatial_hash, step_params)
             if collisions_resolved:
                 self._spatial_hash_dirty = True
     
@@ -541,6 +665,22 @@ class Engine:
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
             self.add_bacteria_at(world_x, world_y)
+
+        elif command == 'paint_obstacle':
+            self.paint_obstacle(
+                kwargs.get('x0', kwargs.get('world_x', 0)),
+                kwargs.get('y0', kwargs.get('world_y', 0)),
+                kwargs.get('x1', kwargs.get('world_x', 0)),
+                kwargs.get('y1', kwargs.get('world_y', 0)),
+                kwargs.get('radius', 8.0),
+                tuple(kwargs.get('color', (95, 95, 105))),
+                bool(kwargs.get('erase', False)),
+            )
+
+        elif command == 'remove_object_at':
+            world_x = kwargs.get('world_x', 0)
+            world_y = kwargs.get('world_y', 0)
+            self.remove_object_at(world_x, world_y)
         
         elif command == 'reset_population':
             self._initialize_population()
@@ -616,6 +756,8 @@ class Engine:
             )
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)
+            if not self.can_place_circle(world_x, world_y, r):
+                return
             if agent_type == 'predator':
                 agent = Predator(world_x, world_y, r, brain, sensor, locomotion, energy_model, angle)
             else:
@@ -687,8 +829,15 @@ class Engine:
         # Cria bactérias
         bacteria_count = min(self.params.get('bacteria_count', 150), 10000)
         for _ in range(bacteria_count):
-            bacterium = create_random_bacteria(all_entities, self.params,
-                                               self.world.width, self.world.height)
+            bacterium = None
+            for _attempt in range(120 if self.obstacles.has_obstacles else 1):
+                candidate = create_random_bacteria(all_entities, self.params,
+                                                   self.world.width, self.world.height)
+                if self.can_place_circle(candidate.x, candidate.y, candidate.r):
+                    bacterium = candidate
+                    break
+            if bacterium is None:
+                continue
             self.entities['bacteria'].append(bacterium)
             all_entities.append(bacterium)
             self.all_agents.append(bacterium)
@@ -697,8 +846,15 @@ class Engine:
         if self.params.get('predators_enabled', False):
             predator_count = min(self.params.get('predator_count', 0), 1000)
             for _ in range(predator_count):
-                predator = create_random_predator(all_entities, self.params,
-                                                  self.world.width, self.world.height)
+                predator = None
+                for _attempt in range(120 if self.obstacles.has_obstacles else 1):
+                    candidate = create_random_predator(all_entities, self.params,
+                                                      self.world.width, self.world.height)
+                    if self.can_place_circle(candidate.x, candidate.y, candidate.r):
+                        predator = candidate
+                        break
+                if predator is None:
+                    continue
                 self.entities['predators'].append(predator)
                 all_entities.append(predator)
                 self.all_agents.append(predator)
@@ -706,9 +862,17 @@ class Engine:
         # Cria comida
         food_target = self.params.get('food_target', 50)
         for _ in range(food_target):
-            food = create_random_food(self.entities['foods'], self.params,
-                                      self.world.width, self.world.height)
+            food = None
+            for _attempt in range(120 if self.obstacles.has_obstacles else 1):
+                candidate = create_random_food(self.entities['foods'], self.params,
+                                               self.world.width, self.world.height)
+                if candidate is not None and self.can_place_circle(candidate.x, candidate.y, candidate.r):
+                    food = candidate
+                    break
+            if food is None:
+                continue
             self.entities['foods'].append(food)
+        self._resolve_obstacle_collisions()
         self._spatial_hash_dirty = True
     
     def _draw_world_bounds(self, surface):
@@ -749,6 +913,7 @@ class Engine:
             'world_w': self.world.width,
             'world_h': self.world.height,
             'selected_agent': self.selected_agent,
+            'obstacle_count': len(self.obstacles),
             'show_selected_details': self.params.get('show_selected_details', True)
         }
 
