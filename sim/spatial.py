@@ -11,12 +11,17 @@ class SpatialHash:
     Reutilizável entre frames para melhor performance.
     """
     
-    def __init__(self, cell_size: float, width: float, height: float):
+    def __init__(self, cell_size: float, width: float, height: float,
+                 min_x: float = 0.0, min_y: float = 0.0):
         self.cell_size = max(1.0, float(cell_size))
-        self.width = width
-        self.height = height
-        self.cols = int(math.ceil(width / self.cell_size))
-        self.rows = int(math.ceil(height / self.cell_size))
+        self.width = max(1.0, float(width))
+        self.height = max(1.0, float(height))
+        self.min_x = float(min_x)
+        self.min_y = float(min_y)
+        self.max_x = self.min_x + self.width
+        self.max_y = self.min_y + self.height
+        self.cols = max(1, int(math.ceil(self.width / self.cell_size)))
+        self.rows = max(1, int(math.ceil(self.height / self.cell_size)))
         self.buckets = {}  # Dict[Tuple[int, int], List[Any]]
     
     def clear(self):
@@ -25,17 +30,23 @@ class SpatialHash:
     
     def _get_cells(self, x: float, y: float, r: float) -> List[Tuple[int, int]]:
         """Calcula células que o objeto ocupa."""
-        min_cx = int((x - r) // self.cell_size)
-        max_cx = int((x + r) // self.cell_size)
-        min_cy = int((y - r) // self.cell_size)
-        max_cy = int((y + r) // self.cell_size)
+        r = max(0.0, float(r))
+        min_cx = math.floor((x - r - self.min_x) / self.cell_size)
+        max_cx = math.floor((x + r - self.min_x) / self.cell_size)
+        min_cy = math.floor((y - r - self.min_y) / self.cell_size)
+        max_cy = math.floor((y + r - self.min_y) / self.cell_size)
+        if max_cx < 0 or max_cy < 0 or min_cx >= self.cols or min_cy >= self.rows:
+            return []
+        min_cx = max(0, int(min_cx))
+        max_cx = min(self.cols - 1, int(max_cx))
+        min_cy = max(0, int(min_cy))
+        max_cy = min(self.rows - 1, int(max_cy))
         
         cells = []
         for cx in range(min_cx, max_cx + 1):
             for cy in range(min_cy, max_cy + 1):
                 # Clamp para evitar células fora dos limites
-                if 0 <= cx < self.cols and 0 <= cy < self.rows:
-                    cells.append((cx, cy))
+                cells.append((cx, cy))
         return cells
     
     def insert(self, obj: Any, x: float, y: float, r: float):
@@ -65,10 +76,12 @@ class SpatialHash:
     def query_rectangle(self, min_x: float, min_y: float, 
                        max_x: float, max_y: float) -> Set[Any]:
         """Consulta objetos dentro de um retângulo."""
-        min_cx = max(0, int(min_x // self.cell_size))
-        max_cx = min(self.cols - 1, int(max_x // self.cell_size))
-        min_cy = max(0, int(min_y // self.cell_size))
-        max_cy = min(self.rows - 1, int(max_y // self.cell_size))
+        min_cx = max(0, int(math.floor((min_x - self.min_x) / self.cell_size)))
+        max_cx = min(self.cols - 1, int(math.floor((max_x - self.min_x) / self.cell_size)))
+        min_cy = max(0, int(math.floor((min_y - self.min_y) / self.cell_size)))
+        max_cy = min(self.rows - 1, int(math.floor((max_y - self.min_y) / self.cell_size)))
+        if min_cx > max_cx or min_cy > max_cy:
+            return set()
         
         found = set()
         for cx in range(min_cx, max_cx + 1):

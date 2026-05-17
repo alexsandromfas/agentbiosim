@@ -580,6 +580,18 @@ class Engine:
             return dict(data)
         return self.params
 
+    def _spatial_bounds(self):
+        """Bounds do broad-phase para cobrir todo o substrato ativo."""
+        if getattr(self.world, 'shape', 'rectangular') == 'circular':
+            radius = max(1.0, float(getattr(self.world, 'radius', 1.0)))
+            return (
+                float(self.world.cx) - radius,
+                float(self.world.cy) - radius,
+                radius * 2.0,
+                radius * 2.0,
+            )
+        return 0.0, 0.0, float(self.world.width), float(self.world.height)
+
     def _update_spatial_hash(self, force: bool = True):
         """Atualiza ou recria spatial hash."""
         if (not force and not self._spatial_hash_dirty and
@@ -601,18 +613,21 @@ class Engine:
             self.params.get('predator_max_r', 18.0)
         )
         cell_size = max_radius * 2.0
+        min_x, min_y, bounds_w, bounds_h = self._spatial_bounds()
         
         # Reutiliza hash existente se possível
         if (self.spatial_hash and 
             self.params.get('reuse_spatial_grid', True) and
             abs(self.spatial_hash.cell_size - cell_size) < 1e-6 and
-            self.spatial_hash.width == self.world.width and
-            self.spatial_hash.height == self.world.height):
+            abs(self.spatial_hash.width - bounds_w) < 1e-6 and
+            abs(self.spatial_hash.height - bounds_h) < 1e-6 and
+            abs(getattr(self.spatial_hash, 'min_x', 0.0) - min_x) < 1e-6 and
+            abs(getattr(self.spatial_hash, 'min_y', 0.0) - min_y) < 1e-6):
             # Reutiliza: apenas limpa e reinsere
             self.spatial_hash.clear()
         else:
             # Recria
-            self.spatial_hash = SpatialHash(cell_size, self.world.width, self.world.height)
+            self.spatial_hash = SpatialHash(cell_size, bounds_w, bounds_h, min_x=min_x, min_y=min_y)
         
         # Insere todas as entidades
         for food in self.entities['foods']:

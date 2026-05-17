@@ -26,13 +26,13 @@ import threading
 import traceback
 from typing import Dict, Any, Tuple
 
-from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QIcon, QColor
+from PyQt6.QtCore import Qt, QTimer, QSize, QEvent
+from PyQt6.QtGui import QIcon, QColor, QAction
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
     QLineEdit, QTextEdit, QListWidget, QMessageBox, QFileDialog, QScrollArea,
-    QFormLayout, QGridLayout, QGroupBox, QToolTip
+    QFormLayout, QGridLayout, QGroupBox, QToolTip, QStackedWidget
     , QColorDialog
 )
 
@@ -111,6 +111,7 @@ class SimulationUI(QMainWindow):
             self._update_brush_width(self._get_widget_value('obstacle_brush_width'))
         if 'obstacle_brush_erase' in self.widgets:
             self._update_brush_erase()
+        self._build_menu_bar()
         self._setup_live_param_signals()
 
         # Embed pygame view (defer until shown)
@@ -249,12 +250,102 @@ class SimulationUI(QMainWindow):
 
     def _build_tabs(self):
         """Construct all tabs in a fixed order."""
-        self._build_tab_simulation()
-        self._build_tab_substrate()
-        self._build_tab_bacteria()
-        self._build_tab_predator()
-        self._build_tab_test()
-        self._build_tab_help()
+        self._build_tab_genetic_editor()
+        self._build_tab_population()
+        self._build_tab_environment()
+        self._build_tab_experiment()
+
+    def _build_menu_bar(self):
+        bar = self.menuBar()
+
+        file_menu = bar.addMenu("Arquivo")
+        act_new = QAction("Novo", self)
+        act_new.triggered.connect(self.new_biosim_project)
+        file_menu.addAction(act_new)
+        act_open = QAction("Abrir .biosim", self)
+        act_open.triggered.connect(self.open_biosim_window)
+        file_menu.addAction(act_open)
+        act_save = QAction("Salvar .biosim", self)
+        act_save.triggered.connect(self.save_biosim_window)
+        file_menu.addAction(act_save)
+        file_menu.addSeparator()
+        act_export_sub = QAction("Exportar substrato JSON", self)
+        act_export_sub.triggered.connect(self.open_export_substrate_window)
+        file_menu.addAction(act_export_sub)
+        act_import_sub = QAction("Importar substrato JSON", self)
+        act_import_sub.triggered.connect(self.open_import_substrate_window)
+        file_menu.addAction(act_import_sub)
+        file_menu.addSeparator()
+        act_save_params = QAction("Salvar preferencias da UI", self)
+        act_save_params.triggered.connect(self.save_ui_params)
+        file_menu.addAction(act_save_params)
+
+        view_menu = bar.addMenu("View")
+        self._add_bool_menu_action(view_menu, "Renderizacao simples", 'simple_render')
+        self._add_bool_menu_action(view_menu, "Detalhes do agente selecionado", 'show_selected_details')
+        act_brain = QAction("Mostrar ativacoes neurais", self)
+        act_brain.setCheckable(True)
+        act_brain.setChecked(not self.params.get('disable_brain_activations', False))
+        act_brain.toggled.connect(self._on_toggle_brain_activations)
+        view_menu.addAction(act_brain)
+        self._add_bool_menu_action(view_menu, "Mostrar visao das bacterias", 'bacteria_show_vision')
+        self._add_bool_menu_action(view_menu, "Mostrar visao dos predadores", 'predator_show_vision')
+
+        pref_menu = bar.addMenu("Preferencias")
+        self._add_bool_menu_action(pref_menu, "Auto exportar substrato", 'auto_export_substrate', callback=self._on_auto_export_menu_toggled)
+        self._add_bool_menu_action(pref_menu, "Exportar ativacoes neurais nos snapshots", 'export_substrate_include_brain_activations')
+        self._add_bool_menu_action(pref_menu, "JSON manual legivel", 'export_substrate_pretty_json')
+        self._add_bool_menu_action(pref_menu, "Tracebacks no debug", 'debug_tracebacks')
+        act_pref_tab = QAction("Abrir aba Experimento", self)
+        act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
+        pref_menu.addAction(act_pref_tab)
+
+        agent_menu = bar.addMenu("Agente")
+        act_export_agent = QAction("Exportar agente selecionado", self)
+        act_export_agent.triggered.connect(self.open_export_agent_window)
+        agent_menu.addAction(act_export_agent)
+        act_load_agent = QAction("Carregar agente", self)
+        act_load_agent.triggered.connect(self.open_load_agent_window)
+        agent_menu.addAction(act_load_agent)
+        act_lineage = QAction("Criar linhagem a partir do selecionado", self)
+        act_lineage.triggered.connect(self.create_lineage_from_selected)
+        agent_menu.addAction(act_lineage)
+
+        help_menu = bar.addMenu("Ajuda")
+        act_help = QAction("Ajuda e atalhos", self)
+        act_help.triggered.connect(self.show_help_window)
+        help_menu.addAction(act_help)
+
+    def _add_bool_menu_action(self, menu, text: str, param_name: str, callback=None):
+        action = QAction(text, self)
+        action.setCheckable(True)
+        action.setChecked(bool(self.params.get(param_name, False)))
+        if callback is None:
+            action.toggled.connect(lambda checked, name=param_name: self._set_bool_param_from_menu(name, checked))
+        else:
+            action.toggled.connect(callback)
+        menu.addAction(action)
+        return action
+
+    def _set_bool_param_from_menu(self, name: str, checked: bool):
+        widget = self.widgets.get(name)
+        if isinstance(widget, QCheckBox) and widget.isChecked() != checked:
+            widget.setChecked(checked)
+        self.params.set(name, bool(checked), validate=False)
+        if name == 'simple_render':
+            self.engine.send_command('change_renderer', simple=bool(checked))
+
+    def _on_auto_export_menu_toggled(self, checked: bool):
+        widget = self.widgets.get('auto_export_substrate')
+        if isinstance(widget, QCheckBox) and widget.isChecked() != checked:
+            widget.setChecked(checked)
+            return
+        self.params.set('auto_export_substrate', bool(checked), validate=False)
+        if checked:
+            self._reschedule_auto_export()
+        elif self._auto_export_timer:
+            self._auto_export_timer.stop()
+            self._auto_export_timer = None
 
     # ---------------------- Widget value helpers ----------------------
     def _set_widget_value(self, name: str, value: Any):
@@ -424,6 +515,391 @@ class SimulationUI(QMainWindow):
         if name.startswith('test_param_'):
             return "Parametro experimental de teste da interface. Nao altera a simulacao principal."
         return f"{label} controla o parametro interno '{name}'. Clique no controle ao lado para alterar o valor."
+
+    def _card_style(self) -> str:
+        return (
+            "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:28px; background:#1c1f24;} "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; margin-left:12px; "
+            "padding:3px 12px 4px 12px; border-radius:8px; background:#262b31; color:#cfe1f5; "
+            "font-weight:600; font-size:12px;}"
+        )
+
+    def _add_grid_param(self, grid: QGridLayout, row: int, label: str, name: str, widget: QWidget):
+        self.widgets[name] = widget
+        grid.addWidget(self._help_label(label, name), row, 0)
+        grid.addWidget(widget, row, 1)
+        return row + 1
+
+    def _build_tab_genetic_editor(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Editor Genetico")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setSpacing(6)
+
+        selector_row = QHBoxLayout()
+        selector_row.addWidget(ClickHelpLabel("Tipo de organismo:", "Escolha qual template genetico sera editado. Os campos abaixo mudam entre bacteria e predador sem misturar com regras de populacao."))
+        type_selector = QComboBox()
+        type_selector.addItems(["Bacteria", "Predador"])
+        type_selector.installEventFilter(self)
+        selector_row.addWidget(type_selector)
+        outer.addLayout(selector_row)
+
+        stack = QStackedWidget()
+        stack.addWidget(self._build_genetic_page('bacteria'))
+        stack.addWidget(self._build_genetic_page('predator'))
+        type_selector.currentIndexChanged.connect(stack.setCurrentIndex)
+        outer.addWidget(stack, stretch=1)
+
+    def _build_genetic_page(self, species: str) -> QWidget:
+        page = QWidget()
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        holder = QWidget()
+        scroll.setWidget(holder)
+        root = QVBoxLayout(page)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(scroll)
+        v = QVBoxLayout(holder)
+        v.setContentsMargins(2, 2, 2, 20)
+        v.setSpacing(18)
+        card_style = self._card_style()
+
+        is_bacteria = species == 'bacteria'
+        defaults = {
+            'initial_energy': 100.0,
+            'death_energy': 0.0,
+            'split_energy': 150.0,
+            'metab_v0_cost': 0.5 if is_bacteria else 1.0,
+            'metab_vmax_cost': 8.0 if is_bacteria else 15.0,
+            'energy_cap': 400.0 if is_bacteria else 600.0,
+            'body_size': 9.0 if is_bacteria else 14.0,
+            'vision_radius': 120.0,
+            'retina_count': 18,
+            'retina_fov_degrees': 180.0,
+            'max_speed': 300.0,
+            'max_turn': math.pi,
+            'hidden_layers': 4 if is_bacteria else 2,
+            'mutation_rate': 0.05,
+            'mutation_strength': 0.08,
+        }
+
+        g_energy = QGroupBox("Metabolismo & Energia")
+        g_energy.setStyleSheet(card_style)
+        grid = QGridLayout(g_energy)
+        row = 0
+        w = _spin_double(0.0, 200000.0, 1.0, 1); w.setValue(self.params.get(f'{species}_initial_energy', defaults['initial_energy'])); row = self._add_grid_param(grid, row, "Energia inicial:", f'{species}_initial_energy', w)
+        w = _spin_double(0.0, 10000.0, 1.0, 1); w.setValue(self.params.get(f'{species}_death_energy', defaults['death_energy'])); row = self._add_grid_param(grid, row, "Energia morte:", f'{species}_death_energy', w)
+        w = _spin_double(0.0, 400000.0, 5.0, 1); w.setValue(self.params.get(f'{species}_split_energy', defaults['split_energy'])); row = self._add_grid_param(grid, row, "Energia dividir:", f'{species}_split_energy', w)
+        w = _spin_double(0.0, 5000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_v0_cost', defaults['metab_v0_cost'])); row = self._add_grid_param(grid, row, "Custo v=0 (s):", f'{species}_metab_v0_cost', w)
+        w = _spin_double(0.0, 20000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_vmax_cost', defaults['metab_vmax_cost'])); row = self._add_grid_param(grid, row, "Custo v=vmax (s):", f'{species}_metab_vmax_cost', w)
+        w = _spin_double(10.0, 1000000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_energy_cap', defaults['energy_cap'])); row = self._add_grid_param(grid, row, "Cap energia:", f'{species}_energy_cap', w)
+        v.addWidget(g_energy)
+
+        g_body = QGroupBox("Corpo, Movimento & Sensores")
+        g_body.setStyleSheet(card_style)
+        grid = QGridLayout(g_body)
+        row = 0
+        w = _spin_double(1.0, 1000.0, 0.5, 1); w.setValue(self.params.get(f'{species}_body_size', defaults['body_size'])); row = self._add_grid_param(grid, row, "Tamanho corpo (raio):", f'{species}_body_size', w)
+        w = _spin_double(1.0, 5000.0, 5.0, 1); w.setValue(self.params.get(f'{species}_vision_radius', defaults['vision_radius'])); row = self._add_grid_param(grid, row, "Raio visao:", f'{species}_vision_radius', w)
+        w = _spin_int(1, 128); w.setValue(self.params.get(f'{species}_retina_count', defaults['retina_count'])); row = self._add_grid_param(grid, row, "Numero de retinas:", f'{species}_retina_count', w)
+        w = _spin_double(1.0, 360.0, 1.0, 1); w.setValue(self.params.get(f'{species}_retina_fov_degrees', defaults['retina_fov_degrees'])); row = self._add_grid_param(grid, row, "Campo de visao (graus):", f'{species}_retina_fov_degrees', w)
+        w = _spin_double(0.0, 10000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_max_speed', defaults['max_speed'])); row = self._add_grid_param(grid, row, "Velocidade max:", f'{species}_max_speed', w)
+        w = _spin_double(1.0, 5000.0, 1.0, 1); w.setValue(math.degrees(self.params.get(f'{species}_max_turn', defaults['max_turn']))); row = self._add_grid_param(grid, row, "Rotacao max (graus/s):", f'{species}_max_turn_deg', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_food', True)); row = self._add_grid_param(grid, row, "Ver comida:", f'{species}_retina_see_food', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver bacterias:", f'{species}_retina_see_bacteria', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_predators', False)); row = self._add_grid_param(grid, row, "Ver predadores:", f'{species}_retina_see_predators', cb)
+        v.addWidget(g_body)
+
+        self._add_color_picker(v, species, card_style)
+
+        g_brain = QGroupBox("Cerebro Neural & Mutacao")
+        g_brain.setStyleSheet(card_style)
+        grid = QGridLayout(g_brain)
+        row = 0
+        w = _spin_int(1, 5); w.setValue(self.params.get(f'{species}_hidden_layers', defaults['hidden_layers'])); row = self._add_grid_param(grid, row, "Camadas ocultas:", f'{species}_hidden_layers', w)
+        neuron_widgets = []
+        for i in range(1, 6):
+            fallback = 20 if is_bacteria else (16 if i == 1 else (8 if i == 2 else 0))
+            spin = _spin_int(0, 2048)
+            spin.setValue(self.params.get(f'{species}_neurons_layer_{i}', fallback))
+            row = self._add_grid_param(grid, row, f"Neuronios camada {i}:", f'{species}_neurons_layer_{i}', spin)
+            neuron_widgets.append(spin)
+        if is_bacteria:
+            self._bacteria_neuron_widgets = neuron_widgets
+        else:
+            self._predator_neuron_widgets = neuron_widgets
+        w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f'{species}_mutation_rate', defaults['mutation_rate'])); row = self._add_grid_param(grid, row, "Taxa de mutacao:", f'{species}_mutation_rate', w)
+        w = _spin_double(0.0, 10.0, 0.01, 2); w.setValue(self.params.get(f'{species}_mutation_strength', defaults['mutation_strength'])); row = self._add_grid_param(grid, row, "Forca de mutacao:", f'{species}_mutation_strength', w)
+        v.addWidget(g_brain)
+
+        hidden_spin = self.widgets[f'{species}_hidden_layers']
+        def _update_neuron_enabled():
+            layers = int(hidden_spin.value())
+            for idx, spin in enumerate(neuron_widgets):
+                spin.setEnabled(idx < layers)
+        hidden_spin.valueChanged.connect(lambda _v: _update_neuron_enabled())
+        _update_neuron_enabled()
+
+        g_act = QGroupBox("Aplicacao do Template")
+        g_act.setStyleSheet(card_style)
+        la = QVBoxLayout(g_act)
+        hint = QLabel("Esses botoes aplicam o template genetico/organismico. Mudancas de cerebro so devem ser aplicadas aos vivos quando voce aceitar reconstruir a rede.")
+        hint.setWordWrap(True)
+        la.addWidget(hint)
+        if is_bacteria:
+            buttons = [
+                ("Aplicar a novos individuos", lambda _checked=False: self.apply_bacteria_params('template')),
+                ("Aplicar a todos vivos", lambda _checked=False: self.apply_bacteria_params('all_alive')),
+                ("Aplicar ao selecionado", lambda _checked=False: self.apply_bacteria_params('selected')),
+            ]
+        else:
+            buttons = [
+                ("Aplicar a novos individuos", lambda _checked=False: self.apply_predator_params('template')),
+                ("Aplicar a todos vivos", lambda _checked=False: self.apply_predator_params('all_alive')),
+                ("Aplicar ao selecionado", lambda _checked=False: self.apply_predator_params('selected')),
+            ]
+        for text, slot in buttons:
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            la.addWidget(btn)
+        v.addWidget(g_act)
+        v.addStretch(1)
+        return page
+
+    def _add_color_picker(self, layout: QVBoxLayout, species: str, card_style: str):
+        title = "Cor das bacterias" if species == 'bacteria' else "Cor dos predadores"
+        key = f'{species}_color'
+        default = (220, 220, 220) if species == 'bacteria' else (80, 120, 220)
+        box = QGroupBox(title)
+        box.setStyleSheet(card_style)
+        row = QHBoxLayout(box)
+        swatch = QLabel()
+        swatch.setFixedSize(36, 36)
+        color = self.params.get(key, default)
+        swatch.setStyleSheet(f"background: rgb({color[0]},{color[1]},{color[2]}); border:1px solid #333; border-radius:4px;")
+        if species == 'bacteria':
+            self._swatch_bacteria = swatch
+        else:
+            self._swatch_predator = swatch
+        button = QPushButton("Escolher cor")
+        def _pick():
+            current = self.params.get(key, color)
+            col = QColorDialog.getColor(QColor(*current), self, title)
+            if not col.isValid():
+                return
+            rgb = (col.red(), col.green(), col.blue())
+            swatch.setStyleSheet(f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]}); border:1px solid #333; border-radius:4px;")
+            self.params.set(key, rgb, validate=False)
+            entity_key = 'bacteria' if species == 'bacteria' else 'predators'
+            for agent in self.engine.entities.get(entity_key, []):
+                try:
+                    agent.color = rgb
+                except Exception:
+                    pass
+        button.clicked.connect(_pick)
+        row.addWidget(swatch)
+        row.addWidget(button)
+        layout.addWidget(box)
+
+    def _build_tab_population(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Populacao")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4, 4, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2, 2, 2, 20)
+        v.setSpacing(18)
+        card_style = self._card_style()
+
+        g_b = QGroupBox("Bacterias")
+        g_b.setStyleSheet(card_style)
+        grid = QGridLayout(g_b)
+        row = 0
+        w = _spin_int(0, 20000); w.setValue(self.params.get('bacteria_count', 150)); row = self._add_grid_param(grid, row, "Quantidade inicial:", 'bacteria_count', w)
+        w = _spin_int(0, 10000); w.setValue(self.params.get('bacteria_min_limit', 10)); row = self._add_grid_param(grid, row, "Minimo:", 'bacteria_min_limit', w)
+        w = _spin_int(0, 50000); w.setValue(self.params.get('bacteria_max_limit', 300)); row = self._add_grid_param(grid, row, "Maximo:", 'bacteria_max_limit', w)
+        v.addWidget(g_b)
+
+        g_p = QGroupBox("Predadores")
+        g_p.setStyleSheet(card_style)
+        grid = QGridLayout(g_p)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('predators_enabled', False)); row = self._add_grid_param(grid, row, "Habilitar predadores:", 'predators_enabled', cb)
+        w = _spin_int(0, 5000); w.setValue(self.params.get('predator_count', 0)); row = self._add_grid_param(grid, row, "Quantidade inicial:", 'predator_count', w)
+        w = _spin_int(0, 5000); w.setValue(self.params.get('predator_min_limit', 0)); row = self._add_grid_param(grid, row, "Minimo:", 'predator_min_limit', w)
+        w = _spin_int(0, 50000); w.setValue(self.params.get('predator_max_limit', 100)); row = self._add_grid_param(grid, row, "Maximo:", 'predator_max_limit', w)
+        v.addWidget(g_p)
+
+        g_rules = QGroupBox("Regras Populacionais")
+        g_rules.setStyleSheet(card_style)
+        grid = QGridLayout(g_rules)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled', True)); row = self._add_grid_param(grid, row, "Resgate pop. minima:", 'population_min_rescue_enabled', cb)
+        v.addWidget(g_rules)
+        v.addStretch(1)
+
+    def _build_tab_environment(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Ambiente")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4, 4, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2, 2, 2, 20)
+        v.setSpacing(18)
+        card_style = self._card_style()
+
+        g_food = QGroupBox("Comida")
+        g_food.setStyleSheet(card_style)
+        grid = QGridLayout(g_food)
+        row = 0
+        w = _spin_int(0, 10000); w.setValue(self.params.get('food_target', 50)); row = self._add_grid_param(grid, row, "Target comida:", 'food_target', w)
+        w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_min_r', 4.5)); row = self._add_grid_param(grid, row, "Comida raio min:", 'food_min_r', w)
+        w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_max_r', 5.0)); row = self._add_grid_param(grid, row, "Comida raio max:", 'food_max_r', w)
+        w = _spin_double(0.01, 60.0, 0.01, 2); w.setValue(self.params.get('food_replenish_interval', 0.1)); row = self._add_grid_param(grid, row, "Intervalo reposicao (s):", 'food_replenish_interval', w)
+        v.addWidget(g_food)
+
+        g_world = QGroupBox("Substrato")
+        g_world.setStyleSheet(card_style)
+        grid = QGridLayout(g_world)
+        row = 0
+        w = _spin_double(10.0, 20000.0, 10.0, 1); w.setValue(self.params.get('world_w', 1000.0)); row = self._add_grid_param(grid, row, "Largura do mundo:", 'world_w', w)
+        w = _spin_double(10.0, 20000.0, 10.0, 1); w.setValue(self.params.get('world_h', 700.0)); row = self._add_grid_param(grid, row, "Altura do mundo:", 'world_h', w)
+        shape = QComboBox(); shape.addItems(["rectangular", "circular"]); shape.setCurrentText(self.params.get('substrate_shape', 'rectangular')); row = self._add_grid_param(grid, row, "Formato do substrato:", 'substrate_shape', shape)
+        w = _spin_double(1.0, 5000.0, 1.0, 1); w.setValue(self.params.get('substrate_radius', 400.0)); row = self._add_grid_param(grid, row, "Raio do substrato:", 'substrate_radius', w)
+        v.addWidget(g_world)
+
+        self._add_environment_color_pickers(v, card_style)
+
+        g_act = QGroupBox("Acoes do Ambiente")
+        g_act.setStyleSheet(card_style)
+        la = QVBoxLayout(g_act)
+        b = QPushButton("Aplicar ambiente")
+        b.clicked.connect(self.apply_substrate_params)
+        la.addWidget(b)
+        row = QHBoxLayout()
+        btn_export = QPushButton("Exportar substrato JSON")
+        btn_export.clicked.connect(self.open_export_substrate_window)
+        row.addWidget(btn_export)
+        btn_import = QPushButton("Importar substrato JSON")
+        btn_import.clicked.connect(self.open_import_substrate_window)
+        row.addWidget(btn_import)
+        wrap = QWidget()
+        wrap.setLayout(row)
+        la.addWidget(wrap)
+        v.addWidget(g_act)
+        v.addStretch(1)
+
+    def _add_environment_color_pickers(self, layout: QVBoxLayout, card_style: str):
+        def add_picker(title: str, key: str, default: tuple[int, int, int], apply_existing=None):
+            box = QGroupBox(title)
+            box.setStyleSheet(card_style)
+            row = QHBoxLayout(box)
+            swatch = QLabel()
+            swatch.setFixedSize(36, 36)
+            color = self.params.get(key, default)
+            swatch.setStyleSheet(f"background: rgb({color[0]},{color[1]},{color[2]}); border:1px solid #333; border-radius:4px;")
+            if key == 'substrate_bg_color':
+                self._swatch_substrate = swatch
+            button = QPushButton("Escolher cor")
+            def _pick():
+                current = self.params.get(key, color)
+                col = QColorDialog.getColor(QColor(*current), self, title)
+                if not col.isValid():
+                    return
+                rgb = (col.red(), col.green(), col.blue())
+                swatch.setStyleSheet(f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]}); border:1px solid #333; border-radius:4px;")
+                self.params.set(key, rgb, validate=False)
+                if apply_existing:
+                    apply_existing(rgb)
+            button.clicked.connect(_pick)
+            row.addWidget(swatch)
+            row.addWidget(button)
+            layout.addWidget(box)
+
+        add_picker("Cor da comida", 'food_color', (220, 30, 30),
+                   lambda rgb: [setattr(food, 'color', rgb) for food in self.engine.entities.get('foods', [])])
+        add_picker("Background Substrato", 'substrate_bg_color', (10, 10, 20))
+
+    def _build_tab_experiment(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Experimento")
+        outer = QVBoxLayout(tab)
+        outer.setContentsMargins(4, 4, 4, 4)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        outer.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        v = QVBoxLayout(content)
+        v.setContentsMargins(2, 2, 2, 20)
+        v.setSpacing(18)
+        card_style = self._card_style()
+
+        g_time = QGroupBox("Tempo & Execucao")
+        g_time.setStyleSheet(card_style)
+        grid = QGridLayout(g_time)
+        row = 0
+        w = _spin_double(0.01, 100.0, 0.01, 3); w.setValue(self.params.get('time_scale', 1.0)); row = self._add_grid_param(grid, row, "Escala de tempo (x):", 'time_scale', w)
+        w = _spin_int(1, 240); w.setValue(self.params.get('fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get('paused', False)); row = self._add_grid_param(grid, row, "Pausado:", 'paused', cb)
+        v.addWidget(g_time)
+
+        g_perf = QGroupBox("Performance & Determinismo")
+        g_perf.setStyleSheet(card_style)
+        grid = QGridLayout(g_perf)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
+        w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
+        w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
+        mode = QComboBox(); mode.addItems(['single', 'fullbody']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
+        cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
+        w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get('allow_reverse_locomotion', False)); row = self._add_grid_param(grid, row, "Permitir marcha re:", 'allow_reverse_locomotion', cb)
+        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_min_age', 0.0)); row = self._add_grid_param(grid, row, "Idade min. reproducao:", 'reproduction_min_age', w)
+        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_cooldown', 0.0)); row = self._add_grid_param(grid, row, "Cooldown reproducao:", 'reproduction_cooldown', w)
+        v.addWidget(g_perf)
+
+        g_auto = QGroupBox("Preferencias & Auto Export")
+        g_auto.setStyleSheet(card_style)
+        grid = QGridLayout(g_auto)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate', False)); cb.toggled.connect(self._on_toggle_auto_export); row = self._add_grid_param(grid, row, "Auto Export Substrato:", 'auto_export_substrate', cb)
+        w = _spin_double(0.1, 1440.0, 0.5, 2); w.setValue(self.params.get('auto_export_interval_minutes', 10.0)); row = self._add_grid_param(grid, row, "Intervalo export (min):", 'auto_export_interval_minutes', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations', False)); row = self._add_grid_param(grid, row, "Exportar ativacoes neurais:", 'export_substrate_include_brain_activations', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_pretty_json', False)); row = self._add_grid_param(grid, row, "JSON legivel manual:", 'export_substrate_pretty_json', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks', False)); row = self._add_grid_param(grid, row, "Tracebacks no debug:", 'debug_tracebacks', cb)
+        def _on_interval_changed(_):
+            if bool(self._get_widget_value('auto_export_substrate')):
+                self._reschedule_auto_export()
+        w.valueChanged.connect(_on_interval_changed)
+        v.addWidget(g_auto)
+
+        g_act = QGroupBox("Acoes")
+        g_act.setStyleSheet(card_style)
+        la = QVBoxLayout(g_act)
+        buttons = [
+            ("Aplicar TODOS", self.apply_all_params),
+            ("Iniciar", self.start_simulation),
+            ("Resetar Populacao", self.reset_population),
+            ("Salvar preferencias UI", self.save_ui_params),
+        ]
+        for text, slot in buttons:
+            b = QPushButton(text)
+            b.clicked.connect(slot)
+            la.addWidget(b)
+        v.addWidget(g_act)
+        v.addStretch(1)
 
     # ---------------------- Tabs: Simulation -------------------------
     def _build_tab_simulation(self):
@@ -1015,6 +1491,9 @@ class SimulationUI(QMainWindow):
     # Live callbacks & embedding
     # ------------------------------------------------------------------
     def _setup_live_param_signals(self):
+        for widget in self.widgets.values():
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox)):
+                widget.installEventFilter(self)
         for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
@@ -1024,6 +1503,12 @@ class SimulationUI(QMainWindow):
             elif isinstance(w, QComboBox):
                 w.currentTextChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
         # brain activation toggle handled separately
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel and isinstance(obj, (QSpinBox, QDoubleSpinBox, QComboBox)):
+            event.ignore()
+            return True
+        return super().eventFilter(obj, event)
 
     def _on_toggle_brain_activations(self, checked: bool):
         profiler.enabled = checked
@@ -1089,6 +1574,7 @@ class SimulationUI(QMainWindow):
         for entity in entities:
             if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
                 entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
+        self.engine._spatial_hash_dirty = True
         # color pickers already update params and propagate; nothing else to do here
         print("Parâmetros de substrato aplicados")
 
@@ -1351,6 +1837,88 @@ class SimulationUI(QMainWindow):
         else:
             print("Simulação já em execução")
 
+    def save_biosim_window(self):
+        default_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'substrates'))
+        os.makedirs(default_dir, exist_ok=True)
+        path, _ = QFileDialog.getSaveFileName(self, "Salvar BioSim", os.path.join(default_dir, 'projeto.biosim'), "BioSim (*.biosim)")
+        if not path:
+            return
+        if not path.endswith('.biosim'):
+            path += '.biosim'
+        try:
+            self._export_substrate(path_override=path, file_type='biosim')
+            QMessageBox.information(self, "Salvar BioSim", f"Projeto salvo em {path}")
+        except Exception as e:
+            self._warn_exception("Erro ao salvar BioSim", e)
+
+    def open_biosim_window(self):
+        default_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'substrates'))
+        os.makedirs(default_dir, exist_ok=True)
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir BioSim", default_dir, "BioSim (*.biosim);;JSON (*.json)")
+        if not path:
+            return
+        try:
+            self._import_substrate(path)
+            QMessageBox.information(self, "Abrir BioSim", "Projeto carregado.")
+        except Exception as e:
+            self._warn_exception("Erro ao abrir BioSim", e)
+
+    def new_biosim_project(self):
+        answer = QMessageBox.question(
+            self,
+            "Novo projeto",
+            "Criar um novo projeto com os parametros atuais? O estado vivo atual sera substituido.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self.apply_all_params()
+            state_lock = getattr(self.engine, 'state_lock', None)
+            if state_lock is not None:
+                state_lock.acquire()
+            try:
+                if hasattr(self.engine, 'obstacles'):
+                    self.engine.obstacles.clear()
+                self.engine.loaded_agent_prototypes.clear()
+                self.engine.current_agent_prototype = None
+                self.engine.selected_agent = None
+                self.engine.dragged_object = None
+                self.engine.total_simulation_time = 0.0
+                self.engine.frame_count = 0
+                self.engine._initialize_population()
+                self.engine.camera.fit_world(self.engine.world, self.pygame_view.screen_width, self.pygame_view.screen_height)
+            finally:
+                if state_lock is not None:
+                    state_lock.release()
+            print("Novo projeto BioSim criado.")
+        except Exception as e:
+            self._warn_exception("Erro ao criar novo projeto", e)
+
+    def create_lineage_from_selected(self):
+        agent = self.engine.selected_agent
+        if agent is None:
+            QMessageBox.information(self, "Criar linhagem", "Selecione um agente primeiro.")
+            return
+        try:
+            import time as _time
+            kind = "predador" if getattr(agent, 'is_predator', False) else "bacteria"
+            name = f"linhagem_{kind}_{_time.strftime('%Y%m%d_%H%M%S')}.agent.csv"
+            path = self._export_selected_agent(agent, name)
+            self._load_agent_from_csv(path)
+            QMessageBox.information(self, "Criar linhagem", f"Linhagem criada e carregada: {os.path.basename(path)}")
+        except Exception as e:
+            self._warn_exception("Erro ao criar linhagem", e)
+
+    def show_help_window(self):
+        QMessageBox.information(
+            self,
+            "Ajuda",
+            "Mouse: botao direito move a camera. Na barra inferior use S para selecionar, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
+            "Menus superiores: Arquivo salva/abre projetos .biosim; View controla visualizacao; Preferencias controla export/debug; Agente exporta, carrega e cria linhagens."
+        )
+
     # ------------------------------------------------------------------
     # Persistence CSV
     # ------------------------------------------------------------------
@@ -1370,6 +1938,12 @@ class SimulationUI(QMainWindow):
                 rows_by_name['food_color'] = {'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))}
                 rows_by_name['bacteria_color'] = {'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))}
                 rows_by_name['predator_color'] = {'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))}
+                for menu_param in ['simple_render', 'show_selected_details', 'bacteria_show_vision', 'predator_show_vision']:
+                    rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, False)}
+                rows_by_name['enable_brain_activations'] = {
+                    'name': 'enable_brain_activations',
+                    'value': not self.params.get('disable_brain_activations', False),
+                }
                 # Camera position/zoom
                 try:
                     cam = getattr(self.engine, 'camera', None)
@@ -1501,6 +2075,12 @@ class SimulationUI(QMainWindow):
                                     cam.zoom = max(0.01, float(value))
                             except Exception:
                                 pass
+                        if name in ['simple_render', 'show_selected_details', 'bacteria_show_vision', 'predator_show_vision']:
+                            self.params.set(name, value in ('1', 'True', 'true', 'yes', 'YES'), validate=False)
+                        if name == 'enable_brain_activations':
+                            enabled = value in ('1', 'True', 'true', 'yes', 'YES')
+                            profiler.enabled = enabled
+                            self.params.set('disable_brain_activations', not enabled, validate=False)
                     except Exception:
                         pass
             # schedule auto export if active
@@ -1679,7 +2259,8 @@ class SimulationUI(QMainWindow):
         except Exception as e:
             self._warn_exception("Erro", e)
 
-    def _export_substrate(self, prefix: str='substrato', manual: bool=True) -> str:
+    def _export_substrate(self, prefix: str='substrato', manual: bool=True,
+                          path_override: str | None = None, file_type: str = 'substrate') -> str:
         import time
         prev_paused = bool(self._get_widget_value('paused'))
         self.widgets['paused'].setChecked(True)
@@ -1697,7 +2278,10 @@ class SimulationUI(QMainWindow):
                 pass
             manual_dir, auto_root = self._get_substrate_dirs()
             ts_full = time.strftime('%Y%m%d_%H%M%S')
-            if manual:
+            if path_override:
+                path = os.path.abspath(path_override)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+            elif manual:
                 filename = f"{prefix}_{ts_full}.json"
                 out_dir = manual_dir
             else:
@@ -1724,7 +2308,8 @@ class SimulationUI(QMainWindow):
                         seq = max(nums) + 1
                 filename = f"{base_pref}{seq:02d}.json"
                 out_dir = auto_dir
-            path = os.path.join(out_dir, filename)
+            if not path_override:
+                path = os.path.join(out_dir, filename)
             params_snapshot = dict(self.params._data)
             ui_snapshot = {k:self._get_widget_value(k) for k in self.widgets.keys()}
             from .random_utils import capture_rng_state
@@ -1815,12 +2400,27 @@ class SimulationUI(QMainWindow):
                             acts = []
                     ad['last_brain_activations'] = acts
                 agents_data.append(ad)
+            selected_agent_index = None
+            if engine.selected_agent in engine.all_agents:
+                try:
+                    selected_agent_index = engine.all_agents.index(engine.selected_agent)
+                except ValueError:
+                    selected_agent_index = None
             snapshot = {
-                'version':2,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
+                'version':2,'file_type': file_type,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
                 'world': {'width': world.width,'height': world.height,'shape': world.shape,'radius': world.radius},
                 'camera': {'x': engine.camera.x,'y': engine.camera.y,'zoom': engine.camera.zoom},
                 'simulation': {'total_simulation_time': engine.total_simulation_time},
                 'rng_state': rng_state,
+                'loaded_agent_prototypes': dict(getattr(engine, 'loaded_agent_prototypes', {})),
+                'current_agent_prototype': getattr(engine, 'current_agent_prototype', None),
+                'selected_agent_index': selected_agent_index,
+                'tool_state': {
+                    'active_tool': getattr(self.pygame_view, 'active_tool', 'food'),
+                    'brush_width': getattr(self.pygame_view, 'brush_width', 16.0),
+                    'brush_color': list(getattr(self.pygame_view, 'brush_color', (95, 95, 105))),
+                    'brush_erase': getattr(self.pygame_view, 'brush_erase', False),
+                },
                 'export_options': {
                     'include_brain_activations': include_brain_activations,
                     'pretty_json': pretty_json,
@@ -1838,7 +2438,7 @@ class SimulationUI(QMainWindow):
             else:
                 dump_kwargs['separators'] = (',', ':')
             with open(path,'w', encoding='utf-8') as f: json.dump(snapshot, f, **dump_kwargs)
-            print(f"Substrato exportado para {path}")
+            print(f"{'BioSim salvo' if file_type == 'biosim' else 'Substrato exportado'} para {path}")
             return path
         finally:
             if state_lock is not None:
@@ -1868,6 +2468,28 @@ class SimulationUI(QMainWindow):
             cam_data = data.get('camera', {})
             cam = self.engine.camera
             cam.x = cam_data.get('x', cam.x); cam.y = cam_data.get('y', cam.y); cam.zoom = cam_data.get('zoom', cam.zoom)
+            sim_data = data.get('simulation', {})
+            self.engine.total_simulation_time = sim_data.get('total_simulation_time', self.engine.total_simulation_time)
+            self.engine.loaded_agent_prototypes = dict(data.get('loaded_agent_prototypes', {}))
+            self.engine.current_agent_prototype = data.get('current_agent_prototype')
+            tool_state = data.get('tool_state', {})
+            if tool_state:
+                if hasattr(self.pygame_view, 'active_tool'):
+                    self.pygame_view.active_tool = tool_state.get('active_tool', self.pygame_view.active_tool)
+                if hasattr(self.pygame_view, 'brush_width'):
+                    self.pygame_view.brush_width = float(tool_state.get('brush_width', self.pygame_view.brush_width))
+                    if 'obstacle_brush_width' in self.widgets:
+                        self._set_widget_value('obstacle_brush_width', self.pygame_view.brush_width)
+                if hasattr(self.pygame_view, 'brush_color'):
+                    color = tool_state.get('brush_color', self.pygame_view.brush_color)
+                    if isinstance(color, (list, tuple)) and len(color) >= 3:
+                        self.pygame_view.brush_color = (int(color[0]), int(color[1]), int(color[2]))
+                        if '_brush_color_swatch' in getattr(self, '__dict__', {}):
+                            self._refresh_brush_color_swatch()
+                if hasattr(self.pygame_view, 'brush_erase'):
+                    self.pygame_view.brush_erase = bool(tool_state.get('brush_erase', self.pygame_view.brush_erase))
+                    if 'obstacle_brush_erase' in self.widgets:
+                        self._set_widget_value('obstacle_brush_erase', self.pygame_view.brush_erase)
             # Clear current entities
             for lst in self.engine.entities.values(): lst.clear()
             self.engine.all_agents.clear(); self.engine.selected_agent = None
@@ -1941,6 +2563,12 @@ class SimulationUI(QMainWindow):
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
+            selected_idx = data.get('selected_agent_index', None)
+            if selected_idx is not None:
+                try:
+                    self.engine.selected_agent = self.engine.all_agents[int(selected_idx)]
+                except Exception:
+                    self.engine.selected_agent = None
             if hasattr(self.engine, '_resolve_obstacle_collisions'):
                 self.engine._resolve_obstacle_collisions()
             if hasattr(self.engine, 'obstacles'):
