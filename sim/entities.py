@@ -50,12 +50,20 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
         if ag is not selected_agent:
             if ag.last_brain_activations:
                 ag.last_brain_activations = []
+    fast_backend = None
+    if bool(params.get('use_numba_kernels', True)) and bool(params.get('use_numba_locomotion_energy', False)):
+        with profile_section('agent_locomotion_energy_fast'):
+            fast_backend = _apply_fast_locomotion_energy(agents, outs, dt, world, params)
+    if fast_backend is None:
         with profile_section('agent_locomotion'):
-            ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
+            for ag in agents:
+                ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
         with profile_section('agent_energy'):
-            ag.energy_model.apply(ag, dt, params)
-    # Activations somente para agente selecionado, se profiler habilitado
-    if selected_agent and profiler.enabled and not params.get('disable_brain_activations', False):
+            for ag in agents:
+                ag.energy_model.apply(ag, dt, params)
+    # Activations somente para agente selecionado. Nao depende do profiler:
+    # o profiler mede custo; a UI precisa dos valores mesmo fora de benchmark.
+    if selected_agent and not params.get('disable_brain_activations', False):
         try:
             idx = agents.index(selected_agent)
         except ValueError:
@@ -70,6 +78,109 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
                 selected_agent.last_brain_activations = selected_agent.brain.activations(sel_inp)
             except Exception:
                 selected_agent.last_brain_activations = []
+
+
+def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_python: bool = False):
+    """Apply locomotion and energy through temporary arrays.
+
+    The neural outputs and agent-specific locomotion parameters stay separated
+    per agent. This is safe for mixed neural architectures because callers
+    already group agents before invoking this function.
+    """
+    if not agents:
+        return None
+    try:
+        from .fast_kernels import apply_locomotion_energy_arrays, has_numba
+    except Exception:
+        return None
+    if not force_python and not has_numba():
+        return None
+    outputs_arr = np.asarray(outputs, dtype=np.float64)
+    if outputs_arr.ndim != 2 or outputs_arr.shape[1] < 2:
+        return None
+
+    n = len(agents)
+    x = np.empty(n, dtype=np.float64)
+    y = np.empty(n, dtype=np.float64)
+    radius = np.empty(n, dtype=np.float64)
+    angle = np.empty(n, dtype=np.float64)
+    vx = np.empty(n, dtype=np.float64)
+    vy = np.empty(n, dtype=np.float64)
+    energy = np.empty(n, dtype=np.float64)
+    max_speed = np.empty(n, dtype=np.float64)
+    max_turn = np.empty(n, dtype=np.float64)
+
+    for i, ag in enumerate(agents):
+        x[i] = float(getattr(ag, 'x', 0.0))
+        y[i] = float(getattr(ag, 'y', 0.0))
+        radius[i] = float(getattr(ag, 'r', 0.0))
+        angle[i] = float(getattr(ag, 'angle', 0.0))
+        vx[i] = float(getattr(ag, 'vx', 0.0))
+        vy[i] = float(getattr(ag, 'vy', 0.0))
+        energy[i] = float(getattr(ag, 'energy', 0.0))
+        loc = getattr(ag, 'locomotion', None)
+        max_speed[i] = float(getattr(loc, 'max_speed', 0.0))
+        max_turn[i] = float(getattr(loc, 'max_turn', 0.0))
+
+    first_energy = getattr(agents[0], 'energy_model', None)
+    is_predator = bool(getattr(agents[0], 'is_predator', False))
+    if is_predator:
+        v0_cost = float(params.get('predator_metab_v0_cost', getattr(first_energy, 'v0_cost', 1.0)))
+        vmax_cost = float(params.get('predator_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 15.0)))
+        vmax_ref = float(params.get('predator_max_speed', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(params.get('predator_energy_cap', getattr(first_energy, 'energy_cap', 600.0)))
+    else:
+        v0_cost = float(params.get('bacteria_metab_v0_cost', getattr(first_energy, 'v0_cost', 0.5)))
+        vmax_cost = float(params.get('bacteria_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 8.0)))
+        vmax_ref = float(params.get('bacteria_max_speed', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(params.get('bacteria_energy_cap', getattr(first_energy, 'energy_cap', 400.0)))
+
+    backend = apply_locomotion_energy_arrays(
+        x,
+        y,
+        radius,
+        angle,
+        vx,
+        vy,
+        energy,
+        outputs_arr,
+        max_speed,
+        max_turn,
+        float(dt),
+        1 if getattr(world, 'shape', 'rectangular') == 'circular' else 0,
+        float(getattr(world, 'width', 1.0)),
+        float(getattr(world, 'height', 1.0)),
+        float(getattr(world, 'cx', 0.0)),
+        float(getattr(world, 'cy', 0.0)),
+        float(getattr(world, 'radius', 1.0)),
+        bool(params.get('allow_reverse_locomotion', False)),
+        max(0.0, float(params.get('agents_inertia', 1.0))),
+        v0_cost,
+        vmax_cost,
+        vmax_ref,
+        energy_cap,
+        prefer_numba=bool(params.get('use_numba_kernels', True)),
+        allow_numpy=False,
+        force_python=force_python,
+    )
+    if backend is None:
+        return None
+
+    for i, ag in enumerate(agents):
+        ag.x = float(x[i])
+        ag.y = float(y[i])
+        ag.r = float(radius[i])
+        ag.angle = float(angle[i])
+        ag.vx = float(vx[i])
+        ag.vy = float(vy[i])
+        ag.energy = float(energy[i])
+        energy_model = getattr(ag, 'energy_model', None)
+        if energy_model is not None:
+            energy_model.v0_cost = v0_cost
+            energy_model.vmax_cost = vmax_cost
+            energy_model.vmax_ref = max(1e-6, vmax_ref)
+            energy_model.energy_cap = energy_cap
+    return backend
 """
 Entidades da simulação: Agent (base), Bacteria, Predator, Food.
 Usando herança onde há comportamento compartilhado e composição para capacidades.
@@ -120,9 +231,12 @@ class Agent(Entity):
     """
 
     __slots__ = Entity.__slots__ + (
-        "angle", "vx", "vy", "m", "age", "selected", "brain", "sensor",
+        "angle", "vx", "vy", "m", "age", "last_reproduction_age", "selected", "brain", "sensor",
         "locomotion", "energy_model", "last_brain_output", "last_brain_activations",
-        "is_predator", "energy"
+        "is_predator", "energy",
+        "food_eaten_count", "food_energy_eaten_total",
+        "prey_eaten_count", "prey_energy_eaten_total",
+        "label_ids",
     )
 
     def __init__(self, x: float, y: float, r: float, color: tuple,
@@ -138,6 +252,7 @@ class Agent(Entity):
         self.m = r * r  # mantido para cálculos físicos existentes
         self.energy = 0.0  # bateria interna
         self.age = 0.0
+        self.last_reproduction_age = None
         self.selected = False
 
         # Componentes
@@ -150,6 +265,11 @@ class Agent(Entity):
         self.last_brain_output = []
         self.last_brain_activations = []
         self.is_predator = False
+        self.food_eaten_count = 0
+        self.food_energy_eaten_total = 0.0
+        self.prey_eaten_count = 0
+        self.prey_energy_eaten_total = 0.0
+        self.label_ids = set()
     
     def update(self, dt: float, world: 'World', scene: 'SceneQuery', params: 'Params'):
         """
@@ -195,8 +315,13 @@ class Agent(Entity):
     def set_energy(self, value: float):
         self.energy = max(0.0, value)
 
-    def add_energy(self, delta: float):
-        self.energy = max(0.0, self.energy + delta)
+    def add_energy(self, delta: float, cap: Optional[float] = None):
+        value = max(0.0, self.energy + delta)
+        if cap is None and getattr(self, 'energy_model', None) is not None:
+            cap = getattr(self.energy_model, 'energy_cap', None)
+        if cap is not None:
+            value = min(value, float(cap))
+        self.energy = value
     
     def can_reproduce(self, params: 'Params') -> bool:
         return self.energy_model.can_reproduce(self)
@@ -260,6 +385,7 @@ class Agent(Entity):
                 child.color = getattr(self, 'color')
             except Exception:
                 pass
+        child.label_ids = set(getattr(self, 'label_ids', set()) or set())
         if params.get('debug_reproduction_color', False):
             print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
         return child
@@ -399,6 +525,32 @@ class Predator(Agent):
 
 
 # Factory functions para criar entidades com parâmetros
+def _agent_spawn_radius(params: 'Params', body_key: str, min_key: str, max_key: str,
+                        default_min: float, default_max: float) -> float:
+    body_size = params.get(body_key, None)
+    if body_size is not None:
+        try:
+            return max(0.1, float(body_size))
+        except (TypeError, ValueError):
+            pass
+    min_r = max(0.1, float(params.get(min_key, default_min)))
+    max_r = max(min_r, float(params.get(max_key, default_max)))
+    return random.uniform(min_r, max_r)
+
+
+def _random_position_for_radius(shape: str, world_w: float, world_h: float,
+                                radius_sub: float, r: float) -> tuple[float, float]:
+    cx = world_w / 2
+    cy = world_h / 2
+    if shape == 'circular':
+        ang = random.random() * 2 * math.pi
+        rad = (random.random() ** 0.5) * max(0.0, radius_sub - r)
+        return cx + math.cos(ang) * rad, cy + math.sin(ang) * rad
+    x = cx if world_w <= 2 * r else random.uniform(r, world_w - r)
+    y = cy if world_h <= 2 * r else random.uniform(r, world_h - r)
+    return x, y
+
+
 def create_random_bacteria(existing_entities: list, params: 'Params', 
                           world_w: float, world_h: float,
                           at: Optional[tuple] = None) -> Bacteria:
@@ -407,23 +559,14 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
     from .sensors import RetinaSensor  
     from .actuators import Locomotion, EnergyModel
     
-    min_r = params.get('bacteria_min_r', 6.0)
-    max_r = params.get('bacteria_max_r', 12.0)
+    r = _agent_spawn_radius(params, 'bacteria_body_size', 'bacteria_min_r', 'bacteria_max_r', 6.0, 12.0)
     shape = params.get('substrate_shape', 'rectangular')
     radius_sub = params.get('substrate_radius', min(world_w, world_h)/2)
     cx = world_w/2
     cy = world_h/2
     for _ in range(300):
-        r = random.uniform(min_r, max_r)
         if at is None:
-            if shape == 'circular':
-                ang = random.random() * 2*math.pi
-                rad = (random.random() ** 0.5) * (radius_sub - r)
-                x = cx + math.cos(ang)*rad
-                y = cy + math.sin(ang)*rad
-            else:
-                x = random.uniform(r, world_w - r)
-                y = random.uniform(r, world_h - r)
+            x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
         else:
             x, y = at
         if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
@@ -437,15 +580,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
         if not overlaps or at is not None:
             break
     else:
-        r = random.uniform(min_r, max_r)
-        if shape == 'circular':
-            ang = random.random() * 2*math.pi
-            rad = (random.random() ** 0.5) * (radius_sub - r)
-            x = cx + math.cos(ang)*rad
-            y = cy + math.sin(ang)*rad
-        else:
-            x = random.uniform(r, world_w - r)
-            y = random.uniform(r, world_h - r)
+        x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
     
     # Cria componentes
     brain = _create_bacteria_brain(params)
@@ -454,7 +589,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
     energy = _create_bacteria_energy_model(params)
     
     # Cria bactéria com cor baseada em parâmetros e massa inicial customizável
-    bacterium = Bacteria(x, y, params.get('bacteria_body_size', r), brain, sensor, locomotion, energy)
+    bacterium = Bacteria(x, y, r, brain, sensor, locomotion, energy)
     # Override color from params if provided
     try:
         bacterium.color = tuple(params.get('bacteria_color', bacterium.color))
@@ -473,23 +608,14 @@ def create_random_predator(existing_entities: list, params: 'Params',
     from .sensors import RetinaSensor
     from .actuators import Locomotion, EnergyModel
     
-    min_r = params.get('predator_min_r', 10.0)
-    max_r = params.get('predator_max_r', 18.0)
+    r = _agent_spawn_radius(params, 'predator_body_size', 'predator_min_r', 'predator_max_r', 10.0, 18.0)
     shape = params.get('substrate_shape', 'rectangular')
     radius_sub = params.get('substrate_radius', min(world_w, world_h)/2)
     cx = world_w/2
     cy = world_h/2
     for _ in range(300):
-        r = random.uniform(min_r, max_r)
         if at is None:
-            if shape == 'circular':
-                ang = random.random() * 2*math.pi
-                rad = (random.random() ** 0.5) * (radius_sub - r)
-                x = cx + math.cos(ang)*rad
-                y = cy + math.sin(ang)*rad
-            else:
-                x = random.uniform(r, world_w - r)
-                y = random.uniform(r, world_h - r)
+            x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
         else:
             x, y = at
         if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
@@ -503,15 +629,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
         if not overlaps or at is not None:
             break
     else:
-        r = random.uniform(min_r, max_r)
-        if shape == 'circular':
-            ang = random.random() * 2*math.pi
-            rad = (random.random() ** 0.5) * (radius_sub - r)
-            x = cx + math.cos(ang)*rad
-            y = cy + math.sin(ang)*rad
-        else:
-            x = random.uniform(r, world_w - r)
-            y = random.uniform(r, world_h - r)
+        x, y = _random_position_for_radius(shape, world_w, world_h, radius_sub, r)
     
     # Cria componentes
     brain = _create_predator_brain(params)
@@ -520,7 +638,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
     energy = _create_predator_energy_model(params)
     
     # Cria predador com cor baseada em parâmetros e massa inicial customizável
-    predator = Predator(x, y, params.get('predator_body_size', r), brain, sensor, locomotion, energy)
+    predator = Predator(x, y, r, brain, sensor, locomotion, energy)
     try:
         predator.color = tuple(params.get('predator_color', predator.color))
     except Exception:

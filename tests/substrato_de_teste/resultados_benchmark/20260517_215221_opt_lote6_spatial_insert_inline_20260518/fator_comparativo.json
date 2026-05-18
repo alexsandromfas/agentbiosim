@@ -1,0 +1,59 @@
+{
+  "run_id": "20260517_215221_opt_lote6_spatial_insert_inline_20260518",
+  "label": "opt_lote6_spatial_insert_inline_20260518",
+  "git_commit": "ed61dfa",
+  "created_at": "2026-05-17T21:52:23.787602",
+  "seconds": 2.0,
+  "fps": 60,
+  "time_scale": 0.5,
+  "params_random_seed": -1,
+  "retina_vision_mode": "fullbody",
+  "seed": 12345,
+  "food_restore": {
+    "mode": "bench_canonical_layout",
+    "count": 480,
+    "layout_path": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\layouts\\substrato_de_teste_20260515_210719_food_layout_seed_12345.json",
+    "note": "Snapshot v2 has only food count; benchmark uses a persisted canonical food layout."
+  },
+  "wall_s": 1.8917912000033539,
+  "steps": 120,
+  "avg_agents": 1020.0,
+  "ms_per_agent_step": 0.015455810457543741,
+  "initial_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 480,
+    "all_agents": 1020
+  },
+  "final_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 462,
+    "all_agents": 1020
+  },
+  "events": {
+    "foods_eaten": 346,
+    "predations": 32,
+    "births": 32,
+    "deaths": 0,
+    "foods_added_controller": 328,
+    "foods_removed_controller": 0,
+    "births_blocked_age": 0,
+    "births_blocked_cooldown": 0,
+    "collisions_resolved": 2472,
+    "spatial_hash_rebuilds": 84,
+    "spatial_hash_skips": 1
+  },
+  "final_integrity": {
+    "all_agents_missing_from_entities": 0,
+    "entities_missing_from_all_agents": 0,
+    "duplicate_all_agents": 0,
+    "bad_numeric_objects": 0,
+    "outside_world_objects": 6,
+    "negative_energy_objects": 0,
+    "spatial_hash_sample_misses": 0
+  },
+  "final_bacteria_energy_mean": 158.49246798651924,
+  "final_predator_energy_mean": 389.8007181872807,
+  "summary_json": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260517_215221_opt_lote6_spatial_insert_inline_20260518\\summary.json"
+}

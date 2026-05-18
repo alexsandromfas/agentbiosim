@@ -1,0 +1,752 @@
+REGISTRO DE BENCHMARKS POR CORRECAO - AGENTBIOSIM
+Data inicial: 2026-05-16
+
+Objetivo:
+- Guardar, em formato humano, os principais valores de benchmark apos cada
+  correcao feita a partir da auditoria.
+- Os dados completos ficam em tests/substrato_de_teste/resultados_benchmark/.
+- O historico estruturado fica em tests/substrato_de_teste/fatores_comparativos.jsonl.
+
+Baseline de comparacao deterministico:
+- Run id: 20260515_215934_apos_export_import_snapshot_fix_deterministic
+- ms/agente/step: 0.142043
+- wall_s: 86.930
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+
+P0 #7 - Tempo fisico e tempo contabilizado
+- Run id: 20260516_004922_p0_07_tempo_simulado
+- Alteracao: total_simulation_time soma apenas tempo simulado; pausa nao avanca
+  tempo; substeps conservam exatamente world_dt.
+- Teste direto: PASS tempo pausado, dt nao multiplo, time_scale e max_substeps.
+- ms/agente/step: 0.141629
+- wall_s: 86.677
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada contra o baseline deterministico; correcao
+  melhora a validade temporal sem alterar eventos observados neste benchmark.
+
+P0 #8 - Remover fallback Tkinter inexistente
+- Run id: 20260516_005351_p0_08_remove_fallback_tk
+- Alteracao: main.py usa apenas PyQt6, nao tenta importar sim.ui_tk
+  inexistente, e README nao documenta mais fallback Tk.
+- Teste direto: PASS main importa; --ui tk rejeitado pelo argparse.
+- ms/agente/step: 0.141794
+- wall_s: 86.778
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; alteracao afeta somente entrada/UI e reduz
+  risco de mascarar erro real de PyQt como fallback inexistente.
+
+P0 #9 - Corrigir apply_substrate_params
+- Run id: 20260516_005815_p0_09_apply_substrate_params
+- Alteracao: apply_substrate_params usa engine.all_agents e
+  engine.entities['foods']; clamp circular/retangular sem atributos
+  inexistentes; except amplo removido.
+- Teste direto: PASS clamp circular e retangular com agente e comida.
+- ms/agente/step: 0.129317
+- wall_s: 79.142
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; correcao afeta aplicacao de parametros da UI
+  e evita falha silenciosa ao mudar formato/tamanho do substrato.
+
+P0 #10 - Parametros de mostrar visao no render
+- Run id: 20260516_010149_p0_10_show_vision_render
+- Alteracao: Engine.render passa predator_show_vision e bacteria_show_vision
+  para renderer.draw_agent por tipo.
+- Teste direto: PASS renderer recebeu flags corretos para predador/bacteria e
+  preservou selected.
+- ms/agente/step: 0.140553
+- wall_s: 86.019
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada; correcao afeta somente visualizacao.
+
+P0 #11 - Mutacao estrutural segura com ndarray
+- Run id: 20260516_010735_p0_11_structural_mutation_ndarray
+- Alteracao: _resize_layer normaliza weights/biases para np.ndarray e
+  redimensiona linhas/colunas/biases com numpy, sem append em ndarray.
+- Teste direto: PASS grow/shrink, pesos legados em lista, mutate estrutural
+  forcado e reproducao com structural_jitter=1.
+- ms/agente/step: 0.141937
+- wall_s: 86.866
+- sim_delta: 5.000000s
+- eventos: foods_eaten=1994, predations=214, births=218, deaths=4
+- final: bacteria=1000, predators=20, foods=463, all_agents=1020
+- integrity_errors: 0
+- Leitura: dinamica preservada no substrato atual; correcao remove falha
+  latente quando mutacao estrutural for habilitada.
+
+P1 #14 - Cap de energia apos comer/predar
+- Run id: 20260516_011301_p1_14_energy_cap_interactions
+- Alteracao: Agent.add_energy aceita cap; comida e predacao aplicam
+  bacteria_energy_cap/predator_energy_cap imediatamente.
+- Teste direto: PASS ganhos por comida e predacao respeitam energy_cap.
+- ms/agente/step: 0.095139
+- wall_s: 58.220
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integrity_errors: 0
+- Leitura: dinamica mudou por motivo correto. Antes, bacterias passavam do cap
+  de 200.0 apos comer; agora o max final respeita 200.0. Predacoes e
+  nascimentos cairam porque ha menos excesso energetico acima do limite.
+
+P1 #15 - Modo estrito sem resgate populacional artificial
+- Run id: 20260516_011647_p1_15_population_rescue_mode
+- Alteracao: novo parametro population_min_rescue_enabled. Ligado mantem o
+  comportamento de UI; desligado deixa candidatos morrerem mesmo abaixo do
+  minimo, sem energia artificial.
+- Teste direto: PASS resgate padrao e modo estrito sem energia artificial.
+- ms/agente/step: 0.095560
+- wall_s: 58.477
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias max: 200.000
+- integrity_errors: 0
+- Leitura: dinamica padrao preservada; agora existe uma separacao clara entre
+  modo UI com resgate e modo experimental estrito.
+
+P1 #16 - agents_inertia aplicado na locomocao
+- Run id: 20260516_012011_p1_16_agents_inertia
+- Alteracao: Locomotion.step suaviza velocidade quando agents_inertia > 1.0.
+  Valor <= 1.0 preserva comportamento instantaneo legado.
+- Teste direto: PASS agents_inertia=1 instantaneo; agents_inertia=4 suaviza.
+- ms/agente/step: 0.079218
+- wall_s: 48.477
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias max: 200.000
+- integrity_errors: 0
+- Leitura: dinamica preservada no substrato atual porque agents_inertia=1.0.
+  Movimento para tras continua pendente por ser uma decisao biologica separada.
+
+P1 #17 - Semantica explicita dos modos de retina
+- Run id: 20260516_012659_p1_17_retina_semantics
+- Alteracao: modos single/fullbody formalizados; valores invalidos de
+  retina_vision_mode voltam para single; benchmark registra o modo usado.
+- Teste direto: PASS normalize_retina_vision_mode, single, fullbody e fallback
+  de valor invalido.
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079512
+- wall_s: 48.657
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica principal preservada. A mudanca e de rigor experimental:
+  agora cada benchmark deixa claro qual semantica de retina foi usada.
+
+P1 #18 - retina_skip dinamico em sensores existentes
+- Run id: 20260516_013004_p1_18_dynamic_retina_skip
+- Alteracao: RetinaSensor.sense e batch_retina_sense atualizam sensor.skip a
+  partir de params['retina_skip']; mudancas limpam cache/countdown.
+- Teste direto: PASS caminho individual e batch recalculam imediatamente ao
+  trocar retina_skip de 5 para 0; trocar para 4 deixa countdown=4 apos leitura.
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077414
+- wall_s: 47.373
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A correcao afeta mudancas em tempo real pela
+  UI/parametros, sem alterar o substrato quando retina_skip ja estava coerente.
+
+P1 #19 - Spawn inicial usa raio final de corpo
+- Run id: 20260516_013412_p1_19_spawn_final_radius
+- Alteracao: create_random_bacteria/create_random_predator usam body_size real
+  para sortear posicao e validar overlap; min/max viram fallback.
+- Teste direto: PASS bacteria retangular body_size=40 com min/max 1..2 ficou
+  dentro dos limites; predador circular body_size=30 ficou dentro do raio util.
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079119
+- wall_s: 48.416
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A correcao afeta criacao nova/populacao inicial,
+  sem alterar o substrato carregado ja com agentes.
+
+P1 #20 - Seed experimental e estado RNG em snapshots
+- Run id: 20260516_014031_p1_20_experimental_seed_state
+- Alteracao: Params ganhou random_seed; Engine aplica seed ao inicializar/resetar
+  populacao; snapshots exportam/importam estado RNG de random e numpy.random;
+  benchmark registra params_random_seed.
+- Teste direto: PASS normalize_seed, apply_global_seed repetivel, captura/restauro
+  de RNG e Engine com mesma seed gerando populacao inicial identica.
+- Status: parcial, porque RNG injetado por subsistema ainda fica pendente.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079914
+- wall_s: 48.903
+- sim_delta: 5.000000s
+- eventos: foods_eaten=2003, predations=184, births=187, deaths=3
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. O ganho principal e reprodutibilidade para
+  reset/start e continuidade de snapshots novos com rng_state.
+
+P1 #21 - FoodController remove excesso gradualmente
+- Run id: 20260516_014422_p1_21_food_trim_excess
+- Alteracao: FoodController ganhou food_excess_debt, food_trim_excess_enabled e
+  food_trim_max_per_step; remove primeiro as comidas de menor energia quando
+  a quantidade passa de food_target. Benchmark registra adicoes/remocoes.
+- Teste direto: PASS com 5 comidas, alvo 2 e limite 2, removeu as duas menores
+  e preservou as maiores.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079593
+- wall_s: 48.706
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2003, predations=184, births=187, deaths=3
+- eventos food_controller: added=1982, removed=0
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada. A nova remocao nao atuou no benchmark porque a
+  comida estava abaixo do alvo, mas agora reduzir food_target converge.
+
+P1 #22 - Cooldown/idade minima opcional de reproducao
+- Run id: 20260516_015011_p1_22_reproduction_cooldown
+- Alteracao: adicionados reproduction_min_age, reproduction_cooldown e
+  last_reproduction_age; snapshots/export de agente preservam o marcador;
+  benchmark registra bloqueios por idade/cooldown.
+- Teste direto: PASS bloqueio por idade minima, bloqueio por cooldown e
+  reproducao liberada quando cooldown ja passou.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.079638
+- wall_s: 48.734
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2003, predations=184, births=187, deaths=3
+- eventos food_controller: added=1982, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=459, all_agents=1020
+- energia bacterias: mean=158.175, max=200.000
+- energia predadores: mean=389.852, max=399.833
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=12 ja presente no substrato.
+- Leitura: dinamica preservada porque os novos parametros padrao sao 0. Agora
+  existe controle experimental para explosoes por reproducao em substeps.
+
+P1 #23 - Mutacao numerica vetorizada com NumPy
+- Run id: 20260516_015303_p1_23_vectorized_mutation
+- Alteracao: NeuralNet.mutate usa mascaras NumPy para pesos/biases, mantendo
+  mutacao estrutural separada e suporte a listas legadas.
+- Teste direto: PASS rate=0 preserva pesos, rate=1 altera pesos/biases e listas
+  legadas viram ndarray.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.078870
+- wall_s: 48.260
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: pequeno ganho de performance. A trajetoria mudou porque a fonte e a
+  ordem dos sorteios de mutacao mudaram de random para np.random; distribuicao
+  equivalente, sequencia diferente. Monitorar outside_world_objects.
+
+P1 #24 - Cache de raios relativos da retina
+- Run id final: 20260516_015754_p1_24_retina_ray_cache_stable
+- Run id descartado/observado: 20260516_015613_p1_24_retina_ray_cache
+- Alteracao final: cache de ray_rel por (retina_count, half_fov), mantendo o
+  calculo original cos/sin de agent.angle + ray_rel para estabilidade numerica.
+- Teste direto: PASS cache reutilizado e fullbody com objeto largo ativando 3
+  retinas.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077513
+- wall_s: 47.430
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: preservou exatamente os eventos do P1 #23 e reduziu ms/agente/step
+  de 0.078870 para 0.077513. A tentativa trigonometrica cacheada mudou a
+  trajetoria e foi descartada do codigo final.
+
+P1 #25 - Dirty flag/instrumentacao para SpatialHash
+- Run id: 20260516_020303_p1_25_spatial_dirty_flag
+- Alteracao: Engine mantem _spatial_hash_dirty; CollisionSystem retorna
+  colisoes resolvidas; benchmark registra rebuilds/skips do spatial hash.
+- Teste direto: PASS rebuild quando sujo, skip quando limpo e contagem de
+  colisao resolvida.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077535
+- wall_s: 47.443
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1426, skips=1
+- collisions_resolved: 62559
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: eventos preservados. Performance neutra no substrato denso porque
+  colisoes deixam o hash sujo quase sempre. Incremental por celula segue pendente.
+
+P1 #26 - Contador incremental de bacterias predadas
+- Run id: 20260516_020546_p1_26_interaction_removed_counter
+- Alteracao: InteractionSystem usa _removed_bacteria_count em vez de contar
+  _agents_to_remove por list comprehension dentro do loop.
+- Teste direto: PASS com min_limit=1, 2 bacterias e 2 predadores, apenas 1
+  bacteria foi predada.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077726
+- wall_s: 47.560
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2028, predations=213, births=217, deaths=4
+- eventos food_controller: added=2008, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1426, skips=1
+- collisions_resolved: 62559
+- final: bacteria=1000, predators=20, foods=460, all_agents=1020
+- energia bacterias: mean=157.174, max=200.000
+- energia predadores: mean=388.803, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=20.
+- Leitura: eventos preservados. Sem ganho global confirmado nesta rodada, mas a
+  complexidade local do loop de predacao foi corrigida.
+
+P1 #27 - Contadores incrementais de reproducao
+- Run id: 20260516_020854_p1_27_reproduction_incremental_counters
+- Alteracao: ReproductionSystem usa bacteria_new_count/predator_new_count e
+  remove list comprehensions sobre new_agents; corrigido double count do limite.
+- Teste direto: PASS 2 bacterias atuais com limite 4 geram 2 filhas; limite 3
+  gera 1 filha.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075131
+- wall_s: 45.980
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: ganho claro de performance e correcao de regra. Eventos mudaram por
+  mudanca no conjunto/ordem de reproducao permitido pelo limite populacional.
+
+P1 #28 - Reuso de SimpleRenderer no render detalhado
+- Run id: 20260516_021213_p1_28_renderer_simple_reuse
+- Alteracao: EllipseRenderer cria um SimpleRenderer interno no __init__ e o
+  reutiliza em draw_overlay/_draw_vision_rays.
+- Teste direto: PASS draw_overlay reutiliza a mesma instancia em pygame.Surface.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076984
+- wall_s: 47.114
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Benchmark e headless, entao ganho/perda de render
+  nao e medido aqui; cache de sprites rotacionados segue pendente.
+
+P1 #29 - Snapshot de parametros por substep
+- Run id: 20260516_021605_p1_29_params_snapshot_substep
+- Alteracao: Engine cria dict snapshot dos parametros no inicio do substep e
+  passa para food/agents/interaction/reproduction/death/collision.
+- Teste direto: PASS snapshot e independente de Params e Engine executa step.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076524
+- wall_s: 46.833
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados e ganho pequeno de overhead; tambem torna cada
+  substep consistente contra mudancas da UI no meio da iteracao.
+
+P1 #30 - Helper SoA para agentes
+- Run id: 20260516_021854_p1_30_soa_arrays_helper
+- Alteracao: criado sim/soa.py com AgentArrays e agents_to_arrays para copiar
+  estado escalar dos agentes para arrays NumPy contiguos.
+- Teste direto: PASS snapshot SoA com 2 agentes preservou count e coordenadas.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.074563
+- wall_s: 45.632
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Como o helper SoA ainda nao entra no runtime, o
+  ganho de tempo deve ser tratado como variacao de benchmark, nao ganho real.
+
+P1 #31 - Export compacto de substrato
+- Run id: 20260516_022723_p1_31_compact_substrate_export
+- Alteracao: export de substrato nao grava/recalcula ativacoes neurais por
+  padrao; ativacoes e JSON legivel viraram opcoes explicitas; JSON compacto usa
+  separators sem espacos.
+- Teste direto: PASS export compacto sem last_brain_activations; export completo
+  recalculou ativacoes para 2 agentes quando a opcao foi ligada.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076765
+- wall_s: 46.980
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Tempo variou dentro do ruido, pois o benchmark
+  headless nao executa export.
+
+P1 #32 - Lock de estado e comandos UI/Pygame
+- Run id: 20260516_023248_p1_32_engine_state_lock_queue
+- Alteracao: Engine ganhou state_lock; Pygame segura lock em step/render; clique
+  esquerdo envia select_or_add_food pela command_queue; export/import seguram o
+  lock enquanto acessam o estado do Engine.
+- Teste direto: PASS select_or_add_food adicionou comida em espaco vazio e
+  selecionou agente quando clicado sobre ele.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075705
+- wall_s: 46.331
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Esta e uma primeira camada pratica de
+  sincronizacao; snapshots imutaveis/respostas assincronas ainda seriam melhores.
+
+P1 #33 - Persistencia local de parametros fora de sim/
+- Run id: 20260516_023631_p1_33_ui_params_config_path
+- Alteracao: UI salva em config/user_params.csv, ignora test_param_*, evita
+  duplicatas por nome e mantem fallback de leitura para sim/ui_params.csv legado.
+- Teste direto: PASS user_params.csv criado em config/, sem test_param_* e com
+  uma unica entrada substrate_shape; fallback legado carregou substrate_shape.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077884
+- wall_s: 47.665
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Tempo e ruido, pois a mudanca e de persistencia
+  de UI e nao participa da simulacao headless.
+
+P1 #34 - Indentacao dos prints de apply params
+- Run id: 20260516_023915_p1_34_ui_apply_print_indent
+- Alteracao: prints de apply_bacteria_params/apply_predator_params foram
+  indentados para dentro dos metodos.
+- Teste direto: PASS import de sim.ui nao emite prints de aplicacao; chamadas
+  diretas dos metodos ainda imprimem corretamente.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077468
+- wall_s: 47.410
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca so remove ruido de import/UI.
+
+P1 #35 - Tracebacks resumidos em modo debug da UI
+- Run id: 20260516_024307_p1_35_debug_tracebacks_ui
+- Alteracao: criado debug_tracebacks e helpers _format_exception/_log_exception/
+  _warn_exception; callbacks, thread Pygame, save/load, export/import e
+  auto-export passam a mostrar traceback resumido quando debug esta ligado.
+- Teste direto: PASS formatador retorna so mensagem com debug off e inclui
+  traceback com debug on.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076657
+- wall_s: 46.914
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Item parcial: excecoes amplas restantes precisam
+  ser estreitadas caso a caso.
+
+P2 #36 - Suite inicial pytest
+- Run id: 20260516_024622_p2_36_pytest_unit_suite
+- Alteracao: adicionado pytest.ini, pytest em requirements e primeiros testes em
+  tests/unit para invariantes do Engine e persistencia da UI.
+- Teste direto: PASS python -m pytest -> 3 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075208
+- wall_s: 46.027
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Item parcial: a suite ainda precisa crescer para
+  Brain, Sensors, Systems e export/import completo.
+
+P2 #37 - Bootstrap para scripts legados de teste
+- Run id: 20260516_024859_p2_37_legacy_tests_direct_path
+- Alteracao: criado tests/_path.py e aplicado em test_reproduction_color.py e
+  retina_test.py para garantir que a raiz entre no sys.path ao executar direto.
+- Teste direto: PASS test_reproduction_color.py, retina_test.py, retina_sanity.py
+  e python -m pytest -> 3 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076573
+- wall_s: 46.863
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca e de higiene de testes.
+
+P2 #38 - benchmark_headless usa split_energy e assert populacional
+- Run id: 20260516_025225_p2_38_headless_split_energy_assert
+- Alteracao: benchmark_headless usa bacteria_split_energy/predator_split_energy,
+  define idade/cooldown altos e falha se bacterias ou predadores crescerem acima
+  da contagem inicial; export registra no_population_growth_asserted.
+- Teste direto: PASS smoke benchmark_headless 0.2s; python -m pytest -> 4 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076569
+- wall_s: 46.860
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca corrige apenas benchmark auxiliar.
+
+P2 #39 - check_batch_forward por grupo
+- Run id: 20260516_025527_p2_39_check_batch_forward_groups
+- Alteracao: check_batch_forward calcula diffs dentro do loop por grupo, retorna
+  resultados de analyze e ganhou teste unitario de equivalencia batched/per-agent.
+- Teste direto: PASS check_batch_forward.py; python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.076983
+- wall_s: 47.114
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca corrige diagnostico auxiliar.
+
+P2 #40 - Arquivamento de arquivos stale
+- Run id: 20260516_025847_p2_40_archive_stale_files
+- Alteracao: controllers_fixed.py, ui_tk.txt e test_pyqt6_pygame.py movidos
+  para docs/archive, com README explicando que nao sao fonte ativa.
+- Teste direto: PASS rg sem referencias operacionais; python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077517
+- wall_s: 47.441
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca de organizacao apenas.
+
+P2 #41 - Politica de dados locais e examples/
+- Run id: 20260516_030154_p2_41_data_policy_examples
+- Alteracao: criado examples/README.md e READMEs em agents/, substrates/ e
+  tests/otimizacoes/ declarando exports/relatorios como dados locais.
+- Teste direto: PASS python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075702
+- wall_s: 46.329
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Item parcial: .gitignore generico fica para P2 #42.
+
+P2 #42 - .gitignore generico para artefatos locais
+- Run id: 20260516_030422_p2_42_generic_gitignore
+- Alteracao: .gitignore agora cobre caches Python, venvs, config local, exports
+  locais de agents/substrates e relatorios JSON de tests/otimizacoes, preservando
+  READMEs por excecao.
+- Teste direto: PASS git check-ignore para novos exports locais; python -m pytest -> 5 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.075017
+- wall_s: 45.910
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados. Mudanca de higiene de repositorio.
+
+P1 #16 complemento - Marcha re opcional na locomocao
+- Run id: 20260516_030758_p1_16_reverse_locomotion_option
+- Alteracao: adicionado allow_reverse_locomotion=False; modo padrao segue usando
+  sigmoid 0..1, modo explicito usa tanh -1..1 para velocidade assinada.
+- Teste direto: PASS python -m pytest -> 7 passed.
+- params_random_seed do substrato: -1
+- retina_vision_mode do substrato: fullbody
+- ms/agente/step: 0.077468
+- wall_s: 47.410
+- sim_delta: 5.000000s
+- eventos biologicos: foods_eaten=2020, predations=207, births=211, deaths=4
+- eventos food_controller: added=2002, removed=0
+- bloqueios reproducao: age=0, cooldown=0
+- spatial_hash: rebuilds=1394, skips=1
+- collisions_resolved: 62977
+- final: bacteria=1000, predators=20, foods=462, all_agents=1020
+- energia bacterias: mean=155.889, max=200.000
+- energia predadores: mean=392.330, max=400.000
+- integridade critica: all_agents/entities=ok, NaN=0, energia negativa=0,
+  spatial_hash_misses=0; outside_world_objects=10.
+- Leitura: eventos preservados porque o substrato deixa allow_reverse_locomotion
+  desligado. O item P1 #16 saiu de parcial para completo.

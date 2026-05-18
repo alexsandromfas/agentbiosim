@@ -24,18 +24,30 @@ class Params:
             'time_scale': 1.0,
             'fps': 60,
             'paused': False,
+            # Timing fisico: a escala de tempo acumula tempo simulado, mas
+            # cada substep usa dt fixo para preservar a dinamica.
+            'physics_steps_per_second': 30,
+            'max_physics_steps_per_frame': 8,
+            'max_physics_backlog_seconds': 0.25,
             'use_spatial': True,
             'substrate_shape': 'rectangular',  # 'rectangular' ou 'circular'
             'world_w': 1000.0,  # Largura do substrato (retangular)
             'world_h': 700.0,   # Altura do substrato (retangular)
             'substrate_radius': 400.0,  # Raio do substrato (circular)
+            'random_seed': -1,  # -1 disables fixed seeding; >=0 makes reset/start reproducible
             'max_deaths_per_step': 5,
+            'population_min_rescue_enabled': True,
             
             # Performance
             'retina_skip': 0,
-            # Retina vision mode: 'single' (centroid per object) or 'fullbody' (span-aware)
+            # Retina vision mode:
+            # 'single' = fast centroid approximation, kept as compatibility default.
+            # 'fullbody' = geometric ray/body intersection for stricter experiments.
             'retina_vision_mode': 'single',
             'simple_render': False,
+            'render_resolution_scale': 1.0,
+            'use_numba_kernels': True,
+            'use_numba_locomotion_energy': False,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -43,6 +55,8 @@ class Params:
             'food_min_r': 4.5,
             'food_max_r': 5.0,
             'food_replenish_interval': 0.1,
+            'food_trim_excess_enabled': True,
+            'food_trim_max_per_step': 5,
             
             # Bactérias - população
             'bacteria_count': 150,
@@ -135,9 +149,19 @@ class Params:
             
             # Física geral
             'agents_inertia': 1.0,  # Inércia global (antes derivada de massa individual)
+            'allow_reverse_locomotion': False,
+            'reproduction_min_age': 0.0,
+            'reproduction_cooldown': 0.0,
 
             # UI/Debug
             'show_selected_details': True,
+            'show_metrics_chart': False,
+            'metrics_chart_sample_seconds': 5,
+            'debug_tracebacks': False,
+            'diagnostic_heartbeat_minutes': 1.0,
+            'save_recovery_on_close': True,
+            'export_substrate_include_brain_activations': False,
+            'export_substrate_pretty_json': False,
             # Debug toggles
             'debug_reproduction_color': False,
             # Colors (RGB tuples)
@@ -179,6 +203,13 @@ class Params:
     def _validate_param(self, key: str, value: Any) -> Any:
         """Valida e clamp valores de parâmetros."""
         # Validações básicas por padrão de nome
+        if key == 'random_seed':
+            try:
+                return int(float(value))
+            except (TypeError, ValueError):
+                return -1
+        if key in ['reproduction_min_age', 'reproduction_cooldown']:
+            return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
             return max(0, int(value))
         elif 'energy' in key or 'radius' in key or key.endswith('_r'):
@@ -187,6 +218,12 @@ class Params:
             return max(0.0, min(1.0, float(value)))
         elif key in ['time_scale', 'fps']:
             return max(0.1, float(value))
+        elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame']:
+            return max(1, int(float(value)))
+        elif key == 'max_physics_backlog_seconds':
+            return max(0.0, float(value))
+        elif key == 'render_resolution_scale':
+            return max(1.0, min(3.0, float(value)))
         elif key.endswith('_fov_degrees'):
             return max(1.0, min(360.0, float(value)))
         else:
@@ -210,7 +247,10 @@ class Params:
             'performance': {
                 **dict(self._data),
                 'simple_render': True,
-                'retina_skip': 2,
+                'retina_skip': 5,
+                'physics_steps_per_second': 30,
+                'max_physics_steps_per_frame': 8,
+                'max_physics_backlog_seconds': 0.25,
                 'bacteria_count': 50,
                 'predator_count': 5,
             },
@@ -285,10 +325,13 @@ class FoodController:
     
     def __init__(self):
         self.food_debt = 0.0  # Dívida de comida para criação suave
+        self.food_excess_debt = 0.0
+        self.last_foods_added = 0
+        self.last_foods_removed = 0
         self.last_update_time = 0.0
     
-    def update(self, current_foods: list, target_count: int, world_w: float, 
-               world_h: float, params: 'Params', dt: float) -> list:
+    def update(self, current_foods: list, target_count: int, world_w: float,
+               world_h: float, params: 'Params', dt: float, obstacle_map=None) -> list:
         """
         Atualiza sistema de comida com controle PID simplificado.
         
@@ -303,6 +346,21 @@ class FoodController:
         Returns:
             Lista de novas comidas a criar
         """
+        target_count = max(0, int(target_count))
+        current_count = len(current_foods)
+        self.last_foods_added = 0
+        self.last_foods_removed = 0
+
+        if current_count > target_count and params.get('food_trim_excess_enabled', True):
+            self.food_excess_debt += ((current_count - target_count) * dt) / max(1e-6, params.get('food_replenish_interval', 0.1))
+            max_remove = max(0, int(params.get('food_trim_max_per_step', 5)))
+            while self.food_excess_debt >= 1.0 and len(current_foods) > target_count and self.last_foods_removed < max_remove:
+                self._remove_lowest_energy_food(current_foods)
+                self.food_excess_debt -= 1.0
+                self.last_foods_removed += 1
+        else:
+            self.food_excess_debt = max(0.0, self.food_excess_debt * 0.99)
+
         current_count = len(current_foods)
         difference = target_count - current_count
         
@@ -314,9 +372,10 @@ class FoodController:
         # Cria comida quando dívida é suficiente
         new_foods = []
         while self.food_debt >= 1.0:
-            food = self._create_random_food(current_foods + new_foods, world_w, world_h, params)
+            food = self._create_random_food(current_foods + new_foods, world_w, world_h, params, obstacle_map=obstacle_map)
             if food:
                 new_foods.append(food)
+                self.last_foods_added += 1
                 self.food_debt -= 1.0
             else:
                 # Se não conseguiu criar comida, não tenta mais neste frame
@@ -326,9 +385,23 @@ class FoodController:
         self.food_debt = max(0, self.food_debt * 0.99)
         
         return new_foods
+
+    def _remove_lowest_energy_food(self, foods: list):
+        if not foods:
+            return None
+        idx = min(
+            range(len(foods)),
+            key=lambda i: (
+                float(getattr(foods[i], 'energy', getattr(foods[i], 'r', 0.0) ** 2)),
+                float(getattr(foods[i], 'r', 0.0)),
+                float(getattr(foods[i], 'x', 0.0)),
+                float(getattr(foods[i], 'y', 0.0)),
+            ),
+        )
+        return foods.pop(idx)
     
-    def _create_random_food(self, existing_foods: list, world_w: float, 
-                           world_h: float, params: 'Params'):
+    def _create_random_food(self, existing_foods: list, world_w: float,
+                           world_h: float, params: 'Params', obstacle_map=None):
         """Cria comida em posição aleatória válida."""
         from .entities import Food
         import random
@@ -354,6 +427,9 @@ class FoodController:
             
             # Verifica se está dentro do círculo (segurança extra)
             if shape == 'circular' and math.hypot(x-cx, y-cy) > (radius_sub - r):
+                continue
+
+            if obstacle_map is not None and obstacle_map.circle_overlaps(x, y, r):
                 continue
             
             # Verifica sobreposição com comida existente

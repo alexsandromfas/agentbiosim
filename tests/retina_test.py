@@ -1,4 +1,8 @@
 import math
+from _path import ensure_repo_root_on_path
+
+ensure_repo_root_on_path()
+
 from sim.sensors import RetinaSensor, SceneQuery, batch_retina_sense
 from sim.controllers import Params
 

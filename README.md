@@ -3,7 +3,7 @@
 Simulador evolutivo/ambiental em Python onde populações de bactérias e predadores interagem num substrato 2D (retangular ou circular), consumindo comida, gastando energia para se locomover e se reproduzindo conforme um modelo metabólico contínuo. Cada agente percebe o ambiente via um sensor de retina multi‑raios, processa entradas com uma rede neural feedforward mutável e atua através de um sistema de locomoção parametrizado. A energia regula morte e reprodução.
 
 ### Destaques atuais
-- UI moderna PyQt6 com embed de visualização Pygame (fallback Tkinter disponível).
+- UI moderna PyQt6 com embed de visualização Pygame.
 - Modelo energético contínuo (custo v=0 e custo v=vmax) com introspecção automática nas exportações.
 - Exportação / importação de substrato (snapshot completo) manual e automática (autosave rotacionado por data).
 - Exportação e importação de agentes individuais (genótipo/arquitetura + pesos + estado básico).
@@ -29,9 +29,8 @@ python -m venv .venv; .\.venv\Scripts\Activate.ps1; pip install -r requirements.
 
 ### Executando
 ```powershell
-python main.py           # tenta PyQt6, fallback Tk
+python main.py           # abre a UI PyQt6
 python main.py --ui qt   # força PyQt6
-python main.py --ui tk   # força Tkinter
 ```
 
 ### Controles (Pygame)

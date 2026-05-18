@@ -5,7 +5,6 @@ Não altera código de produção. Imprime estatísticas por grupo de arquitetur
 """
 import os
 import sys
-import math
 import numpy as np
 
 # Garantir que o root do projeto esteja no sys.path ao rodar como módulo
@@ -63,23 +62,24 @@ def analyze(engine: Engine, sample_limit_per_group: int = 32):
             print(f"[group {key}] shapes differ: batched {batched_out.shape} vs per {per_outs_np.shape}")
             continue
 
-    diffs = np.abs(batched_out - per_outs_np)
-    # Para float32, diferenças de ordem 1e-7 são normais; usar tolerância mais realista
-    tol = 1e-6
-    mismatches = diffs > tol
-    frac_mismatch = mismatches.sum() / mismatches.size
-    mean_diff = float(diffs.mean())
-    max_diff = float(diffs.max())
+        diffs = np.abs(batched_out - per_outs_np)
+        # Para float32, diferencas de ordem 1e-7 sao normais; usar tolerancia mais realista.
+        tol = 1e-6
+        mismatches = diffs > tol
+        frac_mismatch = float(mismatches.sum() / mismatches.size)
+        mean_diff = float(diffs.mean())
+        max_diff = float(diffs.max())
 
-    status = "OK" if max_diff < 5e-6 else "DIF"
-    print(f"[group {key}] agents={len(group)} sampled={len(agents)} frac_mismatch={frac_mismatch:.4f} mean_diff={mean_diff:.3e} max_diff={max_diff:.3e} tol={tol} status={status}")
-    overall.append((key, len(group), len(agents), frac_mismatch, mean_diff, max_diff))
+        status = "OK" if max_diff < 5e-6 else "DIF"
+        print(f"[group {key}] agents={len(group)} sampled={len(agents)} frac_mismatch={frac_mismatch:.4f} mean_diff={mean_diff:.3e} max_diff={max_diff:.3e} tol={tol} status={status}")
+        overall.append((key, len(group), len(agents), frac_mismatch, mean_diff, max_diff))
 
     if not overall:
         print("Nenhum grupo comparável encontrado (população pequena?)")
     else:
         avg_frac = sum(o[3] for o in overall) / len(overall)
         print(f"Resumo: grupos={len(overall)} avg_frac_mismatch={avg_frac:.4f}")
+    return overall
 
 
 def main():

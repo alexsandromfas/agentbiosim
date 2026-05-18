@@ -11,12 +11,17 @@ class SpatialHash:
     Reutilizável entre frames para melhor performance.
     """
     
-    def __init__(self, cell_size: float, width: float, height: float):
+    def __init__(self, cell_size: float, width: float, height: float,
+                 min_x: float = 0.0, min_y: float = 0.0):
         self.cell_size = max(1.0, float(cell_size))
-        self.width = width
-        self.height = height
-        self.cols = int(math.ceil(width / self.cell_size))
-        self.rows = int(math.ceil(height / self.cell_size))
+        self.width = max(1.0, float(width))
+        self.height = max(1.0, float(height))
+        self.min_x = float(min_x)
+        self.min_y = float(min_y)
+        self.max_x = self.min_x + self.width
+        self.max_y = self.min_y + self.height
+        self.cols = max(1, int(math.ceil(self.width / self.cell_size)))
+        self.rows = max(1, int(math.ceil(self.height / self.cell_size)))
         self.buckets = {}  # Dict[Tuple[int, int], List[Any]]
     
     def clear(self):
@@ -25,17 +30,23 @@ class SpatialHash:
     
     def _get_cells(self, x: float, y: float, r: float) -> List[Tuple[int, int]]:
         """Calcula células que o objeto ocupa."""
-        min_cx = int((x - r) // self.cell_size)
-        max_cx = int((x + r) // self.cell_size)
-        min_cy = int((y - r) // self.cell_size)
-        max_cy = int((y + r) // self.cell_size)
+        r = max(0.0, float(r))
+        min_cx = math.floor((x - r - self.min_x) / self.cell_size)
+        max_cx = math.floor((x + r - self.min_x) / self.cell_size)
+        min_cy = math.floor((y - r - self.min_y) / self.cell_size)
+        max_cy = math.floor((y + r - self.min_y) / self.cell_size)
+        if max_cx < 0 or max_cy < 0 or min_cx >= self.cols or min_cy >= self.rows:
+            return []
+        min_cx = max(0, int(min_cx))
+        max_cx = min(self.cols - 1, int(max_cx))
+        min_cy = max(0, int(min_cy))
+        max_cy = min(self.rows - 1, int(max_cy))
         
         cells = []
         for cx in range(min_cx, max_cx + 1):
             for cy in range(min_cy, max_cy + 1):
                 # Clamp para evitar células fora dos limites
-                if 0 <= cx < self.cols and 0 <= cy < self.rows:
-                    cells.append((cx, cy))
+                cells.append((cx, cy))
         return cells
     
     def insert(self, obj: Any, x: float, y: float, r: float):
@@ -46,6 +57,21 @@ class SpatialHash:
                 self.buckets[cell] = []
             self.buckets[cell].append(obj)
     
+    def _cell_range_for_circle(self, x: float, y: float, r: float):
+        r = max(0.0, float(r))
+        min_cx = math.floor((x - r - self.min_x) / self.cell_size)
+        max_cx = math.floor((x + r - self.min_x) / self.cell_size)
+        min_cy = math.floor((y - r - self.min_y) / self.cell_size)
+        max_cy = math.floor((y + r - self.min_y) / self.cell_size)
+        if max_cx < 0 or max_cy < 0 or min_cx >= self.cols or min_cy >= self.rows:
+            return None
+        return (
+            max(0, int(min_cx)),
+            min(self.cols - 1, int(max_cx)),
+            max(0, int(min_cy)),
+            min(self.rows - 1, int(max_cy)),
+        )
+
     def query_ball(self, x: float, y: float, r: float) -> Set[Any]:
         """
         Consulta objetos dentro de um raio.
@@ -53,22 +79,69 @@ class SpatialHash:
         Returns:
             Conjunto de objetos que podem estar dentro do raio
         """
-        cells = self._get_cells(x, y, r)
-        found = set()
+        return self.query_ball_into(x, y, r, set())
+
+    def query_ball_into(self, x: float, y: float, r: float, out: Set[Any]) -> Set[Any]:
+        """Consulta por raio preenchendo um set reutilizavel."""
+        out.clear()
+        cell_range = self._cell_range_for_circle(x, y, r)
+        if cell_range is None:
+            return out
+        min_cx, max_cx, min_cy, max_cy = cell_range
+        buckets = self.buckets
+        for cx in range(min_cx, max_cx + 1):
+            for cy in range(min_cy, max_cy + 1):
+                bucket = buckets.get((cx, cy))
+                if bucket:
+                    out.update(bucket)
         
-        for cell in cells:
-            if cell in self.buckets:
-                found.update(self.buckets[cell])
-        
-        return found
+        return out
+
+    def query_ball_filtered(self, x: float, y: float, r: float, type_codes) -> Set[Any]:
+        """Consulta por raio retornando apenas objetos com type_code desejado."""
+        return self.query_ball_filtered_into(x, y, r, type_codes, set())
+
+    def query_ball_filtered_into(self, x: float, y: float, r: float, type_codes, out: Set[Any]) -> Set[Any]:
+        """Consulta por raio/tipo preenchendo um set reutilizavel."""
+        out.clear()
+        cell_range = self._cell_range_for_circle(x, y, r)
+        if cell_range is None:
+            return out
+        min_cx, max_cx, min_cy, max_cy = cell_range
+        buckets = self.buckets
+        single_type = None
+        if isinstance(type_codes, int):
+            single_type = int(type_codes)
+        else:
+            try:
+                if len(type_codes) == 1:
+                    single_type = int(next(iter(type_codes)))
+            except Exception:
+                single_type = None
+        for cx in range(min_cx, max_cx + 1):
+            for cy in range(min_cy, max_cy + 1):
+                bucket = buckets.get((cx, cy))
+                if not bucket:
+                    continue
+                if single_type is not None:
+                    for obj in bucket:
+                        if getattr(obj, 'type_code', -1) == single_type:
+                            out.add(obj)
+                else:
+                    for obj in bucket:
+                        if getattr(obj, 'type_code', -1) in type_codes:
+                            out.add(obj)
+        return out
     
     def query_rectangle(self, min_x: float, min_y: float, 
                        max_x: float, max_y: float) -> Set[Any]:
         """Consulta objetos dentro de um retângulo."""
-        min_cx = max(0, int(min_x // self.cell_size))
-        max_cx = min(self.cols - 1, int(max_x // self.cell_size))
-        min_cy = max(0, int(min_y // self.cell_size))
-        max_cy = min(self.rows - 1, int(max_y // self.cell_size))
+        min_cx = max(0, int(math.floor((min_x - self.min_x) / self.cell_size)))
+        max_cx = min(self.cols - 1, int(math.floor((max_x - self.min_x) / self.cell_size)))
+        min_cy = max(0, int(math.floor((min_y - self.min_y) / self.cell_size)))
+        max_cy = min(self.rows - 1, int(math.floor((max_y - self.min_y) / self.cell_size)))
+        if min_cx > max_cx or min_cy > max_cy:
+            return set()
         
         found = set()
         for cx in range(min_cx, max_cx + 1):

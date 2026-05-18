@@ -1,0 +1,43 @@
+{
+  "run_id": "20260515_213419_baseline_apos_spatial_startfix_antes_cache",
+  "label": "baseline_apos_spatial_startfix_antes_cache",
+  "git_commit": "7ed46e0",
+  "created_at": "2026-05-15T21:35:21.571290",
+  "seconds": 10.0,
+  "fps": 60,
+  "time_scale": 0.5,
+  "wall_s": 61.44351519999327,
+  "steps": 600,
+  "avg_agents": 1020.0,
+  "ms_per_agent_step": 0.10039790065358378,
+  "initial_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 480,
+    "all_agents": 1020
+  },
+  "final_counts": {
+    "bacteria": 1000,
+    "predators": 20,
+    "foods": 468,
+    "all_agents": 1020
+  },
+  "events": {
+    "foods_eaten": 1987,
+    "predations": 238,
+    "births": 242,
+    "deaths": 4
+  },
+  "final_integrity": {
+    "all_agents_missing_from_entities": 0,
+    "entities_missing_from_all_agents": 0,
+    "duplicate_all_agents": 0,
+    "bad_numeric_objects": 0,
+    "outside_world_objects": 12,
+    "negative_energy_objects": 0,
+    "spatial_hash_sample_misses": 0
+  },
+  "final_bacteria_energy_mean": 158.18530386456612,
+  "final_predator_energy_mean": 395.53803901113713,
+  "summary_json": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260515_213419_baseline_apos_spatial_startfix_antes_cache\\summary.json"
+}

@@ -1,0 +1,585 @@
+AUDITORIA DE OTIMIZACAO - AGENTBIOSIM
+Data: 2026-05-17
+Commit analisado: 3e42b9a
+Foco: ganhar velocidade sem piorar a dinamica biologica da simulacao.
+
+Resumo executivo
+----------------
+A simulacao esta pesada no motor, nao apenas na renderizacao. O benchmark
+headless com o substrato real rodou 2.0 s logicos a 60 FPS em 11.902 s de
+wall time, com 1020 agentes. Isso significa que, nesse cenario, o core da
+simulacao ja esta muito abaixo de tempo real antes de desenhar qualquer coisa.
+
+O maior gargalo atual e a visao/sensoriamento. No substrato real:
+- agents_update: 8.7886 s
+- agent_sensor: 7.1317 s
+- spatial_hash: 1.1141 s
+- collision: 0.9190 s
+- interaction: 0.8419 s
+- agent_brain_forward: 0.7165 s
+
+Leitura pratica:
+1. A renderizacao pode estar travando a interface, mas o motor tambem esta caro.
+2. Otimizar renderizacao ajuda a fluidez visual, mas nao resolve sozinho.
+3. Antes de criar um sistema de visao mais sofisticado, e melhor atacar a
+   arquitetura atual da visao, porque ela ja consome a maior parte do tempo.
+
+Benchmarks executados nesta auditoria
+-------------------------------------
+1. Unit tests:
+   Comando: python -m pytest tests\unit -q
+   Resultado: 17 passed
+
+2. Headless sintetico:
+   Comando:
+   python tests\benchmark_headless.py --seconds 5 --fps 60 --label auditoria_otimizacao_headless_20260517 --no-activations
+
+   Resultado:
+   - Simulado: 5.02 s
+   - Wall: 5.583 s
+   - ms/agente/step: 0.153104
+   - agents_update: 86.81% do wall
+   - agent_sensor: 76.25% do wall
+   - agent_brain_forward: 5.19% do wall
+   - spatial_hash: 5.93% do wall
+
+   Observacao: esse benchmark perdeu muitas bacterias por predacao durante a
+   execucao, entao ele serve mais para confirmar gargalos relativos do que para
+   medir escala estavel.
+
+3. Substrato real:
+   Comando:
+   python tests\benchmark_substrate_dynamics.py --seconds 2 --fps 60 --sample-interval 1 --label auditoria_otimizacao_substrato_20260517 --neural-sample 24
+
+   Resultado:
+   - Run id: 20260517_010714_auditoria_otimizacao_substrato_20260517
+   - Agentes: 1020
+   - Steps: 120
+   - Wall: 11.902 s
+   - ms/agente/step: 0.097235
+   - step median: 47.599 ms
+   - step p75: 197.977 ms
+   - step p95: 228.230 ms
+   - spatial_hash_rebuilds: 277
+   - collisions_resolved: 10509
+
+   Observacao: esse benchmark instala queries espaciais deterministicas para
+   comparacao futura. Isso pode deixar a medicao um pouco mais lenta que o uso
+   normal, mas nao muda a conclusao: o sensoriamento e o custo dominante.
+
+Atualizacao de execucao - lote de otimizacao 2026-05-17/18
+----------------------------------------------------------
+Status geral: PARCIALMENTE FEITO E TESTADO.
+
+Checkpoint antes das mudancas:
+- Branch: V2.0.0_Melhorias_2026
+- Commit/push de seguranca feito antes do lote: ed61dfa
+
+Alteracoes aplicadas e mantidas:
+- sim/sensors.py: configuracao de retina calculada por especie/lote, nao por
+  agente; query espacial filtrada por tipo; buffer reutilizavel para candidatos;
+  filtro de FOV antes da matriz fullbody; montagem de arrays de candidatos em
+  uma passagem.
+- sim/spatial.py: query_ball_into e query_ball_filtered_into para reduzir
+  alocacao de sets temporarios.
+- sim/systems.py: interacao usa query filtrada sem listas temporarias;
+  parametros/caps calculados fora dos loops; colisao usa indice por frame em
+  vez de tuple(sorted(id(...))).
+- sim/entities.py: profiling de locomocao/energia agora e por lote, nao um
+  context manager por agente.
+- sim/engine.py e sim/render.py: culling visual para comida, agentes e
+  obstaculos fora da camera.
+- tests/unit/test_spatial_hash.py: testes de equivalencia das novas queries.
+
+Benchmarks curtos do substrato real, 2 s logicos, 60 FPS, neural-sample 16:
+- Baseline pos-checkpoint: 20260517_213030_baseline_otimizacao_pos_checkpoint_20260518
+  ms/agente/step: 0.023388
+- Lote 1, spatial/sensor/collision: 0.017555
+- Lote 2, config de sensor/interacao: 0.015967
+- Lote 3, buffers reutilizaveis: 0.015218
+- Lote 4, arrays de sensor em uma passagem: 0.014664
+- Lote 7, profiling por lote em locomocao/energia: 0.014473
+
+Melhor ganho medido no benchmark curto:
+- 0.023388 -> 0.014473 ms/agente/step
+- ganho aproximado: 38.1% versus o baseline pos-checkpoint deste lote.
+
+Benchmark final mais longo:
+- Run id: 20260517_215527_opt_final_5s_20260518
+- Duracao: 5 s logicos, 300 steps, 1020 agentes iniciais
+- Wall: 5.085 s
+- ms/agente/step: 0.016617
+- Integridade: spatial_hash_sample_misses = 0, duplicate_all_agents = 0,
+  negative_energy_objects = 0
+- Eventos: foods_eaten 908, predations 84, births 87, deaths 3
+
+Tentativas descartadas por piorarem benchmark:
+- Spatial hash com buckets extras por type_code: 0.016709 ms/agente/step.
+  Motivo: o rebuild ficou mais caro que a economia nas queries.
+- Insert inline sem lista temporaria em SpatialHash.insert: 0.015456
+  ms/agente/step. Motivo: piorou contra a melhor versao medida.
+
+Validacao executada:
+- python -m compileall sim tests\unit
+- python -m pytest tests\unit -q
+- Resultado atual: 35 passed
+
+Observacao:
+- A maior parte do ganho veio sem reduzir retina_count, sem aumentar
+  retina_skip, sem trocar fullbody por single e sem mudar criterio de comida,
+  predacao ou morte. As pequenas diferencas de eventos nos benchmarks curtos
+  parecem vir da ordem de iteracao de sets/queries, nao de mudanca conceitual
+  da regra biologica.
+
+Atualizacao de execucao - Numba/arrays 2026-05-18
+-------------------------------------------------
+Status: PRIMEIRA ETAPA FEITA E TESTADA.
+
+Alteracoes aplicadas:
+- Criado sim/fast_kernels.py com kernels opcionais por arrays e Numba.
+- sim/sensors.py usa kernel Numba para retina single e fullbody quando
+  use_numba_kernels=True e Numba esta disponivel.
+- A simulacao preserva o caminho antigo como fallback automatico se Numba nao
+  existir ou falhar em runtime.
+- requirements.txt agora inclui numba>=0.60,<1.0.
+- UI ganhou controle "Aceleracao arrays/Numba" e controle experimental
+  "Numba locomocao/energia".
+- Locomocao/energia por arrays foi implementada e testada contra o caminho
+  orientado a objetos, mas ficou desligada por padrao porque neste perfil ela
+  nao foi mais rapida que o codigo antigo.
+
+Ponto conceitual importante:
+- Diferentes organismos e diferentes arquiteturas neurais continuam seguros.
+  O forward neural ainda roda por grupos compatíveis e cada agente mantem seus
+  proprios pesos. O Numba aplicado agora acelera a geometria da retina, nao
+  mistura pesos nem homogeneiza cerebros.
+
+Benchmarks aquecidos:
+- Headless 5 s, sem activations:
+  baseline_pre_numba_arrays: wall 1.934 s, agent_sensor 1.505 s
+  pos_numba_retina_aquecido: wall 0.941 s, agent_sensor 0.385 s
+  ganho aproximado: 51% no wall e 74% no sensoriamento.
+- Substrato real 5 s, fullbody:
+  opt_final_5s_20260518: wall 5.085 s, ms/agente/step 0.016617,
+  agent_sensor 2.616 s
+  numba_fullbody_substrate_aquecido: wall 3.246 s,
+  ms/agente/step 0.010607, agent_sensor 0.645 s
+  ganho aproximado: 36% no substrato real e 75% no sensoriamento.
+
+Validacao executada:
+- python -m compileall sim tests\unit
+- python -m pytest tests\unit\test_fast_kernels.py -q
+- python -m pytest tests\unit -q
+
+Observacoes:
+- A primeira execucao apos iniciar o Python pode ter uma pausa de compilacao
+  JIT. O ganho aparece depois do aquecimento/cache.
+- Depois desta etapa, agent_brain_forward e spatial_hash ficam mais visiveis
+  no profiler. Sao os proximos candidatos reais antes de qualquer tentativa de
+  GPU.
+
+Diagnostico por area
+--------------------
+
+P0 - [NAO FEITO NESTE LOTE] Medir renderizacao separada da simulacao
+Status: ainda pendente; o render recebeu culling, mas falta profiler visual separado.
+
+Hoje os benchmarks medem bem o core headless, mas ainda falta uma medicao clara
+de renderizacao. A UI usa Pygame dentro da janela PyQt. O loop faz:
+1. processa eventos
+2. engine.step(real_dt)
+3. engine.render(...)
+4. pygame.display.flip()
+
+Como step e render rodam no mesmo loop visual, se qualquer um dos dois ficar
+caro a janela parece travar. Precisamos medir separadamente:
+- tempo de engine.step
+- tempo de engine.render
+- tempo de pygame.display.flip
+- tempo segurando state_lock
+- FPS visual real versus tempo simulado por segundo real
+
+Otimizar sem essa medicao ainda e possivel, mas fica menos preciso.
+
+Acao recomendada:
+- Criar benchmark visual/offscreen ou profiler de UI opcional.
+- Adicionar secoes de profiler: render_total, render_food, render_agents,
+  render_obstacles, render_overlay, display_flip.
+- Nao deixar esse profiler ligado por padrao.
+
+Risco para a simulacao: nenhum se for apenas medicao.
+
+
+P0 - [PARCIAL FEITO/TESTADO] Visao/sensoriamento e o gargalo principal
+Status: backend Numba exato para retina single/fullbody implementado e testado; ainda falta reduzir alocacao/copia e migrar mais estado para arrays persistentes.
+
+O caminho atual em sim/sensors.py usa batch_retina_sense, mas o "batch" ainda
+processa cada agente individualmente. Para cada agente:
+- consulta spatial_hash com query_ball
+- filtra candidatos por tipo
+- cria arrays numpy novos para candidatos locais
+- calcula distancias e angulos
+- no modo fullbody, cria matrizes raio x objeto para intersecao exata
+
+Isso preserva uma visao mais correta, mas cria muitas alocacoes pequenas e
+muita computacao por agente. No substrato real, com 1000 bacterias, retina 18,
+visao 180 e fullbody, esse custo domina.
+
+Otimizações seguras, sem mudar a regra biologica:
+- Evitar recriar arrays pequenos por agente; usar buffers reutilizaveis.
+- Criar buckets por tipo no spatial hash para nao filtrar food/bacteria/predator
+  via list comprehension em todo agente.
+- Trocar query_ball por uma API que preenche uma lista/buffer reutilizavel, para
+  reduzir set/list temporarios.
+- [FEITO/TESTADO] Migrar a intersecao fullbody exata para Numba ou outro kernel compilado.
+- [PARCIAL FEITO/TESTADO] Separar backend de visao: fallback Python/NumPy antigo
+  continua existindo; falta transformar em classes formais VisionBackend.
+  A saida deve ser comparada contra o backend atual dentro de tolerancia.
+- Precomputar configuracao de sensores por especie e so atualizar quando a UI
+  mudar algum parametro, nao em todo agente/todo frame.
+
+O que nao recomendo fazer agora sem decisao explicita:
+- Aumentar retina_skip automaticamente.
+- Reduzir retina_count.
+- Trocar fullbody por single.
+- Usar campo de densidade aproximado.
+
+Essas alternativas podem acelerar muito, mas alteram a percepcao dos agentes.
+Devem ser modos opcionais, nao substituicao silenciosa.
+
+
+P0 - [PARCIAL FEITO/TESTADO] Renderizacao provavelmente amplifica o travamento
+Status: culling visual implementado; falta medir render/flip separadamente.
+
+Mesmo que o core ja esteja lento, a renderizacao pode piorar muito:
+- EllipseRenderer cria Surface nova e faz rotate para cada agente por frame.
+- Vision rays podem desenhar 18 linhas por agente.
+- Overlay renderiza texto todo frame.
+- Render percorre todas as comidas, agentes e obstaculos, mesmo fora da camera.
+
+Otimizações seguras:
+- Ativar renderizacao simples automaticamente quando populacao passar de um
+  limiar configuravel.
+- Culling visual: desenhar somente objetos dentro da area visivel da camera.
+- Atualizar overlay textual a cada N frames, nao todo frame.
+- Separar FPS visual do tick de simulacao: se a simulacao estiver cara, renderizar
+  menos frames, mas continuar a simular de modo controlado.
+- Nunca desenhar visao de todos os agentes por padrao em populacoes grandes.
+- Desenhar visao apenas do agente selecionado ou de uma amostra.
+
+Risco para a simulacao: nenhum, porque afeta apenas visualizacao.
+Risco visual: o usuario pode ver menos detalhes quando modo performance estiver
+ativo. Precisa ser claro na UI.
+
+
+P1 - [PARCIAL FEITO/TESTADO] Spatial hash esta sendo reconstruido demais
+Status: queries com buffer foram feitas; rebuild incremental continua pendente.
+
+No benchmark real:
+- 120 steps
+- 277 rebuilds de spatial hash
+
+O motor atual reconstrói/limpa/reinsere objetos mais de uma vez por step em
+varios cenarios:
+- antes dos sensores
+- depois do movimento
+- depois de alteracoes topologicas
+
+Isso custa menos que a visao, mas tambem alimenta o custo da visao.
+
+Otimizações seguras:
+- Spatial hash incremental: cada objeto guarda suas celulas atuais; se ele
+  mudou de celula, remove das antigas e insere nas novas.
+- Separar hash de comida e hash de agentes. Comida muda menos que agentes.
+- Buckets por tipo: food, bacteria, predator.
+- API sem set temporario para consultas onde duplicata nao e problema ou onde
+  o chamador consegue deduplicar melhor.
+- Estatisticas de ocupacao para ajustar cell_size.
+
+Risco:
+- Alto se for feito de uma vez. Spatial hash errado quebra visao, comida,
+  predacao e colisao.
+
+Como validar:
+- Testes de equivalencia query_ball antes/depois.
+- Teste circular/retangular.
+- Benchmark com contagem de spatial_hash_sample_misses = 0.
+- Comparar eventos biologicos com seed fixa.
+
+
+P1 - [PARCIAL FEITO/TESTADO] Parametros dinamicos geram overhead desnecessario
+Status: sensores agora resolvem configuracao por especie/lote; config_dirty global ainda pendente.
+
+Sensores e agentes consultam muitos params.get em loops quentes. Isso e flexivel
+para UI, mas custa tempo quando milhares de agentes rodam por frame.
+
+Otimizações seguras:
+- Criar RuntimeConfig por frame/substep com valores ja resolvidos por especie.
+- Criar uma versao/config_dirty nos Params. Sensores so atualizam retina_count,
+  fov, radius e flags quando essa versao muda.
+- Evitar strings como f'{prefix}_...' dentro de loop por agente.
+
+Risco: baixo, se testes cobrirem alteracao de parametros em tempo real.
+
+
+P1 - [FEITO/TESTADO] CollisionSystem tem overhead de pares
+Status: indice por frame e query buffer implementados; raio de busca conceitual ainda nao alterado.
+
+O custo atual de colisao no substrato real foi 0.919 s em 120 steps. Nao e o
+maior gargalo, mas ainda pesa. O sistema usa:
+- query_ball por agente
+- tuple(sorted((id(agent), id(other)))) para deduplicar pares
+- set de pares processados
+
+Otimizações seguras:
+- Atribuir indice inteiro estavel por frame para agentes e processar apenas
+  pares other_index > agent_index.
+- Evitar tuple(sorted(...)) em loop quente.
+- Usar buckets de agentes apenas, sem comidas.
+- Avaliar se colisao agente-agente precisa rodar todo frame para todos, ou se
+  pode ser faseada sem mudar muito a dinamica. Esta ultima e opcional, pois pode
+  alterar a fisica.
+
+Alerta conceitual:
+- A query de colisao usa agent.r * 2.0. Em corpos de raios diferentes, isso pode
+  ser insuficiente para encontrar pares quando o outro e maior. Corrigir isso
+  pode mudar a simulacao por tornar colisões mais corretas. Deve ser tratado
+  como correcao com benchmark, nao como micro-otimizacao silenciosa.
+
+
+P1 - [FEITO/TESTADO] InteractionSystem ainda cria listas temporarias
+Status: filtros por lista removidos no caminho spatial; parametros movidos para fora dos loops.
+
+Comer e predar ja usam dist2, o que e bom. Mas ainda fazem:
+- nearby_foods = [obj for obj in nearby_objects if type_code == 0]
+- nearby_bacteria = [obj for obj in nearby_objects if type_code == 1]
+
+Otimizações seguras:
+- Spatial hash por tipo remove esse filtro.
+- Iterar direto sobre candidatos do tipo certo.
+- Reutilizar buffers.
+
+Risco: baixo se a API do spatial hash for testada.
+
+
+P1 - [NAO FEITO NESTE LOTE] Neural network nao e o gargalo numero 1, mas sera depois
+Status: mantido para etapa futura; custo cresceu em importancia apos reduzir colisao/interacao.
+
+No benchmark real, agent_brain_forward foi 0.7165 s. O codigo ja usa NumPy e
+forward_many_brains. Isso e bom. O problema e que cada agente tem seus proprios
+pesos, entao o batch cria pilhas de pesos por grupo.
+
+Otimizações seguras:
+- Manter pesos de grupos homogeneos em arrays contiguos desde o nascimento.
+- Evitar reconstruir stacks quando nada mudou.
+- Usar backend Numba para varias redes pequenas, comparando output com NumPy.
+- Separar genotipo/fenotipo para permitir cache mais estavel.
+
+Risco:
+- Medio. Erro numerico pequeno pode mudar decisoes ao longo de milhares de
+  frames. Deve aceitar tolerancia local, mas comparar metricas globais.
+
+
+P1 - [PARCIAL FEITO/TESTADO] Renderizacao bonita deve virar opcional de baixo volume
+Status: culling de viewport implementado; auto simple_render e cache de sprites ainda pendentes.
+
+EllipseRenderer e caro porque rotaciona surface por agente por frame. Para 1000+
+agentes, isso pode dominar a UI mesmo se o core melhorar.
+
+Otimizações seguras:
+- Usar SimpleRenderer por padrao quando N > limiar.
+- Cachear sprites/rotacoes por classe de tamanho e angulo quantizado se a
+  estetica de elipse for mantida.
+- Culling de viewport antes de qualquer desenho.
+- Evitar renderizar detalhes/retinas de agente selecionado todo frame quando
+  nao mudou.
+
+Risco biologico: nenhum.
+
+
+P2 - [NAO FEITO NESTE LOTE] FoodController pode escalar mal com comida alta
+Status: baixo agora, mas importante se aumentar alimento.
+
+No benchmark real, food_control foi 0.0693 s, baixo. Mas a criacao de comida
+valida ainda pode fazer tentativas aleatorias e checar overlap com lista de
+comidas. Se o ambiente ficar cheio, isso escala mal.
+
+Otimizações seguras:
+- Usar spatial hash de comida para validar overlap.
+- Usar pool de Food para reduzir alocacao/GC.
+- Pregerar pontos validos para substrato circular/retangular quando nao houver
+  obstaculos, e sortear deles.
+
+Risco: baixo.
+
+
+P2 - [PARCIAL FEITO/TESTADO] Alocacao e garbage collector
+Status: buffers de query, menos listas temporarias e menos context managers por agente.
+
+Fontes atuais de alocacao por frame:
+- sets de query_ball
+- listas temporarias de candidatos
+- arrays numpy pequenos por agente na retina
+- listas de inputs/outputs por agente
+- pair_key tuples nas colisões
+- overlays/text surfaces no render
+
+Otimizações seguras:
+- Buffers reutilizaveis por sistema.
+- APIs iteradoras ou "fill buffer".
+- Reusar listas com clear().
+- Desligar coleta pesada de metricas em runtime normal.
+
+Risco: baixo a medio, depende da refatoracao.
+
+
+P2 - [PARCIAL FEITO/TESTADO] Arquitetura SoA ja tem semente, mas ainda nao e backend
+Status: primeira etapa feita com arrays temporarios e Numba na retina; estado real ainda mora nos objetos.
+
+Existe sim/soa.py com conversao de agentes para arrays. Isso e um bom primeiro
+passo, mas hoje ainda copia dados. Para alto desempenho, o estado real precisa
+morar em arrays:
+- x, y, vx, vy, angle, energy, radius, age, type_code
+
+Ganhos esperados:
+- locomocao e energia vetorizadas
+- menos getattr/setattr
+- base melhor para Numba
+- melhor cache CPU
+
+Risco:
+- Alto se migrar tudo de uma vez.
+
+Estratégia segura:
+- Comecar com kernels auxiliares que calculam em arrays e escrevem de volta.
+- Depois migrar sistemas um por um.
+- Manter testes de equivalencia contra o modelo orientado a objetos.
+
+
+P2 - [NAO FEITO NESTE LOTE] Threading/render/simulacao
+Status: importante para UX, nao necessariamente para throughput.
+
+Hoje o loop visual chama engine.step e render no mesmo fluxo. Se step demora,
+a UI congela. Se render demora, a simulacao tambem atrasa.
+
+Opcoes:
+- Simulacao em thread propria com timestep fixo e buffer de estado para render.
+- Render sempre mostra ultimo snapshot disponivel.
+- Se a simulacao atrasar, render pula frames em vez de empilhar trabalho.
+
+Risco:
+- Medio/alto. Concorrencia pode criar bugs de estado.
+
+Ordem recomendada:
+1. Primeiro medir render.
+2. Depois aplicar culling/simple render.
+3. So entao considerar double buffering.
+
+
+Otimizacoes que eu NAO faria agora como padrao
+----------------------------------------------
+Estas aceleram, mas podem piorar ou mudar a simulacao:
+
+- Trocar fullbody por single sem aviso.
+- Aumentar retina_skip automaticamente sem marcar modo performance.
+- Diminuir retina_count em runtime.
+- Desligar colisões agente-agente.
+- Reduzir predacao/alimentacao para rodar a cada N frames.
+- Usar campo de densidade aproximado como substituto da visao real.
+- Fazer timestep adaptativo que altera a fisica sem modo experimental separado.
+
+Essas ideias podem existir como modos opcionais, mas nao devem ser a base da
+simulacao cientifica.
+
+
+Plano recomendado de implementacao
+----------------------------------
+
+Fase 1 - Medicao e render seguro
+1. Adicionar profiler visual separado.
+2. Medir step/render/flip no uso com UI.
+3. Culling de viewport para comida, agentes e obstaculos.
+4. Overlay throttle.
+5. Auto simple_render acima de limiar configuravel.
+
+Motivo: melhora a experiencia visual sem tocar na dinamica.
+
+Fase 2 - Quick wins do core sem mudar dinamica
+1. RuntimeConfig por especie. [PARCIAL FEITO/TESTADO]
+2. Params/config dirty para sensores. [PARCIAL: config por lote feita; dirty global pendente]
+3. Spatial hash por tipo. [TENTADO E DESCARTADO: piorou benchmark por custo de rebuild]
+4. Query buffers para reduzir sets/listas. [FEITO/TESTADO]
+5. Collision pair index em vez de tuple(sorted(id)). [FEITO/TESTADO]
+
+Motivo: reduz overhead Python sem mexer na biologia.
+
+Fase 3 - Visao exata mais rapida
+1. Criar VisionBackend com backend atual como referencia. [PARCIAL: fallback seguro existe; classes formais pendentes]
+2. Implementar backend exato otimizado com Numba ou arrays reutilizaveis. [FEITO/TESTADO para single/fullbody]
+3. Testar equivalencia local da retina. [FEITO/TESTADO com kernel basico; ampliar para mais geometrias]
+4. Rodar benchmark do substrato comparando eventos e metricas. [FEITO/TESTADO]
+
+Motivo: esta e a maior alavanca antes de criar visao nova.
+
+Fase 4 - Spatial hash incremental
+1. Guardar celulas ocupadas por objeto.
+2. Atualizar objetos que mudaram de celula.
+3. Separar hash de comida e agentes.
+4. Rebuild completo apenas como fallback/compactacao periodica.
+
+Motivo: reduz custo recorrente e melhora todos os sistemas que consultam o grid.
+
+Fase 5 - Backend SoA progressivo
+1. Locomocao e energia em arrays. [PARCIAL: implementado/testado, desligado por padrao por nao ganhar benchmark ainda]
+2. Sensores usando arrays de posicao/tipo. [PARCIAL FEITO/TESTADO: retina Numba usa arrays temporarios]
+3. Interacoes em arrays.
+4. Escrita de volta em objetos somente para UI/export quando necessario.
+
+Motivo: preparar escala maior sem reescrever tudo de uma vez.
+
+
+Criterios de validacao para cada otimizacao
+-------------------------------------------
+Para otimizacoes que prometem preservar a simulacao:
+- python -m pytest tests\unit -q
+- benchmark do substrato com mesma seed/layout
+- comparar:
+  - foods_eaten
+  - predations
+  - births
+  - deaths
+  - energias finais
+  - spatial_hash_sample_misses
+  - outside_world_objects
+  - ms/agente/step
+  - agent_sensor
+  - spatial_hash
+  - collision
+  - interaction
+
+Aceitacao sugerida:
+- Otimizacao puramente estrutural: eventos devem bater ou ficar dentro de
+  tolerancia numerica explicada.
+- Otimizacao visual: metricas biologicas devem ser identicas.
+- Otimizacao aproximada: somente entrar como modo opcional, com nome claro.
+
+
+Prioridade final
+----------------
+1. Medir renderizacao separadamente.
+2. Culling visual + simple render automatico.
+3. Otimizar sensoriamento mantendo fullbody exato. [PARCIAL FEITO/TESTADO com Numba]
+4. Spatial hash por tipo e query buffers.
+5. RuntimeConfig/config dirty para reduzir params.get em loop.
+6. Colisoes com indice de par em vez de tuple/sorted/id.
+7. Spatial hash incremental.
+8. SoA/Numba progressivo. [PARCIAL FEITO/TESTADO]
+
+Conclusao
+---------
+O caminho mais seguro nao e reduzir a qualidade da simulacao. O caminho correto
+e primeiro remover desperdicio: renderizar menos coisa invisivel, medir UI,
+reduzir alocacoes, tirar filtros repetidos, e acelerar a visao mantendo a mesma
+semantica. Depois disso, criar um sistema de visao mais avancado fica muito mais
+seguro, porque teremos um backend e benchmarks capazes de mostrar se a nova
+visao melhorou ou destruiu a performance.

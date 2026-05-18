@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .entities import Agent, Food
+    from .obstacles import ObstacleMap
     from .world import Camera
 
 
@@ -26,6 +27,12 @@ class RendererStrategy(ABC):
     @abstractmethod  
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida na superfície."""
+        pass
+
+    @abstractmethod
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
+        """Desenha obstáculos sólidos."""
         pass
     
     @abstractmethod
@@ -81,9 +88,26 @@ class SimpleRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
+        """Desenha barreiras criadas com o pincel."""
+        if not getattr(obstacles, 'has_obstacles', False):
+            return
+        for stamp in obstacles.stamps:
+            if visible_bounds is not None:
+                min_x, min_y, max_x, max_y = visible_bounds
+                if (stamp.x + stamp.r < min_x or stamp.x - stamp.r > max_x or
+                        stamp.y + stamp.r < min_y or stamp.y - stamp.r > max_y):
+                    continue
+            screen_x, screen_y = camera.world_to_screen(stamp.x, stamp.y)
+            screen_radius = max(1, int(stamp.r * camera.zoom))
+            pygame.draw.circle(surface, stamp.color, (int(screen_x), int(screen_y)), screen_radius)
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Desenha informações de overlay."""
+        if info.get('hide_overlay', False):
+            return
         bacteria_count = info.get('bacteria_count', 0)
         predator_count = info.get('predator_count', 0)
         food_count = info.get('food_count', 0)
@@ -95,7 +119,8 @@ class SimpleRenderer(RendererStrategy):
         resources_available = info.get('resources_available', True)
         fallback_metrics = info.get('fallback_metrics', False)
 
-        main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  FPS: {int(fps)}"
+        obstacle_count = info.get('obstacle_count', 0)
+        main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  Obstáculos: {obstacle_count}  |  FPS: {int(fps)}"
         if cpu_percent is not None and mem_used_mb is not None:
             try:
                 if resources_available:
@@ -212,6 +237,7 @@ class EllipseRenderer(RendererStrategy):
             pygame.font.init()
         self.font = pygame.font.SysFont(None, 18)
         self.small_font = pygame.font.SysFont(None, 14)
+        self._simple_renderer = SimpleRenderer()
     
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
                    show_head: bool = True, show_vision: bool = False, selected: bool = False):
@@ -259,13 +285,16 @@ class EllipseRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
+        """Reutiliza implementação do SimpleRenderer."""
+        self._simple_renderer.draw_obstacles(obstacles, surface, camera, visible_bounds=visible_bounds)
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Reutiliza implementação do SimpleRenderer."""
-        simple = SimpleRenderer()
-        simple.draw_overlay(surface, info)
+        self._simple_renderer.draw_overlay(surface, info)
     
     def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera'):
         """Reutiliza implementação do SimpleRenderer."""
-        simple = SimpleRenderer()
-        simple._draw_vision_rays(agent, surface, camera)
+        self._simple_renderer._draw_vision_rays(agent, surface, camera)
