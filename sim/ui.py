@@ -28,7 +28,7 @@ import time
 from typing import Dict, Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QEvent
-from PyQt6.QtGui import QIcon, QColor, QAction, QPixmap, QPainter, QPen, QBrush, QShortcut, QKeySequence
+from PyQt6.QtGui import QIcon, QColor, QAction, QActionGroup, QPixmap, QPainter, QPen, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
@@ -290,6 +290,10 @@ class SimulationUI(QMainWindow):
         self._intelligence_cache_agent = None
         self._intelligence_cache_time = 0.0
         self._metrics_history: list[dict[str, float]] = []
+        self._chart_current_values: dict[str, float] = {}
+        self._chart_metric_checkboxes: dict[str, QCheckBox] = {}
+        self._chart_intake_cache: dict[Any, tuple[float, float]] = {}
+        self._chart_group_smart_ema: dict[int, float] = {}
 
         self._build_layout()
         self._build_tabs()
@@ -380,9 +384,10 @@ class SimulationUI(QMainWindow):
         top.addWidget(QLabel("Grafico"))
         top.addWidget(QLabel("Amostragem:"))
         self._chart_sample_group = QButtonGroup(self)
-        for seconds in (1, 2, 3):
-            rb = QRadioButton(f"{seconds}s")
-            rb.setChecked(seconds == 1)
+        chart_sample = int(self.params.get('metrics_chart_sample_seconds', 5) or 5)
+        for seconds, label in ((1, "1s"), (5, "5s"), (30, "30s"), (60, "1min"), (600, "10min")):
+            rb = QRadioButton(label)
+            rb.setChecked(seconds == chart_sample)
             self._chart_sample_group.addButton(rb, seconds)
             top.addWidget(rb)
         self._chart_sample_group.idClicked.connect(self._set_chart_sample_seconds)
@@ -419,7 +424,7 @@ class SimulationUI(QMainWindow):
 
         self._metrics_chart_timer = QTimer(self)
         self._metrics_chart_timer.timeout.connect(self._update_metrics_chart)
-        self._metrics_chart_timer.start(1000)
+        self._metrics_chart_timer.start(max(1, chart_sample) * 1000)
         return panel
 
     def _build_runtime_toolbar(self) -> QWidget:
@@ -432,6 +437,24 @@ class SimulationUI(QMainWindow):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(8)
+        asset_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'Assets'))
+
+        def add_command(text: str, tooltip: str, slot, icon_path: str | None = None):
+            btn = QPushButton(text)
+            btn.setToolTip(tooltip)
+            btn.setFixedSize(34, 30)
+            if icon_path and os.path.exists(icon_path):
+                btn.setText("")
+                btn.setIcon(QIcon(icon_path))
+                btn.setIconSize(QSize(22, 22))
+            btn.clicked.connect(slot)
+            layout.addWidget(btn)
+            return btn
+
+        add_command('Play', 'Iniciar ou despausar a simulacao.', self.play_simulation, os.path.join(asset_dir, 'Play.png'))
+        add_command('Pause', 'Pausar a simulacao sem apagar o estado atual.', self.pause_simulation, os.path.join(asset_dir, 'Pause.png'))
+        add_command('Stop', 'Parar e resetar a populacao usando os setups atuais.', self.stop_simulation, os.path.join(asset_dir, 'Stop.png'))
+        layout.addSpacing(12)
         layout.addWidget(QLabel("Velocidade"))
 
         self._time_scale_slider = QSlider(Qt.Orientation.Horizontal)
@@ -623,8 +646,9 @@ class SimulationUI(QMainWindow):
         return defs
 
     def _refresh_chart_metric_checkboxes(self):
-        layout = getattr(self, '_chart_checks_layout', None)
-        chart = getattr(self, 'metrics_chart', None)
+        state = self.__dict__
+        layout = state.get('_chart_checks_layout')
+        chart = state.get('metrics_chart')
         if layout is None or chart is None:
             return
         while layout.count():
@@ -634,17 +658,33 @@ class SimulationUI(QMainWindow):
                 widget.deleteLater()
         metric_defs = self._current_chart_metric_defs()
         visible = []
+        boxes = {}
+        state['_chart_metric_checkboxes'] = boxes
         for key, label, color in metric_defs:
-            cb = QCheckBox(label)
+            cb = QCheckBox(self._chart_metric_text(key, label))
+            cb.setProperty("metric_label", label)
             cb.setChecked(key not in self._hidden_chart_metrics)
             cb.setStyleSheet(f"QCheckBox {{ color: rgb({color.red()},{color.green()},{color.blue()}); }}")
             cb.toggled.connect(lambda checked, metric_key=key: self._on_chart_metric_toggled(metric_key, checked))
             layout.addWidget(cb)
+            boxes[key] = cb
             if cb.isChecked():
                 visible.append(key)
         layout.addStretch(1)
         chart.set_metric_defs(metric_defs)
         chart.set_visible_keys(visible)
+        self._update_chart_metric_value_labels()
+
+    def _chart_metric_text(self, key: str, label: str) -> str:
+        value = self.__dict__.setdefault('_chart_current_values', {}).get(key)
+        if value is None:
+            return f"{label}: -"
+        return f"{label}: {MetricHistoryChart._compact(float(value))}"
+
+    def _update_chart_metric_value_labels(self):
+        for key, cb in self.__dict__.setdefault('_chart_metric_checkboxes', {}).items():
+            label = cb.property("metric_label") or cb.text().split(":", 1)[0]
+            cb.setText(self._chart_metric_text(key, str(label)))
 
     def _on_chart_metric_toggled(self, key: str, checked: bool):
         if checked:
@@ -655,9 +695,24 @@ class SimulationUI(QMainWindow):
         self.metrics_chart.set_visible_keys(visible)
 
     def _set_chart_sample_seconds(self, seconds: int):
+        seconds = max(1, int(seconds))
+        self.params.set('metrics_chart_sample_seconds', seconds, validate=False)
         interval = max(1, int(seconds)) * 1000
-        if getattr(self, '_metrics_chart_timer', None) is not None:
-            self._metrics_chart_timer.setInterval(interval)
+        state = self.__dict__
+        timer = state.get('_metrics_chart_timer')
+        if timer is not None:
+            timer.setInterval(interval)
+        group = state.get('_chart_sample_group')
+        if group is not None:
+            btn = group.button(seconds)
+            if btn is not None and not btn.isChecked():
+                btn.blockSignals(True)
+                btn.setChecked(True)
+                btn.blockSignals(False)
+        for action_seconds, action in state.get('_chart_sample_actions', {}).items():
+            action.blockSignals(True)
+            action.setChecked(int(action_seconds) == seconds)
+            action.blockSignals(False)
 
     def _on_chart_window_changed(self):
         value = self._chart_window_combo.currentData()
@@ -808,19 +863,90 @@ class SimulationUI(QMainWindow):
         self._intelligence_cache_time = now
         return metrics
 
-    def _update_metrics_chart(self):
-        chart = getattr(self, 'metrics_chart', None)
-        if chart is None or not chart.isVisible():
+    def _reset_metrics_history(self):
+        state = self.__dict__
+        history = state.setdefault('_metrics_history', [])
+        history.clear()
+        state.setdefault('_chart_current_values', {}).clear()
+        state.setdefault('_chart_intake_cache', {}).clear()
+        state.setdefault('_chart_group_smart_ema', {}).clear()
+        chart = state.get('metrics_chart')
+        if chart is not None:
+            chart.set_history(history)
+        self._update_chart_metric_value_labels()
+
+    def _cleanup_chart_intake_cache(self):
+        state = self.__dict__
+        cache = state.setdefault('_chart_intake_cache', {})
+        if not cache:
             return
-        engine = self.engine
+        engine = state.get('engine')
+        live = set(getattr(engine, 'all_agents', []) or [])
+        for agent in list(cache.keys()):
+            if agent not in live:
+                cache.pop(agent, None)
+
+    def _group_chart_intelligence_value(self, label_id: int, agents, now_t: float, sample_size: int = 96) -> float:
+        state = self.__dict__
+        engine = state.get('engine')
+        ema = state.setdefault('_chart_group_smart_ema', {})
+        cache = state.setdefault('_chart_intake_cache', {})
+        pool = [agent for agent in agents if agent in getattr(engine, 'all_agents', [])]
+        previous = float(ema.get(label_id, 0.0) or 0.0)
+        if not pool:
+            ema[label_id] = 0.0
+            return 0.0
+        if len(pool) > sample_size:
+            stride = max(1, len(pool) // sample_size)
+            sample = pool[::stride][:sample_size]
+        else:
+            sample = pool
+        try:
+            from .intelligence import agent_intake_energy, global_resource_density, EPS
+        except Exception:
+            return previous
+        values = []
+        for agent in sample:
+            current = float(agent_intake_energy(agent))
+            prev = cache.get(agent)
+            cache[agent] = (float(now_t), current)
+            if prev is None:
+                continue
+            prev_t, prev_energy = prev
+            dt = float(now_t) - float(prev_t)
+            if dt <= 1e-9 or current < prev_energy:
+                continue
+            density = float(global_resource_density(engine, agent))
+            if density <= EPS:
+                continue
+            values.append(((current - prev_energy) / dt) / density)
+        if values:
+            raw = sum(values) / len(values)
+        else:
+            raw = previous
+        alpha = 0.18
+        smoothed = raw if label_id not in ema else previous + alpha * (raw - previous)
+        ema[label_id] = float(smoothed)
+        return float(smoothed)
+
+    def _update_metrics_chart(self, force: bool = False):
+        state = self.__dict__
+        chart = state.get('metrics_chart')
+        if chart is None:
+            return
+        engine = state.get('engine')
+        if engine is None:
+            return
         label_ids = tuple(sorted(getattr(engine, 'agent_labels', {}).keys()))
-        if label_ids != getattr(self, '_chart_known_label_ids', ()):
+        if label_ids != state.get('_chart_known_label_ids', ()):
             self._chart_known_label_ids = label_ids
             self._refresh_chart_metric_checkboxes()
         if bool(self.params.get('paused', False)) or not bool(getattr(engine, 'running', False)):
             return
+        self._cleanup_chart_intake_cache()
+        now_t = float(getattr(engine, 'total_simulation_time', 0.0))
         row = {
-            't': float(getattr(engine, 'total_simulation_time', 0.0)),
+            't': now_t,
             'bacteria': float(len(engine.entities.get('bacteria', []))),
             'predators': float(len(engine.entities.get('predators', []))),
             'foods': float(len(engine.entities.get('foods', []))),
@@ -828,26 +954,33 @@ class SimulationUI(QMainWindow):
         }
         if getattr(engine, 'agent_labels', None):
             try:
-                from .intelligence import group_intelligence_snapshot
                 for label_id, meta in engine.agent_labels.items():
                     if not bool(meta.get('show_chart', True)):
                         continue
                     agents = engine.get_agents_by_label(label_id)
-                    group_metrics = group_intelligence_snapshot(engine, agents, sample_size=10)
-                    row[f'label_{label_id}_smart'] = float(group_metrics.get('local_factor', 0.0) or 0.0)
+                    row[f'label_{label_id}_smart'] = self._group_chart_intelligence_value(label_id, agents, now_t)
             except Exception:
                 pass
-        self._metrics_history.append(row)
-        chart.set_history(self._metrics_history)
+        history = state.setdefault('_metrics_history', [])
+        history.append(row)
+        current_values = state.setdefault('_chart_current_values', {})
+        for key, _label, _color in self._current_chart_metric_defs():
+            if key in row:
+                current_values[key] = float(row[key])
+        chart.set_history(history)
+        self._update_chart_metric_value_labels()
 
     def _set_metrics_chart_visible(self, checked: bool):
         self.params.set('show_metrics_chart', bool(checked), validate=False)
-        panel = getattr(self, 'metrics_panel', None)
+        state = self.__dict__
+        panel = state.get('metrics_panel')
         if panel is not None:
             panel.setVisible(bool(checked))
             if checked:
                 self._refresh_chart_metric_checkboxes()
-                self._update_metrics_chart()
+                chart = state.get('metrics_chart')
+                if chart is not None:
+                    chart.set_history(state.setdefault('_metrics_history', []))
 
     def _update_selected_agent_panel(self):
         panel = getattr(self, 'agent_details_panel', None)
@@ -959,23 +1092,7 @@ class SimulationUI(QMainWindow):
             layout.addWidget(btn)
             return btn
 
-        def add_command(text: str, tooltip: str, slot, icon_path: str | None = None):
-            btn = QPushButton(text)
-            btn.setToolTip(tooltip)
-            if icon_path and os.path.exists(icon_path):
-                btn.setText("")
-                btn.setIcon(QIcon(icon_path))
-                btn.setIconSize(QSize(22, 22))
-            btn.clicked.connect(slot)
-            layout.addWidget(btn)
-            return btn
-
         asset_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'Assets'))
-        layout.addWidget(QLabel("Execucao"))
-        add_command('Play', 'Iniciar ou despausar a simulacao.', self.play_simulation, os.path.join(asset_dir, 'Play.png'))
-        add_command('Pause', 'Pausar a simulacao sem apagar o estado atual.', self.pause_simulation, os.path.join(asset_dir, 'Pause.png'))
-        add_command('Stop', 'Parar e resetar a populacao usando os setups atuais.', self.stop_simulation, os.path.join(asset_dir, 'Stop.png'))
-        layout.addSpacing(14)
         layout.addWidget(QLabel("Selecao"))
         add_tool('select', 'S', 'Selecao unitaria: clique esquerdo seleciona um agente.', os.path.join(asset_dir, 'Selection.png'))
         add_tool('select_square', 'Q', 'Selecao quadrada: arraste uma area para selecionar agentes.', os.path.join(asset_dir, 'Square.png'))
@@ -1103,6 +1220,8 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(pref_menu, "Exportar ativacoes neurais nos snapshots", 'export_substrate_include_brain_activations')
         self._add_bool_menu_action(pref_menu, "JSON manual legivel", 'export_substrate_pretty_json')
         self._add_bool_menu_action(pref_menu, "Tracebacks no debug", 'debug_tracebacks')
+        chart_menu = pref_menu.addMenu("Grafico")
+        self._build_chart_sampling_menu(chart_menu)
         act_pref_tab = QAction("Abrir aba Experimento", self)
         act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
         pref_menu.addAction(act_pref_tab)
@@ -1122,6 +1241,21 @@ class SimulationUI(QMainWindow):
         act_help = QAction("Ajuda e atalhos", self)
         act_help.triggered.connect(self.show_help_window)
         help_menu.addAction(act_help)
+
+    def _build_chart_sampling_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._chart_sample_action_group = group
+        self._chart_sample_actions = {}
+        current = int(self.params.get('metrics_chart_sample_seconds', 5) or 5)
+        for label, seconds in (("1s", 1), ("5s", 5), ("30s", 30), ("1min", 60), ("10min", 600)):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(int(seconds) == current)
+            action.triggered.connect(lambda _checked=False, s=seconds: self._set_chart_sample_seconds(s))
+            group.addAction(action)
+            menu.addAction(action)
+            self._chart_sample_actions[int(seconds)] = action
 
     def _add_bool_menu_action(self, menu, text: str, param_name: str, callback=None):
         action = QAction(text, self)
@@ -3089,6 +3223,7 @@ class SimulationUI(QMainWindow):
             self.engine.total_simulation_time = 0.0
             self.engine.frame_count = 0
             self.engine._spatial_hash_dirty = True
+            self._reset_metrics_history()
         finally:
             if state_lock is not None:
                 state_lock.release()
@@ -3104,14 +3239,17 @@ class SimulationUI(QMainWindow):
         self.apply_all_params()
         self._set_paused_state(False)
         if not self.engine.running:
-            self.engine.start(); print("Simulação iniciada")
+            self.engine.start()
+            print("Simulacao iniciada")
         else:
-            print("Simulação já em execução")
+            print("Simulacao ja em execucao")
+        self._update_metrics_chart(force=True)
 
     def play_simulation(self):
         if self.engine.running:
             self._set_paused_state(False)
             print("Simulacao retomada")
+            self._update_metrics_chart(force=True)
         else:
             self.start_simulation()
 
@@ -3191,6 +3329,7 @@ class SimulationUI(QMainWindow):
                 self.engine.total_simulation_time = 0.0
                 self.engine.frame_count = 0
                 self.engine._initialize_population()
+                self._reset_metrics_history()
                 self._current_biosim_path = None
                 self.engine.camera.fit_world(self.engine.world, self.pygame_view.screen_width, self.pygame_view.screen_height)
             finally:
@@ -3967,7 +4106,7 @@ class SimulationUI(QMainWindow):
                 self._current_biosim_path = path
             else:
                 self._current_biosim_path = None
-            self.__dict__.setdefault('_metrics_history', []).clear()
+            self._reset_metrics_history()
             if 'labels_table' in self.__dict__:
                 self._refresh_labels_list()
             print(f"Substrato importado de {path}")

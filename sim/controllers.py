@@ -153,6 +153,7 @@ class Params:
             # UI/Debug
             'show_selected_details': True,
             'show_metrics_chart': False,
+            'metrics_chart_sample_seconds': 5,
             'debug_tracebacks': False,
             'diagnostic_heartbeat_minutes': 1.0,
             'save_recovery_on_close': True,
