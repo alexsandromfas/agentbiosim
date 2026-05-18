@@ -292,7 +292,7 @@ class SimulationUI(QMainWindow):
         self._metrics_history: list[dict[str, float]] = []
         self._chart_current_values: dict[str, float] = {}
         self._chart_metric_checkboxes: dict[str, QCheckBox] = {}
-        self._chart_intake_cache: dict[Any, tuple[float, float]] = {}
+        self._chart_intake_cache: dict[int, dict[Any, dict[str, float]]] = {}
         self._chart_group_smart_ema: dict[int, float] = {}
 
         self._build_layout()
@@ -882,52 +882,42 @@ class SimulationUI(QMainWindow):
             return
         engine = state.get('engine')
         live = set(getattr(engine, 'all_agents', []) or [])
-        for agent in list(cache.keys()):
-            if agent not in live:
-                cache.pop(agent, None)
+        for label_id, label_cache in list(cache.items()):
+            if not isinstance(label_cache, dict):
+                cache.pop(label_id, None)
+                continue
+            for agent in list(label_cache.keys()):
+                if agent not in live:
+                    label_cache.pop(agent, None)
 
     def _group_chart_intelligence_value(self, label_id: int, agents, now_t: float, sample_size: int = 96) -> float:
         state = self.__dict__
         engine = state.get('engine')
         ema = state.setdefault('_chart_group_smart_ema', {})
         cache = state.setdefault('_chart_intake_cache', {})
-        pool = [agent for agent in agents if agent in getattr(engine, 'all_agents', [])]
         previous = float(ema.get(label_id, 0.0) or 0.0)
+        pool = [agent for agent in agents if agent in getattr(engine, 'all_agents', [])]
         if not pool:
             ema[label_id] = 0.0
+            cache.pop(label_id, None)
             return 0.0
-        if len(pool) > sample_size:
-            stride = max(1, len(pool) // sample_size)
-            sample = pool[::stride][:sample_size]
-        else:
-            sample = pool
         try:
-            from .intelligence import agent_intake_energy, global_resource_density, EPS
+            from .intelligence import opportunity_group_intelligence_value
         except Exception:
             return previous
-        values = []
-        for agent in sample:
-            current = float(agent_intake_energy(agent))
-            prev = cache.get(agent)
-            cache[agent] = (float(now_t), current)
-            if prev is None:
-                continue
-            prev_t, prev_energy = prev
-            dt = float(now_t) - float(prev_t)
-            if dt <= 1e-9 or current < prev_energy:
-                continue
-            density = float(global_resource_density(engine, agent))
-            if density <= EPS:
-                continue
-            values.append(((current - prev_energy) / dt) / density)
-        if values:
-            raw = sum(values) / len(values)
-        else:
-            raw = previous
-        alpha = 0.18
-        smoothed = raw if label_id not in ema else previous + alpha * (raw - previous)
-        ema[label_id] = float(smoothed)
-        return float(smoothed)
+        label_cache = cache.setdefault(label_id, {})
+        metrics = opportunity_group_intelligence_value(
+            engine,
+            pool,
+            label_cache,
+            now_t,
+            previous_score=previous,
+            sample_size=sample_size,
+            alpha=0.08,
+        )
+        value = float(metrics.get('smart_factor', previous) or 0.0)
+        ema[label_id] = value
+        return value
 
     def _update_metrics_chart(self, force: bool = False):
         state = self.__dict__

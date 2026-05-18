@@ -64,6 +64,16 @@ def global_resource_density(engine: Any, agent: Any) -> float:
     return total / substrate_area(engine.world)
 
 
+def global_resource_density_for_species(engine: Any, is_predator: bool) -> float:
+    predator_resource = bool(is_predator)
+    if predator_resource:
+        pool = engine.entities.get("bacteria", [])
+    else:
+        pool = engine.entities.get("foods", [])
+    total = sum(resource_energy(obj, predator_resource) for obj in pool)
+    return total / substrate_area(engine.world)
+
+
 def local_resource_density(engine: Any, agent: Any, radius: float | None = None) -> float:
     sensor = getattr(agent, "sensor", None)
     if radius is None:
@@ -202,3 +212,129 @@ def group_intelligence_snapshot(
     else:
         result["global_factor"] = 0.0
     return result
+
+
+def _sample_agents(pool: List[Any], sample_size: int) -> List[Any]:
+    if not pool:
+        return []
+    if len(pool) <= sample_size:
+        return list(pool)
+    stride = max(1, len(pool) // sample_size)
+    return pool[::stride][:sample_size]
+
+
+def agent_global_opportunity_energy(engine: Any, agent: Any, density_cache: Dict[bool, float] | None = None) -> float:
+    """Energia de recurso esperada dentro da area de visao do agente.
+
+    Esta metrica usa densidade global por tipo de dieta para ser barata no
+    grafico. Ela nao tenta dizer se havia comida exatamente na frente do agente;
+    mede se existia oportunidade alimentar no ambiente para aquele tipo.
+    """
+    is_predator = bool(getattr(agent, "is_predator", False))
+    if density_cache is None:
+        density = global_resource_density_for_species(engine, is_predator)
+    else:
+        if is_predator not in density_cache:
+            density_cache[is_predator] = global_resource_density_for_species(engine, is_predator)
+        density = density_cache[is_predator]
+    sensor = getattr(agent, "sensor", None)
+    radius = max(1.0, float(getattr(sensor, "vision_radius", 120.0) or 120.0))
+    return max(0.0, float(density)) * math.pi * radius * radius
+
+
+def opportunity_group_intelligence_value(
+    engine: Any,
+    agents: Iterable[Any],
+    cache: Dict[Any, Dict[str, float]],
+    now_t: float,
+    previous_score: float = 0.0,
+    sample_size: int = 96,
+    alpha: float = 0.08,
+) -> Dict[str, float]:
+    """Calcula o smart factor de grupo por aproveitamento de oportunidade.
+
+    Diferenca conceitual contra o fator antigo:
+    - se nao ha recurso disponivel, a ausencia de consumo nao derruba o score;
+    - se ha recurso disponivel e o grupo nao converte em energia, o score cai
+      suavemente;
+    - consumo alto quando havia oportunidade aumenta o score, com saturacao para
+      reduzir ruido de eventos raros.
+    """
+    live = set(getattr(engine, "all_agents", []) or [])
+    pool = [agent for agent in agents if agent in live]
+    sample = _sample_agents(pool, max(1, int(sample_size)))
+    if not sample:
+        cache.clear()
+        return {
+            "smart_factor": 0.0,
+            "raw_factor": 0.0,
+            "opportunity_samples": 0.0,
+            "sample_size": 0.0,
+            "member_count": 0.0,
+        }
+
+    density_cache: Dict[bool, float] = {}
+    values: List[float] = []
+    opportunity_samples = 0
+    total_intake_rate = 0.0
+    total_opportunity = 0.0
+
+    for agent in sample:
+        current_intake = agent_intake_energy(agent)
+        opportunity = agent_global_opportunity_energy(engine, agent, density_cache)
+        previous = cache.get(agent)
+        cache[agent] = {
+            "t": float(now_t),
+            "intake": float(current_intake),
+            "opportunity": float(opportunity),
+        }
+        if previous is None:
+            continue
+        dt = float(now_t) - float(previous.get("t", now_t))
+        if dt <= EPS:
+            continue
+        previous_intake = float(previous.get("intake", current_intake))
+        if current_intake < previous_intake:
+            continue
+        intake_delta = current_intake - previous_intake
+        opportunity_ref = max(float(previous.get("opportunity", 0.0)), opportunity)
+
+        if opportunity_ref <= EPS and intake_delta <= EPS:
+            # Sem oportunidade e sem consumo: nao ha informacao nova.
+            continue
+
+        opportunity_samples += 1
+        total_intake_rate += intake_delta / dt
+        total_opportunity += opportunity_ref
+
+        if intake_delta <= EPS:
+            values.append(0.0)
+            continue
+
+        # Usa oportunidade energetica no campo de visao como denominador. O
+        # piso evita explosoes quando restam recursos residuais muito baixos.
+        ratio = intake_delta / max(1.0, opportunity_ref)
+        values.append(100.0 * (1.0 - math.exp(-ratio)))
+
+    if values:
+        raw = sum(values) / len(values)
+        previous_score = max(0.0, float(previous_score))
+        smoothed = raw if previous_score <= EPS else previous_score + alpha * (raw - previous_score)
+    else:
+        raw = max(0.0, float(previous_score))
+        smoothed = raw
+
+    # Remove agentes mortos do cache deste grupo.
+    for agent in list(cache.keys()):
+        if agent not in live:
+            cache.pop(agent, None)
+
+    return {
+        "smart_factor": float(smoothed),
+        "raw_factor": float(raw),
+        "opportunity_samples": float(opportunity_samples),
+        "sample_size": float(len(sample)),
+        "member_count": float(len(pool)),
+        "intake_rate": total_intake_rate / max(1, opportunity_samples),
+        "opportunity_energy": total_opportunity / max(1, opportunity_samples),
+    }
