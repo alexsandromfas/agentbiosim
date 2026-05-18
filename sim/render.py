@@ -30,7 +30,8 @@ class RendererStrategy(ABC):
         pass
 
     @abstractmethod
-    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
         """Desenha obstáculos sólidos."""
         pass
     
@@ -88,11 +89,17 @@ class SimpleRenderer(RendererStrategy):
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
 
-    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
         """Desenha barreiras criadas com o pincel."""
         if not getattr(obstacles, 'has_obstacles', False):
             return
         for stamp in obstacles.stamps:
+            if visible_bounds is not None:
+                min_x, min_y, max_x, max_y = visible_bounds
+                if (stamp.x + stamp.r < min_x or stamp.x - stamp.r > max_x or
+                        stamp.y + stamp.r < min_y or stamp.y - stamp.r > max_y):
+                    continue
             screen_x, screen_y = camera.world_to_screen(stamp.x, stamp.y)
             screen_radius = max(1, int(stamp.r * camera.zoom))
             pygame.draw.circle(surface, stamp.color, (int(screen_x), int(screen_y)), screen_radius)
@@ -279,9 +286,10 @@ class EllipseRenderer(RendererStrategy):
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
 
-    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera'):
+    def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
+                       visible_bounds=None):
         """Reutiliza implementação do SimpleRenderer."""
-        self._simple_renderer.draw_obstacles(obstacles, surface, camera)
+        self._simple_renderer.draw_obstacles(obstacles, surface, camera, visible_bounds=visible_bounds)
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Reutiliza implementação do SimpleRenderer."""

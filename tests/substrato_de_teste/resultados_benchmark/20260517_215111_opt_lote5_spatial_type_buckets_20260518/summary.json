@@ -1,0 +1,988 @@
+{
+  "run_id": "20260517_215111_opt_lote5_spatial_type_buckets_20260518",
+  "label": "opt_lote5_spatial_type_buckets_20260518",
+  "git_commit": "ed61dfa",
+  "created_at": "2026-05-17T21:51:13.892167",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "config": {
+    "seconds": 2.0,
+    "fps": 60,
+    "sample_interval": 1.0,
+    "neural_sample": 16,
+    "time_scale": 0.5,
+    "params_random_seed": -1,
+    "retina_vision_mode": "fullbody",
+    "seed": 12345,
+    "food_layout_dir": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\layouts",
+    "rebuild_food_layout": false,
+    "deterministic_spatial_queries": true
+  },
+  "substrate": {
+    "snapshot_version": 2,
+    "snapshot_timestamp": "20260515_210719",
+    "food_restore": {
+      "mode": "bench_canonical_layout",
+      "count": 480,
+      "layout_path": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\layouts\\substrato_de_teste_20260515_210719_food_layout_seed_12345.json",
+      "note": "Snapshot v2 has only food count; benchmark uses a persisted canonical food layout."
+    },
+    "source_path": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\substrato_de_teste_20260515_210719.json"
+  },
+  "steps": 120,
+  "wall_s": 2.045153199986089,
+  "step_wall_s": {
+    "count": 120,
+    "mean": 0.0167402749999989,
+    "std": 0.03744766418499272,
+    "min": 3.00002284348011e-06,
+    "p05": 3.1999952625483274e-06,
+    "p25": 3.975001163780689e-06,
+    "p50": 1.134999911300838e-05,
+    "p75": 0.006497599999420345,
+    "p95": 0.1311917999817524,
+    "max": 0.1422391000087373
+  },
+  "avg_agents": 1020.0,
+  "ms_per_agent_step": 0.016708767973742558,
+  "events": {
+    "foods_eaten": 346,
+    "predations": 32,
+    "births": 32,
+    "deaths": 0,
+    "foods_added_controller": 328,
+    "foods_removed_controller": 0,
+    "births_blocked_age": 0,
+    "births_blocked_cooldown": 0,
+    "collisions_resolved": 2472,
+    "spatial_hash_rebuilds": 84,
+    "spatial_hash_skips": 1
+  },
+  "initial_sample": {
+    "step": 0,
+    "sim_time_s": 1885.2040000001696,
+    "wall_elapsed_s": 0.0,
+    "counts": {
+      "bacteria": 1000,
+      "predators": 20,
+      "foods": 480,
+      "all_agents": 1020
+    },
+    "population_pressure": {
+      "bacteria_fraction_of_max": 1.0,
+      "predator_fraction_of_max": 1.0,
+      "food_fraction_of_target": 0.96
+    },
+    "bacteria": {
+      "count": 1000,
+      "energy": {
+        "count": 1000,
+        "mean": 159.4372031357621,
+        "std": 42.95125034947619,
+        "min": 8.8166327875892,
+        "p05": 82.04129862147562,
+        "p25": 129.68417112766704,
+        "p50": 176.2132349512859,
+        "p75": 193.17302557502808,
+        "p95": 199.14220034195608,
+        "max": 286.0979642527169
+      },
+      "speed": {
+        "count": 1000,
+        "mean": 265.34294680727834,
+        "std": 79.18749803814244,
+        "min": 8.628646084018557e-08,
+        "p05": 74.88503446787463,
+        "p25": 297.8116445162833,
+        "p50": 299.6235456328881,
+        "p75": 299.73205900941986,
+        "p95": 299.9999999602123,
+        "max": 414.04783295065084
+      },
+      "age": {
+        "count": 1000,
+        "mean": 28.119159583333257,
+        "std": 21.260809265756496,
+        "min": 0.0345,
+        "p05": 1.4184999999999997,
+        "p25": 9.956734374999995,
+        "p50": 24.968812500000123,
+        "p75": 40.31181249999993,
+        "p95": 67.14116666666617,
+        "max": 108.37199999999851
+      },
+      "radius": {
+        "count": 1000,
+        "mean": 9.0,
+        "std": 0.0,
+        "min": 9.0,
+        "p05": 9.0,
+        "p25": 9.0,
+        "p50": 9.0,
+        "p75": 9.0,
+        "p95": 9.0,
+        "max": 9.0
+      },
+      "ready_to_reproduce_fraction": 0.017,
+      "near_death_fraction": 0.0,
+      "retina_count": {
+        "count": 1000,
+        "mean": 18.0,
+        "std": 0.0,
+        "min": 18.0,
+        "p05": 18.0,
+        "p25": 18.0,
+        "p50": 18.0,
+        "p75": 18.0,
+        "p95": 18.0,
+        "max": 18.0
+      },
+      "vision_radius": {
+        "count": 1000,
+        "mean": 180.0,
+        "std": 0.0,
+        "min": 180.0,
+        "p05": 180.0,
+        "p25": 180.0,
+        "p50": 180.0,
+        "p75": 180.0,
+        "p95": 180.0,
+        "max": 180.0
+      },
+      "brain_architectures_top": [
+        {
+          "value": "(18, 32, 16, 8, 2)",
+          "count": 1000
+        }
+      ],
+      "brain_versions_top": [
+        {
+          "value": "79",
+          "count": 193
+        },
+        {
+          "value": "78",
+          "count": 152
+        },
+        {
+          "value": "77",
+          "count": 133
+        },
+        {
+          "value": "80",
+          "count": 117
+        },
+        {
+          "value": "76",
+          "count": 112
+        },
+        {
+          "value": "81",
+          "count": 83
+        },
+        {
+          "value": "75",
+          "count": 52
+        },
+        {
+          "value": "73",
+          "count": 39
+        }
+      ],
+      "sampled_retina_activation": {
+        "count": 0,
+        "mean": null,
+        "std": null,
+        "min": null,
+        "p05": null,
+        "p25": null,
+        "p50": null,
+        "p75": null,
+        "p95": null,
+        "max": null,
+        "nonzero_fraction": null
+      },
+      "sampled_brain_output": {
+        "count": 0,
+        "mean": null,
+        "std": null,
+        "min": null,
+        "p05": null,
+        "p25": null,
+        "p50": null,
+        "p75": null,
+        "p95": null,
+        "max": null
+      },
+      "sampled_activation_layers": {}
+    },
+    "predators": {
+      "count": 20,
+      "energy": {
+        "count": 20,
+        "mean": 395.65790976224633,
+        "std": 32.94881778951963,
+        "min": 347.1339899497144,
+        "p05": 358.71982863897233,
+        "p25": 389.38678241906086,
+        "p50": 393.2878589255561,
+        "p75": 395.9761118066047,
+        "p95": 405.57006832065747,
+        "max": 528.2119558672531
+      },
+      "speed": {
+        "count": 20,
+        "mean": 203.42837307389502,
+        "std": 131.76149081299275,
+        "min": 0.002001170155216907,
+        "p05": 0.007677026521587622,
+        "p25": 22.3814554808769,
+        "p50": 286.7430817834262,
+        "p75": 299.99541126680106,
+        "p95": 303.06023838556507,
+        "max": 361.2048302977766
+      },
+      "age": {
+        "count": 20,
+        "mean": 95.24879583333554,
+        "std": 48.31289224366627,
+        "min": 58.735833333333396,
+        "p05": 60.25583333333333,
+        "p25": 64.85666666666638,
+        "p50": 67.45249999999946,
+        "p75": 92.75437499999819,
+        "p95": 196.08883333335362,
+        "max": 199.01800000002
+      },
+      "radius": {
+        "count": 20,
+        "mean": 30.0,
+        "std": 0.0,
+        "min": 30.0,
+        "p05": 30.0,
+        "p25": 30.0,
+        "p50": 30.0,
+        "p75": 30.0,
+        "p95": 30.0,
+        "max": 30.0
+      },
+      "ready_to_reproduce_fraction": 0.05,
+      "near_death_fraction": 0.0,
+      "retina_count": {
+        "count": 20,
+        "mean": 18.0,
+        "std": 0.0,
+        "min": 18.0,
+        "p05": 18.0,
+        "p25": 18.0,
+        "p50": 18.0,
+        "p75": 18.0,
+        "p95": 18.0,
+        "max": 18.0
+      },
+      "vision_radius": {
+        "count": 20,
+        "mean": 500.0,
+        "std": 0.0,
+        "min": 500.0,
+        "p05": 500.0,
+        "p25": 500.0,
+        "p50": 500.0,
+        "p75": 500.0,
+        "p95": 500.0,
+        "max": 500.0
+      },
+      "brain_architectures_top": [
+        {
+          "value": "(18, 32, 16, 8, 2)",
+          "count": 20
+        }
+      ],
+      "brain_versions_top": [
+        {
+          "value": "25",
+          "count": 4
+        },
+        {
+          "value": "26",
+          "count": 4
+        },
+        {
+          "value": "23",
+          "count": 3
+        },
+        {
+          "value": "24",
+          "count": 3
+        },
+        {
+          "value": "27",
+          "count": 2
+        },
+        {
+          "value": "28",
+          "count": 2
+        },
+        {
+          "value": "22",
+          "count": 1
+        },
+        {
+          "value": "29",
+          "count": 1
+        }
+      ],
+      "sampled_retina_activation": {
+        "count": 0,
+        "mean": null,
+        "std": null,
+        "min": null,
+        "p05": null,
+        "p25": null,
+        "p50": null,
+        "p75": null,
+        "p95": null,
+        "max": null,
+        "nonzero_fraction": null
+      },
+      "sampled_brain_output": {
+        "count": 0,
+        "mean": null,
+        "std": null,
+        "min": null,
+        "p05": null,
+        "p25": null,
+        "p50": null,
+        "p75": null,
+        "p95": null,
+        "max": null
+      },
+      "sampled_activation_layers": {}
+    },
+    "food_energy": {
+      "count": 480,
+      "mean": 81.4434742342296,
+      "std": 10.614770716804136,
+      "min": 64.05736037109378,
+      "p05": 65.40891609319652,
+      "p25": 72.60234914022982,
+      "p50": 81.25943911272222,
+      "p75": 91.49726627018813,
+      "p95": 97.91458838620802,
+      "max": 99.99189599202526
+    },
+    "integrity": {
+      "all_agents_missing_from_entities": 0,
+      "entities_missing_from_all_agents": 0,
+      "duplicate_all_agents": 0,
+      "bad_numeric_objects": 0,
+      "outside_world_objects": 11,
+      "negative_energy_objects": 0,
+      "spatial_hash_sample_misses": 0
+    },
+    "spatial_hash": {
+      "total_objects": 3326,
+      "occupied_cells": 2951,
+      "total_cells": 19321,
+      "occupancy_rate": 0.1527353656643031,
+      "avg_objects_per_occupied_cell": 1.127075567604202
+    },
+    "brain_cache": {
+      "entries": 0,
+      "total_arrays": 0,
+      "approx_total_mb": 0.0,
+      "largest": []
+    },
+    "resources": {
+      "cpu_percent": 0.0,
+      "cpu_proc_percent": 0.0,
+      "mem_used_mb": 0.0,
+      "mem_percent": 0.0
+    }
+  },
+  "final_sample": {
+    "step": 120,
+    "sim_time_s": 1886.2040000001687,
+    "wall_elapsed_s": 2.033917199994903,
+    "counts": {
+      "bacteria": 1000,
+      "predators": 20,
+      "foods": 462,
+      "all_agents": 1020
+    },
+    "population_pressure": {
+      "bacteria_fraction_of_max": 1.0,
+      "predator_fraction_of_max": 1.0,
+      "food_fraction_of_target": 0.924
+    },
+    "bacteria": {
+      "count": 1000,
+      "energy": {
+        "count": 1000,
+        "mean": 158.49246798651924,
+        "std": 43.257183552664415,
+        "min": 4.104850280791255,
+        "p05": 79.17655499435828,
+        "p25": 124.9842543039641,
+        "p50": 177.82537898968573,
+        "p75": 193.4580254822298,
+        "p95": 199.200419834806,
+        "max": 200.0
+      },
+      "speed": {
+        "count": 1000,
+        "mean": 265.7264256531835,
+        "std": 77.19134148064403,
+        "min": 2.7555004763689023e-07,
+        "p05": 76.67870668454736,
+        "p25": 298.44808123761663,
+        "p50": 299.61106320772114,
+        "p75": 299.72297549506806,
+        "p95": 299.999999946415,
+        "max": 402.24603752717184
+      },
+      "age": {
+        "count": 1000,
+        "mean": 28.35188114583325,
+        "std": 21.675666777664535,
+        "min": 0.0,
+        "p05": 1.5930625000000018,
+        "p25": 9.37212500000001,
+        "p50": 25.185187500000133,
+        "p75": 41.27665624999988,
+        "p95": 68.14116666666611,
+        "max": 109.37199999999845
+      },
+      "radius": {
+        "count": 1000,
+        "mean": 9.0,
+        "std": 0.0,
+        "min": 9.0,
+        "p05": 9.0,
+        "p25": 9.0,
+        "p50": 9.0,
+        "p75": 9.0,
+        "p95": 9.0,
+        "max": 9.0
+      },
+      "ready_to_reproduce_fraction": 0.011,
+      "near_death_fraction": 0.0,
+      "retina_count": {
+        "count": 1000,
+        "mean": 18.0,
+        "std": 0.0,
+        "min": 18.0,
+        "p05": 18.0,
+        "p25": 18.0,
+        "p50": 18.0,
+        "p75": 18.0,
+        "p95": 18.0,
+        "max": 18.0
+      },
+      "vision_radius": {
+        "count": 1000,
+        "mean": 180.0,
+        "std": 0.0,
+        "min": 180.0,
+        "p05": 180.0,
+        "p25": 180.0,
+        "p50": 180.0,
+        "p75": 180.0,
+        "p95": 180.0,
+        "max": 180.0
+      },
+      "brain_architectures_top": [
+        {
+          "value": "(18, 32, 16, 8, 2)",
+          "count": 1000
+        }
+      ],
+      "brain_versions_top": [
+        {
+          "value": "79",
+          "count": 194
+        },
+        {
+          "value": "78",
+          "count": 148
+        },
+        {
+          "value": "77",
+          "count": 135
+        },
+        {
+          "value": "80",
+          "count": 121
+        },
+        {
+          "value": "76",
+          "count": 109
+        },
+        {
+          "value": "81",
+          "count": 85
+        },
+        {
+          "value": "75",
+          "count": 51
+        },
+        {
+          "value": "73",
+          "count": 41
+        }
+      ],
+      "sampled_retina_activation": {
+        "count": 288,
+        "mean": 0.021860021735645004,
+        "std": 0.11833563610533639,
+        "min": 0.0,
+        "p05": 0.0,
+        "p25": 0.0,
+        "p50": 0.0,
+        "p75": 0.0,
+        "p95": 0.0,
+        "max": 0.8244144916534424,
+        "nonzero_fraction": 0.041666666666666664
+      },
+      "sampled_brain_output": {
+        "count": 32,
+        "mean": 4.335647650063038,
+        "std": 8.642183997382064,
+        "min": -18.420421600341797,
+        "p05": -10.364574432373047,
+        "p25": 0.05063748359680176,
+        "p50": 6.385439395904541,
+        "p75": 6.925434589385986,
+        "p95": 20.992383766174317,
+        "max": 22.112995147705078
+      },
+      "sampled_activation_layers": {
+        "0": {
+          "count": 512,
+          "mean": -0.07251630539940379,
+          "std": 0.9025440636692074,
+          "min": -1.0,
+          "p05": -0.9999999403953552,
+          "p25": -0.9997264295816422,
+          "p50": -0.2704268991947174,
+          "p75": 0.9971417486667633,
+          "p95": 0.9999999403953552,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.740234375
+        },
+        "1": {
+          "count": 256,
+          "mean": -0.1292248351383023,
+          "std": 0.9729734671843269,
+          "min": -1.0,
+          "p05": -1.0,
+          "p25": -1.0,
+          "p50": -0.9993283450603485,
+          "p75": 1.0,
+          "p95": 1.0,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.921875
+        },
+        "2": {
+          "count": 128,
+          "mean": 0.19137727690394968,
+          "std": 0.9657366635903336,
+          "min": -1.0,
+          "p05": -1.0,
+          "p25": -1.0,
+          "p50": 0.9999999701976776,
+          "p75": 1.0,
+          "p95": 1.0,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.9609375
+        },
+        "3": {
+          "count": 32,
+          "mean": 4.335648275911808,
+          "std": 8.642182371440942,
+          "min": -18.42040252685547,
+          "p05": -10.364576482772828,
+          "p25": 0.050638437271118164,
+          "p50": 6.385439395904541,
+          "p75": 6.925434589385986,
+          "p95": 20.99238290786743,
+          "max": 22.112995147705078,
+          "saturation_fraction_abs_gt_095": 0.71875
+        }
+      }
+    },
+    "predators": {
+      "count": 20,
+      "energy": {
+        "count": 20,
+        "mean": 389.8007181872807,
+        "std": 12.404663243209669,
+        "min": 346.4032425706256,
+        "p05": 373.7286787912475,
+        "p25": 384.4194439519043,
+        "p50": 394.74433845065147,
+        "p75": 397.25001248442305,
+        "p95": 399.5250000020344,
+        "max": 400.0
+      },
+      "speed": {
+        "count": 20,
+        "mean": 166.32994493516216,
+        "std": 143.3726651410291,
+        "min": 0.0015573676997570624,
+        "p05": 0.002230190212960335,
+        "p25": 5.842178266729461,
+        "p50": 274.9477114802387,
+        "p75": 299.99920566271555,
+        "p95": 299.99999942549107,
+        "max": 299.99999999830925
+      },
+      "age": {
+        "count": 20,
+        "mean": 96.24879583333549,
+        "std": 48.31289224366626,
+        "min": 59.73583333333334,
+        "p05": 61.25583333333327,
+        "p25": 65.85666666666634,
+        "p50": 68.4524999999994,
+        "p75": 93.75437499999813,
+        "p95": 197.08883333335356,
+        "max": 200.01800000001995
+      },
+      "radius": {
+        "count": 20,
+        "mean": 30.0,
+        "std": 0.0,
+        "min": 30.0,
+        "p05": 30.0,
+        "p25": 30.0,
+        "p50": 30.0,
+        "p75": 30.0,
+        "p95": 30.0,
+        "max": 30.0
+      },
+      "ready_to_reproduce_fraction": 0.05,
+      "near_death_fraction": 0.0,
+      "retina_count": {
+        "count": 20,
+        "mean": 18.0,
+        "std": 0.0,
+        "min": 18.0,
+        "p05": 18.0,
+        "p25": 18.0,
+        "p50": 18.0,
+        "p75": 18.0,
+        "p95": 18.0,
+        "max": 18.0
+      },
+      "vision_radius": {
+        "count": 20,
+        "mean": 500.0,
+        "std": 0.0,
+        "min": 500.0,
+        "p05": 500.0,
+        "p25": 500.0,
+        "p50": 500.0,
+        "p75": 500.0,
+        "p95": 500.0,
+        "max": 500.0
+      },
+      "brain_architectures_top": [
+        {
+          "value": "(18, 32, 16, 8, 2)",
+          "count": 20
+        }
+      ],
+      "brain_versions_top": [
+        {
+          "value": "25",
+          "count": 4
+        },
+        {
+          "value": "26",
+          "count": 4
+        },
+        {
+          "value": "23",
+          "count": 3
+        },
+        {
+          "value": "24",
+          "count": 3
+        },
+        {
+          "value": "27",
+          "count": 2
+        },
+        {
+          "value": "28",
+          "count": 2
+        },
+        {
+          "value": "22",
+          "count": 1
+        },
+        {
+          "value": "29",
+          "count": 1
+        }
+      ],
+      "sampled_retina_activation": {
+        "count": 288,
+        "mean": 0.09107137974610345,
+        "std": 0.23238550746106765,
+        "min": 0.0,
+        "p05": 0.0,
+        "p25": 0.0,
+        "p50": 0.0,
+        "p75": 0.0,
+        "p95": 0.740873011946678,
+        "max": 0.9329894185066223,
+        "nonzero_fraction": 0.18055555555555555
+      },
+      "sampled_brain_output": {
+        "count": 32,
+        "mean": 4.097218111157417,
+        "std": 9.73184171461555,
+        "min": -11.775306701660156,
+        "p05": -10.107987070083619,
+        "p25": -2.7978618144989014,
+        "p50": 2.071213960647583,
+        "p75": 10.742501020431519,
+        "p95": 22.668170738220212,
+        "max": 26.45533561706543
+      },
+      "sampled_activation_layers": {
+        "0": {
+          "count": 512,
+          "mean": 0.027316950679960428,
+          "std": 0.9207624784823288,
+          "min": -1.0,
+          "p05": -0.9999999403953552,
+          "p25": -0.9982618689537048,
+          "p50": 0.17196838557720184,
+          "p75": 0.9991119205951691,
+          "p95": 0.9999999403953552,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.736328125
+        },
+        "1": {
+          "count": 256,
+          "mean": 0.11534733280859655,
+          "std": 0.968760191796424,
+          "min": -1.0,
+          "p05": -1.0,
+          "p25": -1.0,
+          "p50": 0.9768328964710236,
+          "p75": 1.0,
+          "p95": 1.0,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.90625
+        },
+        "2": {
+          "count": 128,
+          "mean": 0.2447602460597409,
+          "std": 0.9280236861363845,
+          "min": -1.0,
+          "p05": -1.0,
+          "p25": -0.9931394010782242,
+          "p50": 0.9978766739368439,
+          "p75": 1.0,
+          "p95": 1.0,
+          "max": 1.0,
+          "saturation_fraction_abs_gt_095": 0.8515625
+        },
+        "3": {
+          "count": 32,
+          "mean": 4.097218371927738,
+          "std": 9.731842379512278,
+          "min": -11.77530288696289,
+          "p05": -10.107984972000121,
+          "p25": -2.797862410545349,
+          "p50": 2.07120418548584,
+          "p75": 10.74250078201294,
+          "p95": 22.668179225921627,
+          "max": 26.45533561706543,
+          "saturation_fraction_abs_gt_095": 0.875
+        }
+      }
+    },
+    "food_energy": {
+      "count": 462,
+      "mean": 81.23725335703703,
+      "std": 10.370275997263716,
+      "min": 64.31286368958257,
+      "p05": 65.53039727678365,
+      "p25": 72.44452230997365,
+      "p50": 80.68896929180502,
+      "p75": 89.98168939649108,
+      "p95": 98.05000793175375,
+      "max": 99.85303348823938
+    },
+    "integrity": {
+      "all_agents_missing_from_entities": 0,
+      "entities_missing_from_all_agents": 0,
+      "duplicate_all_agents": 0,
+      "bad_numeric_objects": 0,
+      "outside_world_objects": 6,
+      "negative_energy_objects": 0,
+      "spatial_hash_sample_misses": 0
+    },
+    "spatial_hash": {
+      "total_objects": 3276,
+      "occupied_cells": 2944,
+      "total_cells": 19321,
+      "occupancy_rate": 0.1523730655763159,
+      "avg_objects_per_occupied_cell": 1.1127717391304348
+    },
+    "brain_cache": {
+      "entries": 24,
+      "total_arrays": 192,
+      "approx_total_mb": 113.28,
+      "largest": [
+        {
+          "sizes": [
+            18,
+            32,
+            16,
+            8,
+            2
+          ],
+          "num_brains": 1000,
+          "approx_mb": 4.92
+        },
+        {
+          "sizes": [
+            18,
+            32,
+            16,
+            8,
+            2
+          ],
+          "num_brains": 1000,
+          "approx_mb": 4.92
+        },
+        {
+          "sizes": [
+            18,
+            32,
+            16,
+            8,
+            2
+          ],
+          "num_brains": 1000,
+          "approx_mb": 4.92
+        },
+        {
+          "sizes": [
+            18,
+            32,
+            16,
+            8,
+            2
+          ],
+          "num_brains": 1000,
+          "approx_mb": 4.92
+        },
+        {
+          "sizes": [
+            18,
+            32,
+            16,
+            8,
+            2
+          ],
+          "num_brains": 1000,
+          "approx_mb": 4.92
+        }
+      ]
+    },
+    "resources": {
+      "cpu_percent": 11.6,
+      "cpu_proc_percent": 101.6,
+      "mem_used_mb": 217.13671875,
+      "mem_percent": 71.7
+    }
+  },
+  "profiler_sections": {
+    "food_control": {
+      "total": 0.035778599994955584,
+      "calls": 30,
+      "min": 0.0006094000127632171,
+      "max": 0.003305299993371591
+    },
+    "spatial_hash": {
+      "total": 0.3612670002039522,
+      "calls": 83,
+      "min": 1.9000144675374031e-06,
+      "max": 0.010296100022969767
+    },
+    "agent_sensor": {
+      "total": 1.0554690000135452,
+      "calls": 60,
+      "min": 2.710000262595713e-05,
+      "max": 0.10166109999408945
+    },
+    "agent_brain_forward": {
+      "total": 0.2200549000117462,
+      "calls": 60,
+      "min": 7.390000973828137e-05,
+      "max": 0.00930900001549162
+    },
+    "agent_locomotion": {
+      "total": 0.04720939908293076,
+      "calls": 30600,
+      "min": 1.0999792721122503e-06,
+      "max": 0.00017779998597688973
+    },
+    "agent_energy": {
+      "total": 0.0333464004797861,
+      "calls": 30600,
+      "min": 8.999777492135763e-07,
+      "max": 1.920000067912042e-05
+    },
+    "agents_update": {
+      "total": 1.4579911999462638,
+      "calls": 30,
+      "min": 0.008465599996270612,
+      "max": 0.12039580001146533
+    },
+    "obstacle_collision": {
+      "total": 7.219996768981218e-05,
+      "calls": 30,
+      "min": 1.3999815564602613e-06,
+      "max": 3.5999983083456755e-06
+    },
+    "interaction": {
+      "total": 0.05934370000613853,
+      "calls": 30,
+      "min": 0.0018376999942120165,
+      "max": 0.002466499980073422
+    },
+    "reproduction": {
+      "total": 0.014926800096873194,
+      "calls": 30,
+      "min": 0.00028219999512657523,
+      "max": 0.0008240000170189887
+    },
+    "death": {
+      "total": 0.003719100001035258,
+      "calls": 30,
+      "min": 9.089999366551638e-05,
+      "max": 0.0001438999897800386
+    },
+    "collision": {
+      "total": 0.0719948000041768,
+      "calls": 30,
+      "min": 0.00229939998826012,
+      "max": 0.0025310000055469573
+    }
+  },
+  "profiler_report": "=== PROFILING SECTIONS ===\nTotal tempo seccoes (somadas): 3.361173s | Wall: 2.045153s | OverlapRatio: 1.64\nSeção                         Total(s)   Calls   Avg(ms)   %Wall   Min(ms)   Max(ms)\nagents_update                   1.4580      30    48.600   71.29     8.466   120.396\nagent_sensor                    1.0555      60    17.591   51.61     0.027   101.661\nspatial_hash                    0.3613      83     4.353   17.66     0.002    10.296\nagent_brain_forward             0.2201      60     3.668   10.76     0.074     9.309\ncollision                       0.0720      30     2.400    3.52     2.299     2.531\ninteraction                     0.0593      30     1.978    2.90     1.838     2.466\nagent_locomotion                0.0472   30600     0.002    2.31     0.001     0.178\nfood_control                    0.0358      30     1.193    1.75     0.609     3.305\nagent_energy                    0.0333   30600     0.001    1.63     0.001     0.019\nreproduction                    0.0149      30     0.498    0.73     0.282     0.824\ndeath                           0.0037      30     0.124    0.18     0.091     0.144\nobstacle_collision              0.0001      30     0.002    0.00     0.001     0.004",
+  "outputs": {
+    "run_dir": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260517_215111_opt_lote5_spatial_type_buckets_20260518",
+    "summary_json": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260517_215111_opt_lote5_spatial_type_buckets_20260518\\summary.json",
+    "timeseries_jsonl": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260517_215111_opt_lote5_spatial_type_buckets_20260518\\timeseries.jsonl",
+    "report_txt": "C:\\Users\\Alex Martins\\Desktop\\Meus Projetos\\simulacoes_biologicas\\AgentBioSim_Clonado_GIT_2026\\agentbiosim\\tests\\substrato_de_teste\\resultados_benchmark\\20260517_215111_opt_lote5_spatial_type_buckets_20260518\\report.txt"
+  }
+}

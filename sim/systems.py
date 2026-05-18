@@ -45,29 +45,31 @@ class InteractionSystem:
             self._predators_eat_bacteria(predators, bacteria, spatial_hash, params, frozen_agents)
 
         # Remove comida consumida
-        foods[:] = [f for f in foods if f not in self._foods_to_remove]
+        if self._foods_to_remove:
+            foods[:] = [f for f in foods if f not in self._foods_to_remove]
 
         # Remove bactérias predadas
-        bacteria[:] = [b for b in bacteria if b not in self._agents_to_remove]
+        if self._agents_to_remove:
+            bacteria[:] = [b for b in bacteria if b not in self._agents_to_remove]
         self.last_foods_eaten = len(self._foods_to_remove)
         self.last_agents_predated = len(self._agents_to_remove)
-        return set(self._agents_to_remove)
+        return set(self._agents_to_remove) if self._agents_to_remove else set()
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
                           spatial_hash: 'SpatialHash', params: 'Params',
                           frozen_agents: Set['Agent']):
         """Processa bactérias comendo comida (energia += food.energy)."""
+        food_radius = params.get('food_max_r', 5.0)
+        configured_cap = params.get('bacteria_energy_cap', None)
+        nearby_buffer = set()
         for bacterium in bacteria:
             if bacterium in frozen_agents:
                 continue
             if spatial_hash:
                 # Usa spatial hash para encontrar comida próxima
-                food_radius = params.get('food_max_r', 5.0)
-                nearby_objects = spatial_hash.query_ball(
-                    bacterium.x, bacterium.y, bacterium.r + food_radius
+                nearby_foods = spatial_hash.query_ball_filtered_into(
+                    bacterium.x, bacterium.y, bacterium.r + food_radius, 0, nearby_buffer
                 )
-                # type_code 0 = Food
-                nearby_foods = [obj for obj in nearby_objects if getattr(obj, 'type_code', -1) == 0]
             else:
                 # Fallback: busca linear
                 nearby_foods = foods
@@ -82,7 +84,7 @@ class InteractionSystem:
                 r_sum = bacterium.r + food.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
                     # Bactéria come comida -> ganha energia respeitando cap.
-                    cap = params.get('bacteria_energy_cap', getattr(bacterium.energy_model, 'energy_cap', None))
+                    cap = configured_cap if configured_cap is not None else getattr(bacterium.energy_model, 'energy_cap', None)
                     before_energy = getattr(bacterium, 'energy', 0.0)
                     bacterium.add_energy(food.energy, cap=cap)
                     gained = max(0.0, getattr(bacterium, 'energy', 0.0) - before_energy)
@@ -95,23 +97,23 @@ class InteractionSystem:
                                bacteria: List['Bacteria'], spatial_hash: 'SpatialHash', 
                                params: 'Params', frozen_agents: Set['Agent']):
         """Processa predadores comendo bactérias."""
+        bacteria_radius = params.get('bacteria_max_r', 12.0)
+        min_bact = params.get('bacteria_min_limit', 0)
+        configured_cap = params.get('predator_energy_cap', None)
+        nearby_buffer = set()
         for predator in predators:
             if predator in frozen_agents:
                 continue
             if spatial_hash:
                 # Usa spatial hash
-                bacteria_radius = params.get('bacteria_max_r', 12.0)
-                nearby_objects = spatial_hash.query_ball(
-                    predator.x, predator.y, predator.r + bacteria_radius
+                nearby_bacteria = spatial_hash.query_ball_filtered_into(
+                    predator.x, predator.y, predator.r + bacteria_radius, 1, nearby_buffer
                 )
-                # type_code 1 = Bacteria
-                nearby_bacteria = [obj for obj in nearby_objects if getattr(obj, 'type_code', -1) == 1]
             else:
                 # Fallback
                 nearby_bacteria = bacteria
             
             # Se já estamos no mínimo de bactérias permitido, impedir predação adicional
-            min_bact = params.get('bacteria_min_limit', 0)
             if len(bacteria) - self._removed_bacteria_count <= min_bact:
                 continue
 
@@ -125,7 +127,7 @@ class InteractionSystem:
                 r_sum = predator.r + bacterium.r
                 if dx*dx + dy*dy <= r_sum * r_sum:
                     # Predador come bactéria -> ganha parte da energia respeitando cap.
-                    cap = params.get('predator_energy_cap', getattr(predator.energy_model, 'energy_cap', None))
+                    cap = configured_cap if configured_cap is not None else getattr(predator.energy_model, 'energy_cap', None)
                     before_energy = getattr(predator, 'energy', 0.0)
                     predator.add_energy(bacterium.energy * 0.7, cap=cap)
                     gained = max(0.0, getattr(predator, 'energy', 0.0) - before_energy)
@@ -332,9 +334,11 @@ class CollisionSystem:
     
     def _resolve_with_spatial_hash(self, agents: List['Agent'], spatial_hash: 'SpatialHash'):
         """Resolve colisões usando spatial hash."""
-        for agent in agents:
+        agent_index = {agent: idx for idx, agent in enumerate(agents)}
+        nearby_buffer = set()
+        for idx, agent in enumerate(agents):
             # Busca vizinhos próximos
-            nearby_objects = spatial_hash.query_ball(agent.x, agent.y, agent.r * 2.0)
+            nearby_objects = spatial_hash.query_ball_into(agent.x, agent.y, agent.r * 2.0, nearby_buffer)
             
             for other in nearby_objects:
                 if (other is agent or 
@@ -342,11 +346,10 @@ class CollisionSystem:
                     not hasattr(other, 'vy')):
                     continue
                 
-                # Evita processar o mesmo par duas vezes
-                pair_key = tuple(sorted((id(agent), id(other))))
-                if pair_key in self._processed_pairs:
+                # Evita processar o mesmo par duas vezes sem criar tuple/sorted em loop quente.
+                other_idx = agent_index.get(other, -1)
+                if other_idx <= idx:
                     continue
-                self._processed_pairs.add(pair_key)
                 
                 if self._resolve_collision_pair(agent, other):
                     self.last_collisions_resolved += 1

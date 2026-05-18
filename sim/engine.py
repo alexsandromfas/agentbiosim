@@ -325,6 +325,7 @@ class Engine:
         except Exception:
             bg_color = (10, 10, 20)
         surface.fill(bg_color)
+        visible_bounds = self._visible_world_bounds(surface)
         
         # Desenha limites do mundo
         if show_world_bounds:
@@ -332,21 +333,27 @@ class Engine:
         
         # Desenha entidades
         for food in self.entities['foods']:
+            if not self._is_object_visible(food, visible_bounds):
+                continue
             self.renderer.draw_food(food, surface, self.camera)
 
         if getattr(self.obstacles, 'has_obstacles', False):
-            self.renderer.draw_obstacles(self.obstacles, surface, self.camera)
+            self.renderer.draw_obstacles(self.obstacles, surface, self.camera, visible_bounds=visible_bounds)
         
         predator_show_vision = bool(self.params.get('predator_show_vision', False))
         bacteria_show_vision = bool(self.params.get('bacteria_show_vision', False))
 
         selected_agents = getattr(self, 'selected_agents', set())
         for predator in self.entities['predators']:
+            if not self._is_object_visible(predator, visible_bounds):
+                continue
             selected = (predator is self.selected_agent) or (predator in selected_agents)
             self.renderer.draw_agent(predator, surface, self.camera, 
                                    show_head=True, show_vision=predator_show_vision, selected=selected)
         
         for bacterium in self.entities['bacteria']:
+            if not self._is_object_visible(bacterium, visible_bounds):
+                continue
             selected = (bacterium is self.selected_agent) or (bacterium in selected_agents)
             self.renderer.draw_agent(bacterium, surface, self.camera,
                                    show_head=True, show_vision=bacteria_show_vision, selected=selected)
@@ -354,6 +361,26 @@ class Engine:
         # Desenha overlay de informações
         info = self._gather_render_info()
         self.renderer.draw_overlay(surface, info)
+
+    def _visible_world_bounds(self, surface, margin_px: float = 96.0):
+        zoom = max(1e-6, float(getattr(self.camera, 'zoom', 1.0)))
+        margin = float(margin_px) / zoom
+        width = float(surface.get_width()) / zoom
+        height = float(surface.get_height()) / zoom
+        return (
+            float(self.camera.x) - margin,
+            float(self.camera.y) - margin,
+            float(self.camera.x) + width + margin,
+            float(self.camera.y) + height + margin,
+        )
+
+    @staticmethod
+    def _is_object_visible(obj, bounds) -> bool:
+        min_x, min_y, max_x, max_y = bounds
+        x = float(getattr(obj, 'x', 0.0))
+        y = float(getattr(obj, 'y', 0.0))
+        r = float(getattr(obj, 'r', 0.0))
+        return x + r >= min_x and x - r <= max_x and y + r >= min_y and y - r <= max_y
     
     def send_command(self, command: str, **kwargs):
         """

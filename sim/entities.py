@@ -50,9 +50,11 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
         if ag is not selected_agent:
             if ag.last_brain_activations:
                 ag.last_brain_activations = []
-        with profile_section('agent_locomotion'):
+    with profile_section('agent_locomotion'):
+        for ag in agents:
             ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
-        with profile_section('agent_energy'):
+    with profile_section('agent_energy'):
+        for ag in agents:
             ag.energy_model.apply(ag, dt, params)
     # Activations somente para agente selecionado. Nao depende do profiler:
     # o profiler mede custo; a UI precisa dos valores mesmo fora de benchmark.

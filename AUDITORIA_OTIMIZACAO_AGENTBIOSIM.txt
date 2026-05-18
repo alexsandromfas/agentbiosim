@@ -67,11 +67,75 @@ Benchmarks executados nesta auditoria
    comparacao futura. Isso pode deixar a medicao um pouco mais lenta que o uso
    normal, mas nao muda a conclusao: o sensoriamento e o custo dominante.
 
+Atualizacao de execucao - lote de otimizacao 2026-05-17/18
+----------------------------------------------------------
+Status geral: PARCIALMENTE FEITO E TESTADO.
+
+Checkpoint antes das mudancas:
+- Branch: V2.0.0_Melhorias_2026
+- Commit/push de seguranca feito antes do lote: ed61dfa
+
+Alteracoes aplicadas e mantidas:
+- sim/sensors.py: configuracao de retina calculada por especie/lote, nao por
+  agente; query espacial filtrada por tipo; buffer reutilizavel para candidatos;
+  filtro de FOV antes da matriz fullbody; montagem de arrays de candidatos em
+  uma passagem.
+- sim/spatial.py: query_ball_into e query_ball_filtered_into para reduzir
+  alocacao de sets temporarios.
+- sim/systems.py: interacao usa query filtrada sem listas temporarias;
+  parametros/caps calculados fora dos loops; colisao usa indice por frame em
+  vez de tuple(sorted(id(...))).
+- sim/entities.py: profiling de locomocao/energia agora e por lote, nao um
+  context manager por agente.
+- sim/engine.py e sim/render.py: culling visual para comida, agentes e
+  obstaculos fora da camera.
+- tests/unit/test_spatial_hash.py: testes de equivalencia das novas queries.
+
+Benchmarks curtos do substrato real, 2 s logicos, 60 FPS, neural-sample 16:
+- Baseline pos-checkpoint: 20260517_213030_baseline_otimizacao_pos_checkpoint_20260518
+  ms/agente/step: 0.023388
+- Lote 1, spatial/sensor/collision: 0.017555
+- Lote 2, config de sensor/interacao: 0.015967
+- Lote 3, buffers reutilizaveis: 0.015218
+- Lote 4, arrays de sensor em uma passagem: 0.014664
+- Lote 7, profiling por lote em locomocao/energia: 0.014473
+
+Melhor ganho medido no benchmark curto:
+- 0.023388 -> 0.014473 ms/agente/step
+- ganho aproximado: 38.1% versus o baseline pos-checkpoint deste lote.
+
+Benchmark final mais longo:
+- Run id: 20260517_215527_opt_final_5s_20260518
+- Duracao: 5 s logicos, 300 steps, 1020 agentes iniciais
+- Wall: 5.085 s
+- ms/agente/step: 0.016617
+- Integridade: spatial_hash_sample_misses = 0, duplicate_all_agents = 0,
+  negative_energy_objects = 0
+- Eventos: foods_eaten 908, predations 84, births 87, deaths 3
+
+Tentativas descartadas por piorarem benchmark:
+- Spatial hash com buckets extras por type_code: 0.016709 ms/agente/step.
+  Motivo: o rebuild ficou mais caro que a economia nas queries.
+- Insert inline sem lista temporaria em SpatialHash.insert: 0.015456
+  ms/agente/step. Motivo: piorou contra a melhor versao medida.
+
+Validacao executada:
+- python -m compileall sim tests\unit
+- python -m pytest tests\unit -q
+- Resultado atual: 35 passed
+
+Observacao:
+- A maior parte do ganho veio sem reduzir retina_count, sem aumentar
+  retina_skip, sem trocar fullbody por single e sem mudar criterio de comida,
+  predacao ou morte. As pequenas diferencas de eventos nos benchmarks curtos
+  parecem vir da ordem de iteracao de sets/queries, nao de mudanca conceitual
+  da regra biologica.
+
 Diagnostico por area
 --------------------
 
-P0 - Medir renderizacao separada da simulacao
-Status: necessario antes de mexer pesado.
+P0 - [NAO FEITO NESTE LOTE] Medir renderizacao separada da simulacao
+Status: ainda pendente; o render recebeu culling, mas falta profiler visual separado.
 
 Hoje os benchmarks medem bem o core headless, mas ainda falta uma medicao clara
 de renderizacao. A UI usa Pygame dentro da janela PyQt. O loop faz:
@@ -99,8 +163,8 @@ Acao recomendada:
 Risco para a simulacao: nenhum se for apenas medicao.
 
 
-P0 - Visao/sensoriamento e o gargalo principal
-Status: prioridade maxima.
+P0 - [PARCIAL FEITO/TESTADO] Visao/sensoriamento e o gargalo principal
+Status: parcialmente otimizado; ainda falta backend compilado/buffers mais profundos.
 
 O caminho atual em sim/sensors.py usa batch_retina_sense, mas o "batch" ainda
 processa cada agente individualmente. Para cada agente:
@@ -136,8 +200,8 @@ Essas alternativas podem acelerar muito, mas alteram a percepcao dos agentes.
 Devem ser modos opcionais, nao substituicao silenciosa.
 
 
-P0 - Renderizacao provavelmente amplifica o travamento
-Status: alta prioridade para fluidez da UI.
+P0 - [PARCIAL FEITO/TESTADO] Renderizacao provavelmente amplifica o travamento
+Status: culling visual implementado; falta medir render/flip separadamente.
 
 Mesmo que o core ja esteja lento, a renderizacao pode piorar muito:
 - EllipseRenderer cria Surface nova e faz rotate para cada agente por frame.
@@ -160,8 +224,8 @@ Risco visual: o usuario pode ver menos detalhes quando modo performance estiver
 ativo. Precisa ser claro na UI.
 
 
-P1 - Spatial hash esta sendo reconstruido demais
-Status: importante, mas abaixo da visao.
+P1 - [PARCIAL FEITO/TESTADO] Spatial hash esta sendo reconstruido demais
+Status: queries com buffer foram feitas; rebuild incremental continua pendente.
 
 No benchmark real:
 - 120 steps
@@ -195,8 +259,8 @@ Como validar:
 - Comparar eventos biologicos com seed fixa.
 
 
-P1 - Parametros dinamicos geram overhead desnecessario
-Status: quick win.
+P1 - [PARCIAL FEITO/TESTADO] Parametros dinamicos geram overhead desnecessario
+Status: sensores agora resolvem configuracao por especie/lote; config_dirty global ainda pendente.
 
 Sensores e agentes consultam muitos params.get em loops quentes. Isso e flexivel
 para UI, mas custa tempo quando milhares de agentes rodam por frame.
@@ -210,8 +274,8 @@ Otimizações seguras:
 Risco: baixo, se testes cobrirem alteracao de parametros em tempo real.
 
 
-P1 - CollisionSystem tem overhead de pares
-Status: medio.
+P1 - [FEITO/TESTADO] CollisionSystem tem overhead de pares
+Status: indice por frame e query buffer implementados; raio de busca conceitual ainda nao alterado.
 
 O custo atual de colisao no substrato real foi 0.919 s em 120 steps. Nao e o
 maior gargalo, mas ainda pesa. O sistema usa:
@@ -235,8 +299,8 @@ Alerta conceitual:
   como correcao com benchmark, nao como micro-otimizacao silenciosa.
 
 
-P1 - InteractionSystem ainda cria listas temporarias
-Status: medio.
+P1 - [FEITO/TESTADO] InteractionSystem ainda cria listas temporarias
+Status: filtros por lista removidos no caminho spatial; parametros movidos para fora dos loops.
 
 Comer e predar ja usam dist2, o que e bom. Mas ainda fazem:
 - nearby_foods = [obj for obj in nearby_objects if type_code == 0]
@@ -250,8 +314,8 @@ Otimizações seguras:
 Risco: baixo se a API do spatial hash for testada.
 
 
-P1 - Neural network nao e o gargalo numero 1, mas sera depois
-Status: nao atacar antes da visao.
+P1 - [NAO FEITO NESTE LOTE] Neural network nao e o gargalo numero 1, mas sera depois
+Status: mantido para etapa futura; custo cresceu em importancia apos reduzir colisao/interacao.
 
 No benchmark real, agent_brain_forward foi 0.7165 s. O codigo ja usa NumPy e
 forward_many_brains. Isso e bom. O problema e que cada agente tem seus proprios
@@ -268,8 +332,8 @@ Risco:
   frames. Deve aceitar tolerancia local, mas comparar metricas globais.
 
 
-P1 - Renderizacao bonita deve virar opcional de baixo volume
-Status: alta prioridade para uso diario.
+P1 - [PARCIAL FEITO/TESTADO] Renderizacao bonita deve virar opcional de baixo volume
+Status: culling de viewport implementado; auto simple_render e cache de sprites ainda pendentes.
 
 EllipseRenderer e caro porque rotaciona surface por agente por frame. Para 1000+
 agentes, isso pode dominar a UI mesmo se o core melhorar.
@@ -285,7 +349,7 @@ Otimizações seguras:
 Risco biologico: nenhum.
 
 
-P2 - FoodController pode escalar mal com comida alta
+P2 - [NAO FEITO NESTE LOTE] FoodController pode escalar mal com comida alta
 Status: baixo agora, mas importante se aumentar alimento.
 
 No benchmark real, food_control foi 0.0693 s, baixo. Mas a criacao de comida
@@ -301,8 +365,8 @@ Otimizações seguras:
 Risco: baixo.
 
 
-P2 - Alocacao e garbage collector
-Status: provavelmente relevante.
+P2 - [PARCIAL FEITO/TESTADO] Alocacao e garbage collector
+Status: buffers de query, menos listas temporarias e menos context managers por agente.
 
 Fontes atuais de alocacao por frame:
 - sets de query_ball
@@ -321,7 +385,7 @@ Otimizações seguras:
 Risco: baixo a medio, depende da refatoracao.
 
 
-P2 - Arquitetura SoA ja tem semente, mas ainda nao e backend
+P2 - [NAO FEITO NESTE LOTE] Arquitetura SoA ja tem semente, mas ainda nao e backend
 Status: medio/longo prazo.
 
 Existe sim/soa.py com conversao de agentes para arrays. Isso e um bom primeiro
@@ -344,7 +408,7 @@ Estratégia segura:
 - Manter testes de equivalencia contra o modelo orientado a objetos.
 
 
-P2 - Threading/render/simulacao
+P2 - [NAO FEITO NESTE LOTE] Threading/render/simulacao
 Status: importante para UX, nao necessariamente para throughput.
 
 Hoje o loop visual chama engine.step e render no mesmo fluxo. Se step demora,
@@ -393,11 +457,11 @@ Fase 1 - Medicao e render seguro
 Motivo: melhora a experiencia visual sem tocar na dinamica.
 
 Fase 2 - Quick wins do core sem mudar dinamica
-1. RuntimeConfig por especie.
-2. Params/config dirty para sensores.
-3. Spatial hash por tipo.
-4. Query buffers para reduzir sets/listas.
-5. Collision pair index em vez de tuple(sorted(id)).
+1. RuntimeConfig por especie. [PARCIAL FEITO/TESTADO]
+2. Params/config dirty para sensores. [PARCIAL: config por lote feita; dirty global pendente]
+3. Spatial hash por tipo. [TENTADO E DESCARTADO: piorou benchmark por custo de rebuild]
+4. Query buffers para reduzir sets/listas. [FEITO/TESTADO]
+5. Collision pair index em vez de tuple(sorted(id)). [FEITO/TESTADO]
 
 Motivo: reduz overhead Python sem mexer na biologia.
 
