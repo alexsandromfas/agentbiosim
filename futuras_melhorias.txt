@@ -57,3 +57,22 @@ Sugestões do Copilot, mas que ainda devem ser estudadas:
 
 - Sistema de eventos/hooks (item 18)
   - Observers (hooks) que emitem eventos (nascimento, morte, reprodução, checkpoint) para logging, UI, gravação de replays ou integração externa. Deve ser desativável para não penalizar desempenho.
+
+============================================================
+3) IDEIAS NOVAS - depois da auditoria de otimizacao
+============================================================
+
+- Criar um VisionBackend com varios modos de visao: atual, exato otimizado, campo de densidade e visao experimental.
+- Fazer a visao enxergar canais diferentes: comida, predador, bacteria, obstaculo, cor, tamanho e movimento.
+- Criar retina com centro mais detalhado e periferia mais barata, como uma fovea biologica.
+- Permitir que numero de retinas, campo visual, alcance e sensibilidade sejam genes.
+- Criar cones de visao por cor, permitindo comunicacao visual e reconhecimento de linhagens.
+- Implementar oclusao: objetos grandes ou obstaculos bloqueiam objetos atras.
+- Criar memoria visual curta: o agente lembra por alguns segundos onde viu comida ou perigo.
+- Criar modo observador cientifico: selecionar um agente e ver exatamente quais objetos ativaram cada retina.
+- Criar mapa de calor de visao/alimentacao para saber se alguma regiao do substrato esta ficando invisivel ou morta.
+- Criar sistema de custos sensoriais: visao melhor consome mais energia, entao evoluir olhos melhores tem preco.
+- Criar banco de linhagens com estatisticas comparaveis: arquitetura neural, visao, metabolismo, idade, descendentes e desempenho.
+- Criar arena de competicao controlada entre linhagens antigas e novas, preservando genes originais sem forcar nova arquitetura.
+- Criar modo performance visual: renderizar menos detalhes sem alterar a simulacao interna.
+- Criar modo benchmark de visao: medir quantos ms/agente/step cada sistema de visao custa antes de liberar no uso normal.

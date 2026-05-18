@@ -78,7 +78,8 @@ class ObstacleMap:
             t = i / steps
             x = x0 + (x1 - x0) * t
             y = y0 + (y1 - y0) * t
-            if world is not None and not world.is_inside(x, y, radius):
+            x, y = self._brush_point_inside_world(x, y, world)
+            if x is None:
                 continue
             # Avoid stamp explosions when the mouse barely moved.
             if self._has_stamp_center_near(x, y, max(0.5, spacing * 0.5)):
@@ -102,7 +103,8 @@ class ObstacleMap:
             t = i / steps
             x = x0 + (x1 - x0) * t
             y = y0 + (y1 - y0) * t
-            if world is not None and not world.is_inside(x, y, 0.0):
+            x, y = self._brush_point_inside_world(x, y, world)
+            if x is None:
                 continue
             for idx in self.query_indices(x, y, radius):
                 stamp = self.stamps[idx]
@@ -141,6 +143,20 @@ class ObstacleMap:
             if dx * dx + dy * dy <= dist2_limit:
                 return True
         return False
+
+    @staticmethod
+    def _brush_point_inside_world(x: float, y: float, world):
+        if world is None:
+            return float(x), float(y)
+        if world.is_inside(x, y, 0.0):
+            return float(x), float(y)
+        try:
+            cx, cy = world.clamp_position(float(x), float(y), 0.0)
+        except Exception:
+            return None, None
+        if world.is_inside(cx, cy, 0.0):
+            return float(cx), float(cy)
+        return None, None
 
     def query_indices(self, x: float, y: float, radius: float) -> set[int]:
         if not self.stamps:

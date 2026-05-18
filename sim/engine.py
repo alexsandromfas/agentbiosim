@@ -90,6 +90,17 @@ class Engine:
         self.frame_count = 0
         self.last_fps_time = time.time()
         self.current_fps = 0.0
+        self._sim_time_accumulator = 0.0
+        self.last_requested_sim_dt = 0.0
+        self.last_simulated_dt = 0.0
+        self.last_physics_steps = 0
+        self.last_physics_dt = 0.0
+        self.simulation_backlog = 0.0
+        self.dropped_simulation_time = 0.0
+        self.physics_steps_per_wall_second = 0.0
+        self.effective_time_scale = 0.0
+        self._physics_steps_since_fps = 0
+        self._simulated_since_fps = 0.0
         # Recursos (CPU/RAM)
         self.cpu_percent = 0.0
         self.mem_used_mb = 0.0
@@ -117,6 +128,9 @@ class Engine:
 
         # Estado para debugging
         self.selected_agent = None
+        self.selected_agents = set()
+        self.agent_labels = {}
+        self._next_agent_label_id = 1
         self._applied_random_seed = None
         # Protótipos de agentes carregados via UI (dict name->data dict)
         self.loaded_agent_prototypes = {}
@@ -130,6 +144,10 @@ class Engine:
         Isso preserva substratos importados antes de clicar em "Iniciar".
         """
         self.running = True
+        self._sim_time_accumulator = 0.0
+        self.simulation_backlog = 0.0
+        self.last_physics_steps = 0
+        self.last_simulated_dt = 0.0
         # Limpa/Configura cache multi_brain para evitar crescimento prévio
         try:
             from .brain import clear_multi_brain_cache, configure_multi_brain_cache
@@ -144,6 +162,9 @@ class Engine:
         should_initialize = (not has_loaded_state) if initialize is None else bool(initialize)
         if should_initialize:
             self._initialize_population()
+        else:
+            self._spatial_hash_dirty = True
+            self._update_spatial_hash(force=True)
     
     def stop(self):
         """Para a simulação."""
@@ -163,14 +184,23 @@ class Engine:
         self._process_commands()
         
         # Calcula tempo físico com time_scale
-        world_dt = real_dt * max(0.0, self.params.get('time_scale', 1.0))
+        requested_sim_dt = real_dt * max(0.0, self.params.get('time_scale', 1.0))
+        self.last_requested_sim_dt = requested_sim_dt
         
         simulated_dt = 0.0
-        if world_dt > 0 and not self.params.get('paused', False):
-            simulated_dt = self._simulate_physics(world_dt)
+        if requested_sim_dt > 0 and not self.params.get('paused', False):
+            simulated_dt = self._simulate_physics_fixed(requested_sim_dt)
+        else:
+            self._clear_step_event_counters()
+            self.last_simulated_dt = 0.0
+            self.last_physics_steps = 0
+            self.last_physics_dt = 0.0
+            self.simulation_backlog = self._sim_time_accumulator
         
         # Atualiza métricas
         self.total_simulation_time += simulated_dt
+        self._simulated_since_fps += simulated_dt
+        self._physics_steps_since_fps += self.last_physics_steps
         self.frame_count += 1
         
         # Calcula FPS
@@ -179,8 +209,12 @@ class Engine:
             elapsed = now - self.last_fps_time
             if elapsed > 0:
                 self.current_fps = self.frame_count / elapsed
+                self.physics_steps_per_wall_second = self._physics_steps_since_fps / elapsed
+                self.effective_time_scale = self._simulated_since_fps / elapsed
             self.last_fps_time = now
             self.frame_count = 0
+            self._physics_steps_since_fps = 0
+            self._simulated_since_fps = 0.0
             # Atualiza métricas de recursos aproximadamente 1x por segundo
             # Tenta ativar psutil dinamicamente se ainda não disponível
             if not self.resources_available:
@@ -306,13 +340,14 @@ class Engine:
         predator_show_vision = bool(self.params.get('predator_show_vision', False))
         bacteria_show_vision = bool(self.params.get('bacteria_show_vision', False))
 
+        selected_agents = getattr(self, 'selected_agents', set())
         for predator in self.entities['predators']:
-            selected = (predator is self.selected_agent)
+            selected = (predator is self.selected_agent) or (predator in selected_agents)
             self.renderer.draw_agent(predator, surface, self.camera, 
                                    show_head=True, show_vision=predator_show_vision, selected=selected)
         
         for bacterium in self.entities['bacteria']:
-            selected = (bacterium is self.selected_agent)
+            selected = (bacterium is self.selected_agent) or (bacterium in selected_agents)
             self.renderer.draw_agent(bacterium, surface, self.camera,
                                    show_head=True, show_vision=bacteria_show_vision, selected=selected)
         
@@ -329,7 +364,7 @@ class Engine:
             **kwargs: Argumentos do comando
         """
         self.command_queue.put((command, kwargs))
-    
+
     def get_agent_at_position(self, world_x: float, world_y: float) -> Optional[Agent]:
         """Encontra agente na posição do mundo especificada."""
         # Procura do mais próximo ao cursor (último desenhado = mais visível). Predadores são desenhados antes de bactérias.
@@ -338,6 +373,126 @@ class Engine:
             if distance <= agent.r:
                 return agent
         return None
+
+    def set_selected_agents(self, agents, primary: Optional[Agent] = None):
+        """Define a selecao persistente de agentes vivos."""
+        live = [agent for agent in agents if agent in self.all_agents]
+        self.selected_agents = set(live)
+        if primary in self.selected_agents:
+            self.selected_agent = primary
+        else:
+            self.selected_agent = live[0] if live else None
+
+    def _clear_selection(self):
+        self.selected_agent = None
+        self.selected_agents.clear()
+
+    def create_agent_label(self, name: Optional[str] = None, color: Optional[tuple] = None) -> int:
+        label_id = int(self._next_agent_label_id)
+        self._next_agent_label_id += 1
+        if color is None:
+            palette = [
+                (240, 94, 94), (90, 170, 255), (135, 220, 130),
+                (245, 195, 75), (180, 130, 255), (255, 140, 85),
+            ]
+            color = palette[(label_id - 1) % len(palette)]
+        self.agent_labels[label_id] = {
+            'id': label_id,
+            'name': name or f'Label {label_id}',
+            'color': tuple(int(max(0, min(255, c))) for c in color[:3]),
+            'show_chart': True,
+        }
+        return label_id
+
+    def assign_label_to_agents(self, label_id: int, agents) -> int:
+        if label_id not in self.agent_labels:
+            return 0
+        count = 0
+        live = set(self.all_agents)
+        label_color = tuple(self.agent_labels[label_id].get('color', (220, 220, 220)))
+        for agent in agents:
+            if agent not in live:
+                continue
+            if not hasattr(agent, 'label_ids'):
+                agent.label_ids = set()
+            agent.label_ids.add(label_id)
+            agent.color = label_color
+            count += 1
+        return count
+
+    def remove_label_from_agents(self, label_id: int, agents) -> int:
+        count = 0
+        for agent in agents:
+            labels = getattr(agent, 'label_ids', None)
+            if labels and label_id in labels:
+                labels.discard(label_id)
+                count += 1
+        return count
+
+    def delete_agent_label(self, label_id: int):
+        self.agent_labels.pop(label_id, None)
+        for agent in self.all_agents:
+            labels = getattr(agent, 'label_ids', None)
+            if labels:
+                labels.discard(label_id)
+
+    def get_agents_by_label(self, label_id: int):
+        return [
+            agent for agent in self.all_agents
+            if label_id in (getattr(agent, 'label_ids', set()) or set())
+        ]
+
+    def select_label(self, label_id: int):
+        agents = self.get_agents_by_label(label_id)
+        self.set_selected_agents(agents)
+        return agents
+
+    def _cleanup_agent_labels(self):
+        live_ids = set()
+        for agent in self.all_agents:
+            labels = getattr(agent, 'label_ids', None)
+            if not labels:
+                continue
+            labels.intersection_update(self.agent_labels.keys())
+            live_ids.update(labels)
+        for label_id in list(self.agent_labels.keys()):
+            if label_id not in live_ids:
+                # Mantem labels vazias para o usuario poder reutilizar/avaliar.
+                continue
+
+    def get_agents_in_rect(self, x0: float, y0: float, x1: float, y1: float):
+        min_x, max_x = sorted((float(x0), float(x1)))
+        min_y, max_y = sorted((float(y0), float(y1)))
+        return [
+            agent for agent in self.all_agents
+            if (agent.x + agent.r) >= min_x and (agent.x - agent.r) <= max_x
+            and (agent.y + agent.r) >= min_y and (agent.y - agent.r) <= max_y
+        ]
+
+    @staticmethod
+    def _point_in_polygon(x: float, y: float, points) -> bool:
+        inside = False
+        if len(points) < 3:
+            return False
+        j = len(points) - 1
+        for i, (xi, yi) in enumerate(points):
+            xj, yj = points[j]
+            if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi):
+                inside = not inside
+            j = i
+        return inside
+
+    def get_agents_in_polygon(self, points):
+        if len(points) < 3:
+            return []
+        min_x = min(p[0] for p in points)
+        max_x = max(p[0] for p in points)
+        min_y = min(p[1] for p in points)
+        max_y = max(p[1] for p in points)
+        return [
+            agent for agent in self.get_agents_in_rect(min_x, min_y, max_x, max_y)
+            if self._point_in_polygon(agent.x, agent.y, points)
+        ]
 
     def get_object_at_position(self, world_x: float, world_y: float):
         """Encontra agente ou comida na posição do mundo."""
@@ -412,10 +567,32 @@ class Engine:
                 pass
             if self.selected_agent is obj:
                 self.selected_agent = None
+            self.selected_agents.discard(obj)
+            if self.selected_agent is None and self.selected_agents:
+                self.selected_agent = next(iter(self.selected_agents), None)
         if self.dragged_object is obj:
             self.dragged_object = None
         self._spatial_hash_dirty = True
         return True
+
+    def remove_selected_agents(self) -> int:
+        """Remove todos os organismos atualmente selecionados."""
+        victims = set(getattr(self, 'selected_agents', set()) or set())
+        if self.selected_agent is not None:
+            victims.add(self.selected_agent)
+        live_victims = {agent for agent in victims if agent in self.all_agents}
+        if not live_victims:
+            self._clear_selection()
+            return 0
+
+        for key in ('bacteria', 'predators'):
+            self.entities[key][:] = [agent for agent in self.entities[key] if agent not in live_victims]
+        self.all_agents[:] = [agent for agent in self.all_agents if agent not in live_victims]
+        if self.dragged_object in live_victims:
+            self.dragged_object = None
+        self._clear_selection()
+        self._spatial_hash_dirty = True
+        return len(live_victims)
 
     def move_object_to(self, obj, world_x: float, world_y: float) -> bool:
         """Move objeto existente respeitando substrato e obstáculos."""
@@ -445,35 +622,103 @@ class Engine:
             self._spatial_hash_dirty = True
         return changed
     
-    def _simulate_physics(self, world_dt: float) -> float:
-        """Simula física por um delta tempo do mundo."""
-        # Divide em substeps pequenos, conservando exatamente o tempo simulado.
-        physics_dt = 1.0 / 60.0  # 60 FPS físico
-        max_substeps = 8
-        
-        if world_dt <= 0:
-            return 0.0
-        
-        steps = max(1, int(math.ceil(world_dt / physics_dt)))
-        steps = min(steps, max_substeps)
-        step_dt = world_dt / steps
-        
-        # Executa substeps
-        for _ in range(steps):
-            self._simulate_substep(step_dt)
-        return step_dt * steps
+    def _physics_dt(self) -> float:
+        hz = max(1.0, float(self.params.get('physics_steps_per_second', 30)))
+        return 1.0 / hz
 
-    def _resolve_obstacle_collisions(self, frozen_agents: set | None = None) -> int:
+    def _clear_step_event_counters(self):
+        self.food_controller.last_foods_added = 0
+        self.food_controller.last_foods_removed = 0
+        self.interaction_system.last_foods_eaten = 0
+        self.interaction_system.last_agents_predated = 0
+        self.reproduction_system.last_births = []
+        self.reproduction_system.last_blocked_by_age = 0
+        self.reproduction_system.last_blocked_by_cooldown = 0
+        self.death_system.last_deaths = []
+        self.collision_system.last_collisions_resolved = 0
+
+    def _simulate_physics_fixed(self, requested_dt: float) -> float:
+        """Avanca a simulacao usando dt fisico fixo."""
+        physics_dt = self._physics_dt()
+        max_substeps = max(1, int(self.params.get('max_physics_steps_per_frame', 8)))
+        max_backlog = max(physics_dt, float(self.params.get('max_physics_backlog_seconds', 2.0)))
+
+        self._sim_time_accumulator += max(0.0, requested_dt)
+        if self._sim_time_accumulator > max_backlog:
+            dropped = self._sim_time_accumulator - max_backlog
+            self._sim_time_accumulator = max_backlog
+            self.dropped_simulation_time += dropped
+
+        available_steps = int((self._sim_time_accumulator + physics_dt * 1e-9) / physics_dt)
+        steps = min(available_steps, max_substeps)
+
+        foods_added = foods_removed = foods_eaten = predations = 0
+        births = []
+        deaths = []
+        births_blocked_age = births_blocked_cooldown = collisions = 0
+
+        for _ in range(steps):
+            self._simulate_substep(physics_dt)
+            foods_added += int(getattr(self.food_controller, 'last_foods_added', 0))
+            foods_removed += int(getattr(self.food_controller, 'last_foods_removed', 0))
+            foods_eaten += int(getattr(self.interaction_system, 'last_foods_eaten', 0))
+            predations += int(getattr(self.interaction_system, 'last_agents_predated', 0))
+            births.extend(getattr(self.reproduction_system, 'last_births', []) or [])
+            deaths.extend(getattr(self.death_system, 'last_deaths', []) or [])
+            births_blocked_age += int(getattr(self.reproduction_system, 'last_blocked_by_age', 0))
+            births_blocked_cooldown += int(getattr(self.reproduction_system, 'last_blocked_by_cooldown', 0))
+            collisions += int(getattr(self.collision_system, 'last_collisions_resolved', 0))
+
+        simulated_dt = steps * physics_dt
+        if steps < available_steps:
+            # Se o motor nao consegue processar todos os passos pedidos neste
+            # frame, descartamos o excedente em vez de tentar recuperar depois.
+            # Isso preserva dt fixo e evita a espiral: frame lento -> dt maior
+            # -> mais substeps -> frame ainda mais lento.
+            dropped = max(0.0, self._sim_time_accumulator - simulated_dt)
+            self.dropped_simulation_time += dropped
+            self._sim_time_accumulator = 0.0
+        else:
+            self._sim_time_accumulator = max(0.0, self._sim_time_accumulator - simulated_dt)
+            if self._sim_time_accumulator < physics_dt * 1e-6:
+                self._sim_time_accumulator = 0.0
+
+        self.last_physics_steps = steps
+        self.last_physics_dt = physics_dt if steps else 0.0
+        self.last_simulated_dt = simulated_dt
+        self.simulation_backlog = self._sim_time_accumulator
+
+        self.food_controller.last_foods_added = foods_added
+        self.food_controller.last_foods_removed = foods_removed
+        self.interaction_system.last_foods_eaten = foods_eaten
+        self.interaction_system.last_agents_predated = predations
+        self.reproduction_system.last_births = births
+        self.reproduction_system.last_blocked_by_age = births_blocked_age
+        self.reproduction_system.last_blocked_by_cooldown = births_blocked_cooldown
+        self.death_system.last_deaths = deaths
+        self.collision_system.last_collisions_resolved = collisions
+        return simulated_dt
+
+    def _simulate_physics(self, world_dt: float) -> float:
+        """Compatibilidade para chamadas antigas: delega para o passo fixo."""
+        return self._simulate_physics_fixed(world_dt)
+
+    def _resolve_obstacle_collisions(self, frozen_agents: set | None = None, max_iterations: int = 3) -> int:
         """Empurra agentes para fora das barreiras desenhadas."""
         if not getattr(self.obstacles, 'has_obstacles', False):
             return 0
         frozen_agents = frozen_agents or set()
         resolved = 0
-        for agent in self.all_agents:
-            if agent in frozen_agents:
-                continue
-            resolved += self.obstacles.resolve_agent(agent)
-            agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, agent.r)
+        for _iteration in range(max(1, int(max_iterations))):
+            pass_resolved = 0
+            for agent in self.all_agents:
+                if agent in frozen_agents:
+                    continue
+                pass_resolved += self.obstacles.resolve_agent(agent)
+                agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, agent.r)
+            resolved += pass_resolved
+            if pass_resolved == 0:
+                break
         return resolved
     
     def _simulate_substep(self, dt: float):
@@ -532,6 +777,9 @@ class Engine:
                 self.all_agents = [a for a in self.all_agents if a not in removed_agents]
                 if self.selected_agent in removed_agents:
                     self.selected_agent = None
+                self.selected_agents.difference_update(removed_agents)
+                if self.selected_agent is None and self.selected_agents:
+                    self.selected_agent = next(iter(self.selected_agents), None)
                 if self.dragged_object in removed_agents:
                     self.dragged_object = None
 
@@ -562,6 +810,10 @@ class Engine:
             after_death_count = len(self.all_agents)
             if after_death_count != before_death_count:
                 topology_changed = True
+                live_set = set(self.all_agents)
+                self.selected_agents.intersection_update(live_set)
+                if self.selected_agent not in live_set:
+                    self.selected_agent = next(iter(self.selected_agents), None)
 
         if topology_changed:
             # Nascimentos, mortes ou predação mudam os objetos presentes no broad-phase.
@@ -572,6 +824,11 @@ class Engine:
             collision_agents = [a for a in self.all_agents if a not in frozen_agents]
             collisions_resolved = self.collision_system.apply(collision_agents, self.spatial_hash, step_params)
             if collisions_resolved:
+                self._spatial_hash_dirty = True
+            # Colisões agente-agente podem empurrar organismos para dentro de
+            # uma barreira. Resolva obstáculos novamente para manter divisórias
+            # estanques.
+            if self._resolve_obstacle_collisions(frozen_agents=frozen_agents):
                 self._spatial_hash_dirty = True
     
     def _params_snapshot(self):
@@ -659,17 +916,33 @@ class Engine:
         if command == 'select_agent':
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
-            self.selected_agent = self.get_agent_at_position(world_x, world_y)
+            agent = self.get_agent_at_position(world_x, world_y)
+            self.set_selected_agents([agent] if agent is not None else [], primary=agent)
+
+        elif command == 'select_agents_rect':
+            agents = self.get_agents_in_rect(
+                kwargs.get('x0', 0), kwargs.get('y0', 0),
+                kwargs.get('x1', 0), kwargs.get('y1', 0),
+            )
+            self.set_selected_agents(agents)
+
+        elif command == 'select_agents_lasso':
+            points = kwargs.get('points') or []
+            agents = self.get_agents_in_polygon(points)
+            self.set_selected_agents(agents)
+
+        elif command == 'clear_selection':
+            self._clear_selection()
 
         elif command == 'select_or_add_food':
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
             agent = self.get_agent_at_position(world_x, world_y)
             if agent:
-                self.selected_agent = agent
+                self.set_selected_agents([agent], primary=agent)
             else:
                 self.add_food_at(world_x, world_y)
-                self.selected_agent = None
+                self._clear_selection()
         
         elif command == 'add_food':
             world_x = kwargs.get('world_x', 0)
@@ -696,10 +969,13 @@ class Engine:
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
             self.remove_object_at(world_x, world_y)
+
+        elif command == 'remove_selected_agents':
+            self.remove_selected_agents()
         
         elif command == 'reset_population':
             self._initialize_population()
-            self.selected_agent = None
+            self._clear_selection()
         
         elif command == 'change_renderer':
             simple = kwargs.get('simple', False)
@@ -780,6 +1056,10 @@ class Engine:
             # Ajustes adicionais
             agent.energy = _f('energy', 0.0)
             agent.age = _f('age', 0.0)
+            agent.food_eaten_count = _i('food_eaten_count', 0)
+            agent.food_energy_eaten_total = _f('food_energy_eaten_total', 0.0)
+            agent.prey_eaten_count = _i('prey_eaten_count', 0)
+            agent.prey_energy_eaten_total = _f('prey_energy_eaten_total', 0.0)
             if 'last_reproduction_age' in data:
                 agent.last_reproduction_age = _f('last_reproduction_age', agent.age)
             # Cor importada (suporta JSON array ou legacy tuple string)
@@ -807,7 +1087,7 @@ class Engine:
             else:
                 self.entities['bacteria'].append(agent)
             self.all_agents.append(agent)
-            self.selected_agent = agent
+            self.set_selected_agents([agent], primary=agent)
             self._spatial_hash_dirty = True
             try:
                 from .brain import clear_multi_brain_cache
@@ -840,6 +1120,13 @@ class Engine:
             entity_list.clear()
         all_entities = []
         self.all_agents.clear()
+        self._clear_selection()
+        self.agent_labels.clear()
+        self._next_agent_label_id = 1
+        self._sim_time_accumulator = 0.0
+        self.simulation_backlog = 0.0
+        self.last_physics_steps = 0
+        self.last_simulated_dt = 0.0
 
         # Cria bactérias
         bacteria_count = min(self.params.get('bacteria_count', 150), 10000)
@@ -889,6 +1176,7 @@ class Engine:
             self.entities['foods'].append(food)
         self._resolve_obstacle_collisions()
         self._spatial_hash_dirty = True
+        self._update_spatial_hash(force=True)
     
     def _draw_world_bounds(self, surface):
         """Desenha limites do mundo.""" 
@@ -917,6 +1205,12 @@ class Engine:
             'food_count': len(self.entities['foods']),
             'food_target': self.params.get('food_target', 0),
             'fps': self.current_fps,
+            'physics_steps_per_wall_second': self.physics_steps_per_wall_second,
+            'effective_time_scale': self.effective_time_scale,
+            'simulation_backlog': self.simulation_backlog,
+            'last_physics_steps': self.last_physics_steps,
+            'last_physics_dt': self.last_physics_dt,
+            'dropped_simulation_time': self.dropped_simulation_time,
             'cpu_percent': self.cpu_percent,  # CPU total
             'cpu_proc_percent': self.cpu_proc_percent,  # CPU só do processo
             'mem_used_mb': self.mem_used_mb,
@@ -929,7 +1223,8 @@ class Engine:
             'world_h': self.world.height,
             'selected_agent': self.selected_agent,
             'obstacle_count': len(self.obstacles),
-            'show_selected_details': self.params.get('show_selected_details', True)
+            'hide_overlay': True,
+            'show_selected_details': False
         }
 
     def _fallback_memory_usage(self):

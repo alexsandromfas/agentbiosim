@@ -54,8 +54,9 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
             ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
         with profile_section('agent_energy'):
             ag.energy_model.apply(ag, dt, params)
-    # Activations somente para agente selecionado, se profiler habilitado
-    if selected_agent and profiler.enabled and not params.get('disable_brain_activations', False):
+    # Activations somente para agente selecionado. Nao depende do profiler:
+    # o profiler mede custo; a UI precisa dos valores mesmo fora de benchmark.
+    if selected_agent and not params.get('disable_brain_activations', False):
         try:
             idx = agents.index(selected_agent)
         except ValueError:
@@ -122,7 +123,10 @@ class Agent(Entity):
     __slots__ = Entity.__slots__ + (
         "angle", "vx", "vy", "m", "age", "last_reproduction_age", "selected", "brain", "sensor",
         "locomotion", "energy_model", "last_brain_output", "last_brain_activations",
-        "is_predator", "energy"
+        "is_predator", "energy",
+        "food_eaten_count", "food_energy_eaten_total",
+        "prey_eaten_count", "prey_energy_eaten_total",
+        "label_ids",
     )
 
     def __init__(self, x: float, y: float, r: float, color: tuple,
@@ -151,6 +155,11 @@ class Agent(Entity):
         self.last_brain_output = []
         self.last_brain_activations = []
         self.is_predator = False
+        self.food_eaten_count = 0
+        self.food_energy_eaten_total = 0.0
+        self.prey_eaten_count = 0
+        self.prey_energy_eaten_total = 0.0
+        self.label_ids = set()
     
     def update(self, dt: float, world: 'World', scene: 'SceneQuery', params: 'Params'):
         """
@@ -266,6 +275,7 @@ class Agent(Entity):
                 child.color = getattr(self, 'color')
             except Exception:
                 pass
+        child.label_ids = set(getattr(self, 'label_ids', set()) or set())
         if params.get('debug_reproduction_color', False):
             print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
         return child

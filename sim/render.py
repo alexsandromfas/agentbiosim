@@ -99,6 +99,8 @@ class SimpleRenderer(RendererStrategy):
     
     def draw_overlay(self, surface: pygame.Surface, info: dict):
         """Desenha informações de overlay."""
+        if info.get('hide_overlay', False):
+            return
         bacteria_count = info.get('bacteria_count', 0)
         predator_count = info.get('predator_count', 0)
         food_count = info.get('food_count', 0)

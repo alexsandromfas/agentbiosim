@@ -38,6 +38,9 @@ class PygameView:
         self.drawing_obstacle = False
         self.last_brush_world_pos = None
         self.moving_object = None
+        self.selection_drag_tool = None
+        self.selection_start_world = None
+        self.selection_lasso_points = []
         
         # Pygame
         self.screen: Optional[pygame.Surface] = None
@@ -77,7 +80,12 @@ class PygameView:
             self._process_events()
             
             # Atualiza simulação
-            real_dt = self.clock.tick(self.engine.params.get('fps', 60)) / 1000.0
+            target_fps = max(1, int(self.engine.params.get('fps', 60)))
+            elapsed_dt = self.clock.tick(target_fps) / 1000.0
+            # A simulacao nao deve tentar "pagar" frames atrasados aumentando
+            # a carga fisica do frame seguinte. Se a maquina nao acompanha, a
+            # velocidade efetiva cai; o dt fisico continua fixo no Engine.
+            real_dt = min(elapsed_dt, 1.0 / target_fps)
             state_lock = getattr(self.engine, 'state_lock', None)
             if state_lock is None:
                 self.engine.step(real_dt)
@@ -92,7 +100,28 @@ class PygameView:
                 else:
                     with state_lock:
                         self.engine.render(self.screen)
+                self._draw_tool_preview()
                 pygame.display.flip()
+
+    def _draw_tool_preview(self):
+        """Desenha feedback visual leve para selecao por area."""
+        if not self.screen:
+            return
+        color = (90, 170, 255)
+        if self.selection_drag_tool == 'select_square' and self.selection_start_world is not None:
+            start = self.engine.camera.world_to_screen(*self.selection_start_world)
+            current = pygame.mouse.get_pos()
+            x0, y0 = int(start[0]), int(start[1])
+            x1, y1 = int(current[0]), int(current[1])
+            rect = pygame.Rect(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+            if rect.width > 1 and rect.height > 1:
+                pygame.draw.rect(self.screen, color, rect, width=1)
+        elif self.selection_drag_tool == 'select_lasso' and len(self.selection_lasso_points) >= 2:
+            points = [
+                (int(x), int(y))
+                for x, y in (self.engine.camera.world_to_screen(px, py) for px, py in self.selection_lasso_points)
+            ]
+            pygame.draw.lines(self.screen, color, False, points, width=2)
     
     def stop(self):
         """Para a view."""
@@ -151,6 +180,14 @@ class PygameView:
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
             if self.active_tool == 'select':
                 self.engine.send_command('select_agent', world_x=world_x, world_y=world_y)
+            elif self.active_tool == 'select_square':
+                self.selection_drag_tool = 'select_square'
+                self.selection_start_world = (world_x, world_y)
+                self.selection_lasso_points = []
+            elif self.active_tool == 'select_lasso':
+                self.selection_drag_tool = 'select_lasso'
+                self.selection_start_world = (world_x, world_y)
+                self.selection_lasso_points = [(world_x, world_y)]
             elif self.active_tool == 'food':
                 self.engine.send_command('add_food', world_x=world_x, world_y=world_y)
             elif self.active_tool == 'agent':
@@ -191,6 +228,22 @@ class PygameView:
         if event.button == 3:  # Botão direito
             self.dragging = False
         elif event.button == 1:
+            world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
+            if self.selection_drag_tool == 'select_square' and self.selection_start_world is not None:
+                x0, y0 = self.selection_start_world
+                if math.hypot(world_x - x0, world_y - y0) < (4.0 / max(self.engine.camera.zoom, 1e-6)):
+                    self.engine.send_command('select_agent', world_x=world_x, world_y=world_y)
+                else:
+                    self.engine.send_command('select_agents_rect', x0=x0, y0=y0, x1=world_x, y1=world_y)
+            elif self.selection_drag_tool == 'select_lasso':
+                points = list(self.selection_lasso_points)
+                if len(points) < 3:
+                    self.engine.send_command('select_agent', world_x=world_x, world_y=world_y)
+                else:
+                    self.engine.send_command('select_agents_lasso', points=points)
+            self.selection_drag_tool = None
+            self.selection_start_world = None
+            self.selection_lasso_points = []
             self.drawing_obstacle = False
             self.last_brush_world_pos = None
             self.engine.dragged_object = None
@@ -220,6 +273,12 @@ class PygameView:
                 erase=self.brush_erase,
             )
             self.last_brush_world_pos = (world_x, world_y)
+        elif self.selection_drag_tool == 'select_lasso':
+            world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
+            last_x, last_y = self.selection_lasso_points[-1] if self.selection_lasso_points else (world_x, world_y)
+            min_step = 4.0 / max(self.engine.camera.zoom, 1e-6)
+            if math.hypot(world_x - last_x, world_y - last_y) >= min_step:
+                self.selection_lasso_points.append((world_x, world_y))
         elif self.moving_object is not None and self.active_tool == 'move':
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
             state_lock = getattr(self.engine, 'state_lock', None)
@@ -261,7 +320,7 @@ class PygameView:
         time_scale = self.engine.params.get('time_scale', 1.0)
         
         if keys[pygame.K_PLUS] or keys[pygame.K_EQUALS]:
-            time_scale = min(10.0, time_scale * 1.05)
+            time_scale = min(50.0, time_scale * 1.05)
             self.engine.params.set('time_scale', time_scale)
         
         if keys[pygame.K_MINUS]:

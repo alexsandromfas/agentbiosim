@@ -24,19 +24,22 @@ import csv
 import json
 import threading
 import traceback
+import time
 from typing import Dict, Any, Tuple
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QEvent
-from PyQt6.QtGui import QIcon, QColor, QAction
+from PyQt6.QtGui import QIcon, QColor, QAction, QPixmap, QPainter, QPen, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QTabWidget,
     QLabel, QPushButton, QSpinBox, QDoubleSpinBox, QCheckBox, QComboBox,
-    QLineEdit, QTextEdit, QListWidget, QMessageBox, QFileDialog, QScrollArea,
-    QFormLayout, QGridLayout, QGroupBox, QToolTip, QStackedWidget
-    , QColorDialog
+    QLineEdit, QTextEdit, QMessageBox, QFileDialog, QScrollArea,
+    QFormLayout, QGridLayout, QGroupBox, QToolTip, QStackedWidget,
+    QColorDialog, QSlider, QRadioButton, QButtonGroup, QFrame,
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
 )
 
 from .controllers import Params
+from .diagnostics import log_event, log_exception
 from .engine import Engine
 from .game import PygameView
 from .profiler import profiler
@@ -77,6 +80,183 @@ class ClickHelpLabel(QLabel):
         super().mousePressEvent(event)
 
 
+class MetricHistoryChart(QWidget):
+    """Grafico leve com normalizacao independente por metrica."""
+
+    def __init__(self):
+        super().__init__()
+        self.setMinimumHeight(150)
+        self.setMaximumHeight(190)
+        self.history: list[dict[str, float]] = []
+        self.visible_keys: set[str] | None = None
+        self.time_window_seconds: float | None = 3600.0
+        self.metric_defs = [
+            ("bacteria", "Bacterias", QColor(118, 205, 255)),
+            ("predators", "Predadores", QColor(255, 120, 120)),
+            ("foods", "Comida", QColor(255, 208, 92)),
+            ("effective_time_scale", "Tempo efetivo", QColor(120, 180, 255)),
+        ]
+
+    def set_history(self, history: list[dict[str, float]]):
+        self.history = history
+        self.update()
+
+    def set_metric_defs(self, metric_defs):
+        self.metric_defs = list(metric_defs)
+        self.update()
+
+    def set_visible_keys(self, keys):
+        self.visible_keys = set(keys) if keys is not None else None
+        self.update()
+
+    def set_time_window_seconds(self, seconds):
+        self.time_window_seconds = None if seconds is None else float(seconds)
+        self.update()
+
+    @staticmethod
+    def _compact(value: float) -> str:
+        number = abs(float(value))
+        sign = "-" if value < 0 else ""
+        if number >= 1_000_000:
+            return f"{sign}{number / 1_000_000:.1f}M"
+        if number >= 1_000:
+            return f"{sign}{number / 1_000:.1f}k"
+        return f"{value:.2f}"
+
+    @staticmethod
+    def _format_seconds(seconds: float) -> str:
+        seconds = max(0.0, float(seconds))
+        if seconds >= 86400:
+            return f"{seconds / 86400:.1f}d"
+        if seconds >= 3600:
+            return f"{seconds / 3600:.1f}h"
+        if seconds >= 60:
+            return f"{seconds / 60:.1f}min"
+        return f"{seconds:.0f}s"
+
+    def _visible_history(self, max_points: int):
+        rows = list(self.history)
+        if not rows:
+            return rows
+        if self.time_window_seconds is not None:
+            end_t = float(rows[-1].get('t', 0.0) or 0.0)
+            start_t = end_t - self.time_window_seconds
+            rows = [row for row in rows if float(row.get('t', 0.0) or 0.0) >= start_t]
+        if len(rows) > max_points:
+            step = max(1, int(math.ceil(len(rows) / max_points)))
+            rows = rows[::step]
+            if rows[-1] is not self.history[-1]:
+                rows.append(self.history[-1])
+        return rows
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            w = self.width()
+            h = self.height()
+            painter.fillRect(0, 0, w, h, QColor(14, 17, 22))
+            painter.setPen(QPen(QColor(48, 55, 65), 1))
+            painter.drawRect(0, 0, w - 1, h - 1)
+
+            visible_rows = self._visible_history(max(300, w * 2))
+            if len(visible_rows) < 2:
+                painter.setPen(QColor(150, 164, 181))
+                painter.drawText(12, 28, "Grafico aguardando amostras da simulacao...")
+                return
+
+            left, top, right, bottom = 52, 14, 12, 34
+            plot_w = max(1, w - left - right)
+            plot_h = max(1, h - top - bottom)
+            painter.setPen(QPen(QColor(38, 45, 54), 1))
+            for frac in (0.25, 0.5, 0.75):
+                y = int(top + plot_h * frac)
+                painter.drawLine(left, y, left + plot_w, y)
+
+            visible_defs = []
+            for key, label, color in self.metric_defs:
+                if self.visible_keys is not None and key not in self.visible_keys:
+                    continue
+                values = [float(row.get(key, 0.0) or 0.0) for row in visible_rows]
+                if key == "predators" and max(values) <= 0.0:
+                    continue
+                visible_defs.append((key, label, color, values))
+
+            n = len(visible_rows)
+            if not visible_defs:
+                painter.setPen(QColor(150, 164, 181))
+                painter.drawText(12, 28, "Nenhuma metrica selecionada.")
+                return
+            for key, label, color, values in visible_defs:
+                vmin = min(values)
+                vmax = max(values)
+                span = vmax - vmin
+                if span <= 1e-9:
+                    span = max(abs(vmax), 1.0)
+                    vmin = 0.0
+                painter.setPen(QPen(color, 2))
+                prev = None
+                for idx, value in enumerate(values):
+                    x = int(left + (idx / max(1, n - 1)) * plot_w)
+                    norm = (value - vmin) / span
+                    y = int(top + (1.0 - max(0.0, min(1.0, norm))) * plot_h)
+                    if prev is not None:
+                        painter.drawLine(prev[0], prev[1], x, y)
+                    prev = (x, y)
+
+            first_t = float(visible_rows[0].get('t', 0.0) or 0.0)
+            last_t = float(visible_rows[-1].get('t', 0.0) or 0.0)
+            mid_t = (first_t + last_t) * 0.5
+            painter.setPen(QColor(142, 155, 172))
+            painter.drawLine(left, top + plot_h, left + plot_w, top + plot_h)
+            painter.drawText(left, h - 9, self._format_seconds(first_t))
+            mid_text = self._format_seconds(mid_t)
+            painter.drawText(left + plot_w // 2 - 24, h - 9, mid_text)
+            end_text = self._format_seconds(last_t)
+            painter.drawText(left + plot_w - 48, h - 9, end_text)
+        finally:
+            painter.end()
+
+
+class ChartResizeHandle(QFrame):
+    """Pequeno controle para ajustar a altura do painel de grafico."""
+
+    def __init__(self, chart: MetricHistoryChart):
+        super().__init__()
+        self.chart = chart
+        self._drag_start_y = None
+        self._drag_start_h = None
+        self.setCursor(Qt.CursorShape.SizeVerCursor)
+        self.setToolTip("Arraste para aumentar ou diminuir a altura do grafico.")
+        self.setFixedSize(72, 7)
+        self.setStyleSheet(
+            "QFrame { background:#3b4652; border-radius:3px; } "
+            "QFrame:hover { background:#6f8195; }"
+        )
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_y = event.globalPosition().y()
+            self._drag_start_h = self.chart.height()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self._drag_start_y is None or self._drag_start_h is None:
+            return super().mouseMoveEvent(event)
+        dy = event.globalPosition().y() - self._drag_start_y
+        new_h = int(max(100, min(520, self._drag_start_h + dy)))
+        self.chart.setMinimumHeight(new_h)
+        self.chart.setMaximumHeight(new_h)
+        event.accept()
+
+    def mouseReleaseEvent(self, event):
+        self._drag_start_y = None
+        self._drag_start_h = None
+        super().mouseReleaseEvent(event)
+
+
 class SimulationUI(QMainWindow):
     """PyQt6 version of the simulation control UI."""
 
@@ -103,6 +283,13 @@ class SimulationUI(QMainWindow):
 
         self.widgets: Dict[str, QWidget] = {}
         self._auto_export_timer: QTimer | None = None
+        self._diagnostic_timer: QTimer | None = None
+        self._recovery_snapshot_saved = False
+        self._current_biosim_path: str | None = None
+        self._intelligence_cache: Dict[str, float] = {}
+        self._intelligence_cache_agent = None
+        self._intelligence_cache_time = 0.0
+        self._metrics_history: list[dict[str, float]] = []
 
         self._build_layout()
         self._build_tabs()
@@ -112,7 +299,10 @@ class SimulationUI(QMainWindow):
         if 'obstacle_brush_erase' in self.widgets:
             self._update_brush_erase()
         self._build_menu_bar()
+        self._setup_keyboard_shortcuts()
         self._setup_live_param_signals()
+        self._start_diagnostic_heartbeat()
+        log_event("UI_CREATED")
 
         # Embed pygame view (defer until shown)
         QTimer.singleShot(100, self._init_pygame_view)
@@ -123,9 +313,15 @@ class SimulationUI(QMainWindow):
     def _build_layout(self):
         central = QWidget()
         self.setCentralWidget(central)
-        lay = QHBoxLayout(central)
-        lay.setContentsMargins(6, 6, 6, 6)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(6, 6, 6, 6)
+        root.setSpacing(6)
+        root.addWidget(self._build_status_bar(), stretch=0)
+
+        lay = QHBoxLayout()
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(6)
+        root.addLayout(lay, stretch=1)
 
         # Left control area
         self.control_container = QWidget()
@@ -149,8 +345,591 @@ class SimulationUI(QMainWindow):
         self.pygame_host.setObjectName("pygame_host")
         self.pygame_host.setStyleSheet("#pygame_host { background: #101214; }")
         sim_lay.addWidget(self.pygame_host, stretch=1)
+        self.metrics_panel = self._build_metrics_panel()
+        self.metrics_panel.setVisible(bool(self.params.get('show_metrics_chart', False)))
+        sim_lay.addWidget(self.metrics_panel, stretch=0)
+        self.runtime_toolbar = self._build_runtime_toolbar()
+        sim_lay.addWidget(self.runtime_toolbar, stretch=0)
         sim_lay.addWidget(self._build_canvas_tools(), stretch=0)
         lay.addWidget(self.sim_container, stretch=1)
+        self.agent_details_panel = self._build_selected_agent_panel()
+        lay.addWidget(self.agent_details_panel, stretch=0)
+
+    def _base_chart_metric_defs(self):
+        return [
+            ("bacteria", "Bacterias", QColor(118, 205, 255)),
+            ("predators", "Predadores", QColor(255, 120, 120)),
+            ("foods", "Comida", QColor(255, 208, 92)),
+            ("effective_time_scale", "Tempo efetivo", QColor(120, 180, 255)),
+        ]
+
+    def _build_metrics_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("metrics_panel")
+        panel.setStyleSheet(
+            "#metrics_panel { background:#15181d; border:1px solid #303741; } "
+            "QLabel, QCheckBox, QRadioButton { color:#dce7f3; } "
+            "QComboBox { min-height:22px; }"
+        )
+        outer = QVBoxLayout(panel)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(5)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        top.addWidget(QLabel("Grafico"))
+        top.addWidget(QLabel("Amostragem:"))
+        self._chart_sample_group = QButtonGroup(self)
+        for seconds in (1, 2, 3):
+            rb = QRadioButton(f"{seconds}s")
+            rb.setChecked(seconds == 1)
+            self._chart_sample_group.addButton(rb, seconds)
+            top.addWidget(rb)
+        self._chart_sample_group.idClicked.connect(self._set_chart_sample_seconds)
+
+        top.addWidget(QLabel("Janela:"))
+        self._chart_window_combo = QComboBox()
+        self._chart_window_combo.addItem("Ultima 1h", 3600)
+        self._chart_window_combo.addItem("Ultimas 5h", 5 * 3600)
+        self._chart_window_combo.addItem("Ultimas 10h", 10 * 3600)
+        self._chart_window_combo.addItem("Ultimas 24h", 24 * 3600)
+        self._chart_window_combo.addItem("Tudo", -1)
+        self._chart_window_combo.currentIndexChanged.connect(self._on_chart_window_changed)
+        top.addWidget(self._chart_window_combo)
+        top.addStretch(1)
+
+        self.metrics_chart = MetricHistoryChart()
+        resize = ChartResizeHandle(self.metrics_chart)
+        top.addWidget(resize)
+        outer.addLayout(top)
+
+        checks_row = QHBoxLayout()
+        checks_row.setSpacing(8)
+        checks_row.addWidget(QLabel("Linhas:"))
+        self._chart_checks_widget = QWidget()
+        self._chart_checks_layout = QHBoxLayout(self._chart_checks_widget)
+        self._chart_checks_layout.setContentsMargins(0, 0, 0, 0)
+        self._chart_checks_layout.setSpacing(8)
+        checks_row.addWidget(self._chart_checks_widget, stretch=1)
+        outer.addLayout(checks_row)
+
+        outer.addWidget(self.metrics_chart)
+        self._hidden_chart_metrics = set()
+        self._refresh_chart_metric_checkboxes()
+
+        self._metrics_chart_timer = QTimer(self)
+        self._metrics_chart_timer.timeout.connect(self._update_metrics_chart)
+        self._metrics_chart_timer.start(1000)
+        return panel
+
+    def _build_runtime_toolbar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("runtime_toolbar")
+        bar.setStyleSheet(
+            "#runtime_toolbar { background:#15181d; border-top:1px solid #303741; } "
+            "QLabel { color:#dce7f3; }"
+        )
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(8, 5, 8, 5)
+        layout.setSpacing(8)
+        layout.addWidget(QLabel("Velocidade"))
+
+        self._time_scale_slider = QSlider(Qt.Orientation.Horizontal)
+        self._time_scale_slider.setRange(10, 5000)
+        self._time_scale_slider.setSingleStep(10)
+        self._time_scale_slider.setPageStep(100)
+        self._time_scale_slider.setFixedWidth(220)
+        self._time_scale_slider.setValue(int(float(self.params.get('time_scale', 1.0)) * 100))
+        self._time_scale_slider.valueChanged.connect(self._on_time_scale_slider_changed)
+        layout.addWidget(self._time_scale_slider, stretch=0)
+
+        spin = _spin_double(0.1, 50.0, 0.1, 2)
+        spin.setValue(float(self.params.get('time_scale', 1.0)))
+        spin.setSuffix("x")
+        spin.setFixedWidth(90)
+        spin.valueChanged.connect(self._on_time_scale_spin_changed)
+        self.widgets['time_scale'] = spin
+        self._time_scale_spin = spin
+        layout.addWidget(spin)
+        layout.addStretch(1)
+        return bar
+
+    def _build_status_bar(self) -> QWidget:
+        bar = QWidget()
+        bar.setObjectName("simulation_status_bar")
+        bar.setStyleSheet(
+            "#simulation_status_bar { background:#15181d; border:1px solid #303741; } "
+            "QLabel { color:#dce7f3; } QLabel.metric_name { color:#91a2b5; }"
+        )
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(12)
+        self._status_labels: Dict[str, QLabel] = {}
+
+        def add_metric(key: str, name: str):
+            title = QLabel(f"{name}:")
+            title.setProperty("class", "metric_name")
+            value = QLabel("-")
+            value.setMinimumWidth(42)
+            layout.addWidget(title)
+            layout.addWidget(value)
+            self._status_labels[key] = value
+
+        for key, name in [
+            ('bacteria', 'Bacterias'),
+            ('predators', 'Predadores'),
+            ('foods', 'Comida'),
+            ('food_target', 'Alvo'),
+            ('obstacles', 'Obstaculos'),
+            ('fps', 'FPS'),
+            ('cpu', 'CPU'),
+            ('ram', 'RAM'),
+            ('time_scale', 'Tempo'),
+            ('effective_time_scale', 'Efetivo'),
+            ('physics', 'Fisica'),
+            ('backlog', 'Atraso'),
+            ('world', 'Mundo'),
+        ]:
+            add_metric(key, name)
+        layout.addStretch(1)
+
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._update_status_bar)
+        self._status_timer.start(500)
+        return bar
+
+    def _setup_keyboard_shortcuts(self):
+        shortcuts = [
+            ("Delete", self._shortcut_delete_selected_agents),
+            ("Space", self._shortcut_toggle_pause),
+            ("Esc", self._shortcut_clear_selection),
+        ]
+        self._keyboard_shortcuts = []
+        for sequence, slot in shortcuts:
+            shortcut = QShortcut(QKeySequence(sequence), self)
+            shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+            shortcut.activated.connect(slot)
+            self._keyboard_shortcuts.append(shortcut)
+
+    def _keyboard_shortcut_allowed(self) -> bool:
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox)):
+            return False
+        if isinstance(focus, QTextEdit) and not focus.isReadOnly():
+            return False
+        if isinstance(focus, QTableWidget):
+            try:
+                return focus.state() != QAbstractItemView.State.EditingState
+            except Exception:
+                return True
+        return True
+
+    def _shortcut_delete_selected_agents(self):
+        if not self._keyboard_shortcut_allowed():
+            return
+        self.delete_selected_agents()
+
+    def _shortcut_toggle_pause(self):
+        if not self._keyboard_shortcut_allowed():
+            return
+        if bool(self.params.get('paused', False)):
+            self.play_simulation()
+        else:
+            self.pause_simulation()
+
+    def _shortcut_clear_selection(self):
+        if not self._keyboard_shortcut_allowed():
+            return
+        state_lock = getattr(self.engine, 'state_lock', None)
+        if state_lock is None:
+            self.engine._clear_selection()
+        else:
+            with state_lock:
+                self.engine._clear_selection()
+
+    def _update_status_bar(self):
+        labels = self.__dict__.get('_status_labels', {})
+        if not labels:
+            return
+        engine = self.engine
+        labels['bacteria'].setText(str(len(engine.entities.get('bacteria', []))))
+        labels['predators'].setText(str(len(engine.entities.get('predators', []))))
+        labels['foods'].setText(str(len(engine.entities.get('foods', []))))
+        labels['food_target'].setText(str(self.params.get('food_target', 0)))
+        labels['obstacles'].setText(str(len(getattr(engine, 'obstacles', []))))
+        labels['fps'].setText(str(int(getattr(engine, 'current_fps', 0.0))))
+        if getattr(engine, 'resources_available', False):
+            labels['cpu'].setText(f"{float(getattr(engine, 'cpu_proc_percent', 0.0)):.0f}%")
+            labels['ram'].setText(f"{float(getattr(engine, 'mem_used_mb', 0.0)):.0f} MB")
+        else:
+            labels['cpu'].setText("N/A")
+            labels['ram'].setText("N/A")
+        labels['time_scale'].setText(f"{float(self.params.get('time_scale', 1.0)):.2f}x")
+        labels['effective_time_scale'].setText(f"{float(getattr(engine, 'effective_time_scale', 0.0)):.2f}x")
+        physics_hz = float(self.params.get('physics_steps_per_second', 30))
+        actual_physics = float(getattr(engine, 'physics_steps_per_wall_second', 0.0))
+        labels['physics'].setText(f"{actual_physics:.0f}/{physics_hz:.0f} Hz")
+        backlog = float(getattr(engine, 'simulation_backlog', 0.0))
+        dropped = float(getattr(engine, 'dropped_simulation_time', 0.0))
+        labels['backlog'].setText(f"{backlog:.2f}s" if dropped <= 0 else f"{backlog:.2f}s drop {dropped:.1f}s")
+        world = engine.world
+        if getattr(world, 'shape', 'rectangular') == 'circular':
+            labels['world'].setText(f"circular r {float(getattr(world, 'radius', 0.0)):.0f}")
+        else:
+            labels['world'].setText(f"{float(getattr(world, 'width', 0.0)):.0f}x{float(getattr(world, 'height', 0.0)):.0f}")
+        self._sync_time_toolbar_from_params()
+
+    def _sync_time_toolbar_from_params(self):
+        value = max(0.1, min(50.0, float(self.params.get('time_scale', 1.0))))
+        slider = getattr(self, '_time_scale_slider', None)
+        spin = getattr(self, '_time_scale_spin', None)
+        if slider is not None and not slider.isSliderDown():
+            slider.blockSignals(True)
+            slider.setValue(int(round(value * 100)))
+            slider.blockSignals(False)
+        if spin is not None and not spin.hasFocus():
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+    def _set_time_scale_value(self, value: float):
+        value = max(0.1, min(50.0, float(value)))
+        self.params.set('time_scale', value, validate=False)
+        slider = getattr(self, '_time_scale_slider', None)
+        spin = getattr(self, '_time_scale_spin', None)
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setValue(int(round(value * 100)))
+            slider.blockSignals(False)
+        if spin is not None:
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+
+    def _on_time_scale_slider_changed(self, raw_value: int):
+        self._set_time_scale_value(float(raw_value) / 100.0)
+
+    def _on_time_scale_spin_changed(self, value: float):
+        self._set_time_scale_value(float(value))
+
+    def _current_chart_metric_defs(self):
+        defs = list(self._base_chart_metric_defs())
+        for label_id, meta in sorted(getattr(self.engine, 'agent_labels', {}).items()):
+            if not bool(meta.get('show_chart', True)):
+                continue
+            color = QColor(*meta.get('color', (220, 220, 220)))
+            name = str(meta.get('name', f'Label {label_id}'))
+            defs.append((f'label_{label_id}_smart', f'{name} inteligencia', color))
+        return defs
+
+    def _refresh_chart_metric_checkboxes(self):
+        layout = getattr(self, '_chart_checks_layout', None)
+        chart = getattr(self, 'metrics_chart', None)
+        if layout is None or chart is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        metric_defs = self._current_chart_metric_defs()
+        visible = []
+        for key, label, color in metric_defs:
+            cb = QCheckBox(label)
+            cb.setChecked(key not in self._hidden_chart_metrics)
+            cb.setStyleSheet(f"QCheckBox {{ color: rgb({color.red()},{color.green()},{color.blue()}); }}")
+            cb.toggled.connect(lambda checked, metric_key=key: self._on_chart_metric_toggled(metric_key, checked))
+            layout.addWidget(cb)
+            if cb.isChecked():
+                visible.append(key)
+        layout.addStretch(1)
+        chart.set_metric_defs(metric_defs)
+        chart.set_visible_keys(visible)
+
+    def _on_chart_metric_toggled(self, key: str, checked: bool):
+        if checked:
+            self._hidden_chart_metrics.discard(key)
+        else:
+            self._hidden_chart_metrics.add(key)
+        visible = [k for k, _label, _color in self._current_chart_metric_defs() if k not in self._hidden_chart_metrics]
+        self.metrics_chart.set_visible_keys(visible)
+
+    def _set_chart_sample_seconds(self, seconds: int):
+        interval = max(1, int(seconds)) * 1000
+        if getattr(self, '_metrics_chart_timer', None) is not None:
+            self._metrics_chart_timer.setInterval(interval)
+
+    def _on_chart_window_changed(self):
+        value = self._chart_window_combo.currentData()
+        self.metrics_chart.set_time_window_seconds(None if int(value) < 0 else int(value))
+
+    def _build_selected_agent_panel(self) -> QWidget:
+        panel = QWidget()
+        panel.setObjectName("agent_details_panel")
+        panel.setFixedWidth(340)
+        panel.setStyleSheet(
+            "#agent_details_panel { background:#171a1f; border-left:1px solid #303741; } "
+            "QLabel { color:#dce7f3; } "
+            "QTextEdit { background:#101318; color:#dce7f3; border:1px solid #303741; }"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        title = QLabel("Agente selecionado")
+        title.setStyleSheet("font-weight:700; font-size:14px; color:#f0f5ff;")
+        layout.addWidget(title)
+
+        self._agent_portrait = QLabel()
+        self._agent_portrait.setFixedHeight(150)
+        self._agent_portrait.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._agent_portrait.setStyleSheet("background:#0f1217; border:1px solid #303741;")
+        layout.addWidget(self._agent_portrait)
+
+        self._agent_detail_labels: Dict[str, QLabel] = {}
+        for key, caption in [
+            ('species', 'Tipo'),
+            ('selected_count', 'Selecionados'),
+            ('energy', 'Energia'),
+            ('speed', 'Velocidade'),
+            ('age', 'Idade'),
+            ('position', 'Posicao'),
+            ('body', 'Corpo'),
+            ('brain', 'Rede neural'),
+            ('sensor', 'Retina'),
+            ('locomotion', 'Motor'),
+            ('metabolism', 'Metabolismo'),
+            ('smart_local', 'Fator intel. local'),
+            ('intake', 'Alimentacao'),
+            ('output', 'Saida neural'),
+        ]:
+            row = QHBoxLayout()
+            left = QLabel(f"{caption}:")
+            left.setFixedWidth(96)
+            left.setStyleSheet("color:#9fb1c4;")
+            right = QLabel("-")
+            right.setWordWrap(True)
+            row.addWidget(left)
+            row.addWidget(right, stretch=1)
+            layout.addLayout(row)
+            self._agent_detail_labels[key] = right
+
+        layout.addWidget(QLabel("Ativacoes por camada"))
+        self._agent_brain_text = QTextEdit()
+        self._agent_brain_text.setReadOnly(True)
+        self._agent_brain_text.setMinimumHeight(150)
+        layout.addWidget(self._agent_brain_text, stretch=1)
+
+        panel.hide()
+        self._agent_panel_timer = QTimer(self)
+        self._agent_panel_timer.timeout.connect(self._update_selected_agent_panel)
+        self._agent_panel_timer.start(350)
+        return panel
+
+    @staticmethod
+    def _short_float(value: Any, digits: int = 2) -> str:
+        try:
+            return f"{float(value):.{digits}f}"
+        except Exception:
+            return "-"
+
+    @staticmethod
+    def _compact_float(value: Any, digits: int = 2) -> str:
+        try:
+            number = float(value)
+        except Exception:
+            return "-"
+        sign = "-" if number < 0 else ""
+        number = abs(number)
+        for suffix, scale in (("M", 1_000_000.0), ("k", 1_000.0)):
+            if number >= scale:
+                return f"{sign}{number / scale:.{digits}f}{suffix}"
+        return f"{sign}{number:.{digits}f}"
+
+    def _flatten_numeric_values(self, values: Any) -> list[float]:
+        if hasattr(values, 'tolist'):
+            values = values.tolist()
+        if isinstance(values, (int, float)):
+            return [float(values)]
+        if not isinstance(values, (list, tuple)):
+            return []
+        flat: list[float] = []
+        for item in values:
+            flat.extend(self._flatten_numeric_values(item))
+        return flat
+
+    def _draw_selected_agent_portrait(self, agent: Any):
+        pix = QPixmap(300, 140)
+        pix.fill(QColor(15, 18, 23))
+        painter = QPainter(pix)
+        try:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            color = getattr(agent, 'color', (220, 220, 220)) or (220, 220, 220)
+            try:
+                qcolor = QColor(int(color[0]), int(color[1]), int(color[2]))
+            except Exception:
+                qcolor = QColor(220, 220, 220)
+            center_x, center_y = 150, 70
+            radius = max(16, min(48, int(float(getattr(agent, 'r', 10.0)) * 2.6)))
+            painter.setPen(QPen(QColor(230, 238, 248), 2))
+            painter.setBrush(QBrush(qcolor))
+            painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+            angle = float(getattr(agent, 'angle', 0.0))
+            hx = center_x + math.cos(angle) * radius
+            hy = center_y + math.sin(angle) * radius
+            painter.setPen(QPen(QColor(255, 255, 255), 3))
+            painter.drawLine(center_x, center_y, int(hx), int(hy))
+            painter.setPen(QPen(QColor(93, 174, 255), 1))
+            vision = getattr(getattr(agent, 'sensor', None), 'vision_radius', None)
+            if vision is not None:
+                painter.drawText(10, 130, f"visao {self._short_float(vision, 0)}")
+        finally:
+            painter.end()
+        self._agent_portrait.setPixmap(pix)
+
+    def _get_intelligence_metrics(self, agent: Any, max_age_s: float = 1.0) -> Dict[str, float]:
+        now = time.monotonic()
+        if (
+            agent is self._intelligence_cache_agent
+            and self._intelligence_cache
+            and (now - self._intelligence_cache_time) < max_age_s
+        ):
+            return self._intelligence_cache
+        if agent is None:
+            metrics = {}
+        else:
+            try:
+                from .intelligence import local_intelligence_for_agent
+                metrics = local_intelligence_for_agent(self.engine, agent)
+            except Exception:
+                metrics = {}
+        self._intelligence_cache_agent = agent
+        self._intelligence_cache = metrics
+        self._intelligence_cache_time = now
+        return metrics
+
+    def _update_metrics_chart(self):
+        chart = getattr(self, 'metrics_chart', None)
+        if chart is None or not chart.isVisible():
+            return
+        engine = self.engine
+        label_ids = tuple(sorted(getattr(engine, 'agent_labels', {}).keys()))
+        if label_ids != getattr(self, '_chart_known_label_ids', ()):
+            self._chart_known_label_ids = label_ids
+            self._refresh_chart_metric_checkboxes()
+        if bool(self.params.get('paused', False)) or not bool(getattr(engine, 'running', False)):
+            return
+        row = {
+            't': float(getattr(engine, 'total_simulation_time', 0.0)),
+            'bacteria': float(len(engine.entities.get('bacteria', []))),
+            'predators': float(len(engine.entities.get('predators', []))),
+            'foods': float(len(engine.entities.get('foods', []))),
+            'effective_time_scale': float(getattr(engine, 'effective_time_scale', 0.0) or 0.0),
+        }
+        if getattr(engine, 'agent_labels', None):
+            try:
+                from .intelligence import group_intelligence_snapshot
+                for label_id, meta in engine.agent_labels.items():
+                    if not bool(meta.get('show_chart', True)):
+                        continue
+                    agents = engine.get_agents_by_label(label_id)
+                    group_metrics = group_intelligence_snapshot(engine, agents, sample_size=10)
+                    row[f'label_{label_id}_smart'] = float(group_metrics.get('local_factor', 0.0) or 0.0)
+            except Exception:
+                pass
+        self._metrics_history.append(row)
+        chart.set_history(self._metrics_history)
+
+    def _set_metrics_chart_visible(self, checked: bool):
+        self.params.set('show_metrics_chart', bool(checked), validate=False)
+        panel = getattr(self, 'metrics_panel', None)
+        if panel is not None:
+            panel.setVisible(bool(checked))
+            if checked:
+                self._refresh_chart_metric_checkboxes()
+                self._update_metrics_chart()
+
+    def _update_selected_agent_panel(self):
+        panel = getattr(self, 'agent_details_panel', None)
+        if panel is None:
+            return
+        agent = getattr(self.engine, 'selected_agent', None)
+        visible = bool(agent is not None and self.params.get('show_selected_details', True))
+        panel.setVisible(visible)
+        if not visible:
+            return
+
+        self._draw_selected_agent_portrait(agent)
+        selected_count = len(getattr(self.engine, 'selected_agents', set()) or [])
+        speed = math.hypot(float(getattr(agent, 'vx', 0.0)), float(getattr(agent, 'vy', 0.0)))
+        brain = getattr(agent, 'brain', None)
+        sensor = getattr(agent, 'sensor', None)
+        locomotion = getattr(agent, 'locomotion', None)
+        energy_model = getattr(agent, 'energy_model', None)
+
+        labels = self._agent_detail_labels
+        labels['species'].setText("Predador" if getattr(agent, 'is_predator', False) else "Bacteria")
+        labels['selected_count'].setText(str(selected_count or 1))
+        labels['energy'].setText(self._short_float(getattr(agent, 'energy', 0.0), 2))
+        labels['speed'].setText(self._short_float(speed, 2))
+        labels['age'].setText(self._short_float(getattr(agent, 'age', 0.0), 1))
+        labels['position'].setText(f"x {self._short_float(getattr(agent, 'x', 0.0), 1)} / y {self._short_float(getattr(agent, 'y', 0.0), 1)}")
+        labels['body'].setText(f"r {self._short_float(getattr(agent, 'r', 0.0), 1)}")
+        labels['brain'].setText(" -> ".join(str(v) for v in getattr(brain, 'sizes', []) or []))
+        if sensor is not None:
+            labels['sensor'].setText(
+                f"{getattr(sensor, 'retina_count', '-')} retinas, "
+                f"raio {self._short_float(getattr(sensor, 'vision_radius', 0.0), 0)}, "
+                f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}"
+            )
+        else:
+            labels['sensor'].setText("-")
+        if locomotion is not None:
+            labels['locomotion'].setText(
+                f"max {self._short_float(getattr(locomotion, 'max_speed', 0.0), 1)}, "
+                f"giro {self._short_float(math.degrees(getattr(locomotion, 'max_turn', 0.0)), 1)} deg/s"
+            )
+        else:
+            labels['locomotion'].setText("-")
+        if energy_model is not None:
+            labels['metabolism'].setText(
+                f"v0 {self._short_float(getattr(energy_model, 'v0_cost', 0.0), 3)}, "
+                f"vmax {self._short_float(getattr(energy_model, 'vmax_cost', 0.0), 3)}, "
+                f"cap {self._short_float(getattr(energy_model, 'energy_cap', 0.0), 1)}"
+            )
+        else:
+            labels['metabolism'].setText("-")
+        smart = self._get_intelligence_metrics(agent)
+        labels['smart_local'].setText(
+            f"{self._compact_float(smart.get('local_factor', 0.0), 2)} "
+            f"(dens {self._short_float(smart.get('local_density', 0.0), 5)})"
+        )
+        labels['intake'].setText(
+            f"taxa {self._short_float(smart.get('intake_rate', 0.0), 2)}/s, "
+            f"total {self._short_float(smart.get('intake_energy', 0.0), 1)}, "
+            f"eventos {int(smart.get('intake_events', 0.0) or 0)}"
+        )
+        output = self._flatten_numeric_values(getattr(agent, 'last_brain_output', []))
+        labels['output'].setText(", ".join(self._short_float(v, 3) for v in output[:4]) if output else "-")
+
+        activations = getattr(agent, 'last_brain_activations', []) or []
+        lines = []
+        for idx, layer in enumerate(activations):
+            vals = self._flatten_numeric_values(layer)
+            if not vals:
+                continue
+            sample = ", ".join(self._short_float(v, 3) for v in vals[:10])
+            mean = sum(vals) / len(vals)
+            lines.append(
+                f"Camada {idx}: n={len(vals)} min={min(vals):.3f} media={mean:.3f} max={max(vals):.3f}\n"
+                f"  {sample}"
+            )
+        if not lines:
+            if self.params.get('disable_brain_activations', False):
+                lines = ["Ativacoes neurais desativadas no menu View."]
+            else:
+                lines = ["Aguardando o proximo frame do agente selecionado."]
+        self._agent_brain_text.setPlainText("\n\n".join(lines))
 
     def _build_canvas_tools(self):
         bar = QWidget()
@@ -180,10 +959,32 @@ class SimulationUI(QMainWindow):
             layout.addWidget(btn)
             return btn
 
-        add_tool('select', 'S', 'Seletor: clique esquerdo seleciona agente e mostra visao/detalhes.')
+        def add_command(text: str, tooltip: str, slot, icon_path: str | None = None):
+            btn = QPushButton(text)
+            btn.setToolTip(tooltip)
+            if icon_path and os.path.exists(icon_path):
+                btn.setText("")
+                btn.setIcon(QIcon(icon_path))
+                btn.setIconSize(QSize(22, 22))
+            btn.clicked.connect(slot)
+            layout.addWidget(btn)
+            return btn
+
+        asset_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'Assets'))
+        layout.addWidget(QLabel("Execucao"))
+        add_command('Play', 'Iniciar ou despausar a simulacao.', self.play_simulation, os.path.join(asset_dir, 'Play.png'))
+        add_command('Pause', 'Pausar a simulacao sem apagar o estado atual.', self.pause_simulation, os.path.join(asset_dir, 'Pause.png'))
+        add_command('Stop', 'Parar e resetar a populacao usando os setups atuais.', self.stop_simulation, os.path.join(asset_dir, 'Stop.png'))
+        layout.addSpacing(14)
+        layout.addWidget(QLabel("Selecao"))
+        add_tool('select', 'S', 'Selecao unitaria: clique esquerdo seleciona um agente.', os.path.join(asset_dir, 'Selection.png'))
+        add_tool('select_square', 'Q', 'Selecao quadrada: arraste uma area para selecionar agentes.', os.path.join(asset_dir, 'Square.png'))
+        add_tool('select_lasso', 'L', 'Selecao lasso: desenhe um contorno livre para selecionar agentes.', os.path.join(asset_dir, 'Lasso.png'))
+        layout.addSpacing(10)
+        layout.addWidget(QLabel("Ferramentas"))
         add_tool('food', 'F', 'Comida: clique esquerdo adiciona comida.')
         add_tool('agent', 'A', 'Agente importado: clique esquerdo insere o agente carregado.')
-        icon_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', 'Assets', 'draw_icon.png'))
+        icon_path = os.path.join(asset_dir, 'draw_icon.png')
         add_tool('draw', 'P', 'Pincel: desenha barreiras solidas no substrato.', icon_path=icon_path)
         add_tool('move', 'M', 'Mover: clique e arraste comida, bacterias ou predadores.')
         add_tool('dead', 'D', 'Dead: remove o objeto clicado, inclusive comida.')
@@ -220,7 +1021,8 @@ class SimulationUI(QMainWindow):
     def _set_canvas_tool(self, tool: str):
         if hasattr(self.pygame_view, 'active_tool'):
             self.pygame_view.active_tool = tool
-        for key, btn in getattr(self, '_canvas_tool_buttons', {}).items():
+        buttons = self.__dict__.get('_canvas_tool_buttons', {})
+        for key, btn in buttons.items():
             active = key == tool
             btn.setChecked(active)
             btn.setProperty('active', 'true' if active else 'false')
@@ -254,6 +1056,7 @@ class SimulationUI(QMainWindow):
         self._build_tab_population()
         self._build_tab_environment()
         self._build_tab_experiment()
+        self._build_tab_labels()
 
     def _build_menu_bar(self):
         bar = self.menuBar()
@@ -262,12 +1065,15 @@ class SimulationUI(QMainWindow):
         act_new = QAction("Novo", self)
         act_new.triggered.connect(self.new_biosim_project)
         file_menu.addAction(act_new)
-        act_open = QAction("Abrir .biosim", self)
+        act_open = QAction("Abrir Simulacao", self)
         act_open.triggered.connect(self.open_biosim_window)
         file_menu.addAction(act_open)
-        act_save = QAction("Salvar .biosim", self)
+        act_save = QAction("Salvar Simulacao", self)
         act_save.triggered.connect(self.save_biosim_window)
         file_menu.addAction(act_save)
+        act_save_as = QAction("Salvar Como", self)
+        act_save_as.triggered.connect(self.save_biosim_as_window)
+        file_menu.addAction(act_save_as)
         file_menu.addSeparator()
         act_export_sub = QAction("Exportar substrato JSON", self)
         act_export_sub.triggered.connect(self.open_export_substrate_window)
@@ -288,6 +1094,7 @@ class SimulationUI(QMainWindow):
         act_brain.setChecked(not self.params.get('disable_brain_activations', False))
         act_brain.toggled.connect(self._on_toggle_brain_activations)
         view_menu.addAction(act_brain)
+        self._add_bool_menu_action(view_menu, "Grafico de metricas", 'show_metrics_chart', callback=self._set_metrics_chart_visible)
         self._add_bool_menu_action(view_menu, "Mostrar visao das bacterias", 'bacteria_show_vision')
         self._add_bool_menu_action(view_menu, "Mostrar visao dos predadores", 'predator_show_vision')
 
@@ -417,6 +1224,7 @@ class SimulationUI(QMainWindow):
         return str(exc)
 
     def _log_exception(self, prefix: str, exc: BaseException):
+        log_exception(prefix, type(exc), exc, exc.__traceback__)
         print(f"{prefix}: {self._format_exception(exc)}")
 
     def _warn_exception(self, title: str, exc: BaseException):
@@ -427,8 +1235,12 @@ class SimulationUI(QMainWindow):
 
     def _param_help_text(self, name: str, label: str) -> str:
         help_by_name = {
-            'time_scale': 'Multiplica a velocidade do tempo simulado. Valores altos aceleram a evolucao, mas podem deixar colisoes e dinamicas menos estaveis.',
+            'time_scale': 'Multiplica a velocidade do tempo simulado. Se o computador nao acompanhar, a velocidade efetiva cai, mas o passo fisico continua fixo.',
             'fps': 'Limite de quadros por segundo da janela. Afeta fluidez visual e quanto tempo de CPU a interface tenta usar.',
+            'show_metrics_chart': 'Mostra um grafico leve com populacao, comida, tempo efetivo e inteligencia media dos grupos com label.',
+            'physics_steps_per_second': 'Resolucao fixa da fisica em substeps por segundo simulado. Valores maiores aumentam precisao temporal, mas custam CPU proporcionalmente.',
+            'max_physics_steps_per_frame': 'Quantidade maxima de substeps fisicos antes de renderizar outro frame. Se bater no limite, o excedente e descartado para evitar travamento e manter dt fixo.',
+            'max_physics_backlog_seconds': 'Atraso simulado maximo acumulado apos travamentos. Excesso e descartado para evitar congelamento longo; isso reduz velocidade efetiva, sem aumentar dt fisico.',
             'paused': 'Pausa ou retoma o avanco da simulacao sem apagar agentes, comida ou obstaculos.',
             'population_min_rescue_enabled': 'Quando ativo, impede que a simulacao mate individuos abaixo do minimo configurado para aquela populacao.',
             'use_spatial': 'Usa uma grade espacial para acelerar buscas de proximidade, colisao, alimentacao e visao em populacoes grandes.',
@@ -441,7 +1253,7 @@ class SimulationUI(QMainWindow):
             'allow_reverse_locomotion': 'Permite que a saida neural gere movimento para tras. Desligado preserva a locomocao historica apenas para frente.',
             'reproduction_min_age': 'Idade minima para um agente poder reproduzir. Ajuda a evitar reproducao imediata de recem-nascidos.',
             'reproduction_cooldown': 'Tempo minimo entre duas reproducoes do mesmo agente.',
-            'show_selected_details': 'Mostra no canto da simulacao as metricas do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
+            'show_selected_details': 'Mostra o painel lateral do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
             'enable_brain_activations': 'Habilita calculo e exibicao das ativacoes neurais do agente selecionado. E util para diagnostico, mas tem custo extra.',
             'debug_tracebacks': 'Mostra tracebacks completos em erros da UI. Use para depurar; desligado deixa mensagens mais curtas.',
             'auto_export_substrate': 'Ativa salvamento automatico de snapshots do substrato em intervalos regulares.',
@@ -530,6 +1342,19 @@ class SimulationUI(QMainWindow):
         grid.addWidget(widget, row, 1)
         return row + 1
 
+    def _agent_group_apply_buttons(self, species: str, group: str) -> QWidget:
+        wrap = QWidget()
+        row = QHBoxLayout(wrap)
+        row.setContentsMargins(0, 8, 0, 0)
+        row.setSpacing(8)
+        btn_all = QPushButton("Aplicar a todos")
+        btn_selected = QPushButton("Aplicar aos selecionados")
+        btn_all.clicked.connect(lambda _checked=False, s=species, g=group: self.apply_agent_param_group(s, g, 'all_alive'))
+        btn_selected.clicked.connect(lambda _checked=False, s=species, g=group: self.apply_agent_param_group(s, g, 'selected'))
+        row.addWidget(btn_all)
+        row.addWidget(btn_selected)
+        return wrap
+
     def _build_tab_genetic_editor(self):
         tab = QWidget()
         self.tabs.addTab(tab, "Editor Genetico")
@@ -594,6 +1419,7 @@ class SimulationUI(QMainWindow):
         w = _spin_double(0.0, 5000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_v0_cost', defaults['metab_v0_cost'])); row = self._add_grid_param(grid, row, "Custo v=0 (s):", f'{species}_metab_v0_cost', w)
         w = _spin_double(0.0, 20000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_vmax_cost', defaults['metab_vmax_cost'])); row = self._add_grid_param(grid, row, "Custo v=vmax (s):", f'{species}_metab_vmax_cost', w)
         w = _spin_double(10.0, 1000000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_energy_cap', defaults['energy_cap'])); row = self._add_grid_param(grid, row, "Cap energia:", f'{species}_energy_cap', w)
+        grid.addWidget(self._agent_group_apply_buttons(species, 'energy'), row, 0, 1, 2)
         v.addWidget(g_energy)
 
         g_body = QGroupBox("Corpo, Movimento & Sensores")
@@ -609,6 +1435,7 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_food', True)); row = self._add_grid_param(grid, row, "Ver comida:", f'{species}_retina_see_food', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver bacterias:", f'{species}_retina_see_bacteria', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_predators', False)); row = self._add_grid_param(grid, row, "Ver predadores:", f'{species}_retina_see_predators', cb)
+        grid.addWidget(self._agent_group_apply_buttons(species, 'body_sensor_motion'), row, 0, 1, 2)
         v.addWidget(g_body)
 
         self._add_color_picker(v, species, card_style)
@@ -631,6 +1458,7 @@ class SimulationUI(QMainWindow):
             self._predator_neuron_widgets = neuron_widgets
         w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f'{species}_mutation_rate', defaults['mutation_rate'])); row = self._add_grid_param(grid, row, "Taxa de mutacao:", f'{species}_mutation_rate', w)
         w = _spin_double(0.0, 10.0, 0.01, 2); w.setValue(self.params.get(f'{species}_mutation_strength', defaults['mutation_strength'])); row = self._add_grid_param(grid, row, "Forca de mutacao:", f'{species}_mutation_strength', w)
+        grid.addWidget(self._agent_group_apply_buttons(species, 'brain'), row, 0, 1, 2)
         v.addWidget(g_brain)
 
         hidden_spin = self.widgets[f'{species}_hidden_layers']
@@ -641,29 +1469,6 @@ class SimulationUI(QMainWindow):
         hidden_spin.valueChanged.connect(lambda _v: _update_neuron_enabled())
         _update_neuron_enabled()
 
-        g_act = QGroupBox("Aplicacao do Template")
-        g_act.setStyleSheet(card_style)
-        la = QVBoxLayout(g_act)
-        hint = QLabel("Esses botoes aplicam o template genetico/organismico. Mudancas de cerebro so devem ser aplicadas aos vivos quando voce aceitar reconstruir a rede.")
-        hint.setWordWrap(True)
-        la.addWidget(hint)
-        if is_bacteria:
-            buttons = [
-                ("Aplicar a novos individuos", lambda _checked=False: self.apply_bacteria_params('template')),
-                ("Aplicar a todos vivos", lambda _checked=False: self.apply_bacteria_params('all_alive')),
-                ("Aplicar ao selecionado", lambda _checked=False: self.apply_bacteria_params('selected')),
-            ]
-        else:
-            buttons = [
-                ("Aplicar a novos individuos", lambda _checked=False: self.apply_predator_params('template')),
-                ("Aplicar a todos vivos", lambda _checked=False: self.apply_predator_params('all_alive')),
-                ("Aplicar ao selecionado", lambda _checked=False: self.apply_predator_params('selected')),
-            ]
-        for text, slot in buttons:
-            btn = QPushButton(text)
-            btn.clicked.connect(slot)
-            la.addWidget(btn)
-        v.addWidget(g_act)
         v.addStretch(1)
         return page
 
@@ -673,7 +1478,8 @@ class SimulationUI(QMainWindow):
         default = (220, 220, 220) if species == 'bacteria' else (80, 120, 220)
         box = QGroupBox(title)
         box.setStyleSheet(card_style)
-        row = QHBoxLayout(box)
+        box_layout = QVBoxLayout(box)
+        row = QHBoxLayout()
         swatch = QLabel()
         swatch.setFixedSize(36, 36)
         color = self.params.get(key, default)
@@ -691,15 +1497,11 @@ class SimulationUI(QMainWindow):
             rgb = (col.red(), col.green(), col.blue())
             swatch.setStyleSheet(f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]}); border:1px solid #333; border-radius:4px;")
             self.params.set(key, rgb, validate=False)
-            entity_key = 'bacteria' if species == 'bacteria' else 'predators'
-            for agent in self.engine.entities.get(entity_key, []):
-                try:
-                    agent.color = rgb
-                except Exception:
-                    pass
         button.clicked.connect(_pick)
         row.addWidget(swatch)
         row.addWidget(button)
+        box_layout.addLayout(row)
+        box_layout.addWidget(self._agent_group_apply_buttons(species, 'color'))
         layout.addWidget(box)
 
     def _build_tab_population(self):
@@ -742,6 +1544,10 @@ class SimulationUI(QMainWindow):
         row = 0
         cb = QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled', True)); row = self._add_grid_param(grid, row, "Resgate pop. minima:", 'population_min_rescue_enabled', cb)
         v.addWidget(g_rules)
+        btn_apply = QPushButton("Aplicar populacao")
+        btn_apply.setToolTip("Aplica limites populacionais na simulacao atual e corta excedentes acima do maximo.")
+        btn_apply.clicked.connect(self.apply_population_params)
+        v.addWidget(btn_apply)
         v.addStretch(1)
 
     def _build_tab_environment(self):
@@ -850,9 +1656,10 @@ class SimulationUI(QMainWindow):
         g_time.setStyleSheet(card_style)
         grid = QGridLayout(g_time)
         row = 0
-        w = _spin_double(0.01, 100.0, 0.01, 3); w.setValue(self.params.get('time_scale', 1.0)); row = self._add_grid_param(grid, row, "Escala de tempo (x):", 'time_scale', w)
         w = _spin_int(1, 240); w.setValue(self.params.get('fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
-        cb = QCheckBox(); cb.setChecked(self.params.get('paused', False)); row = self._add_grid_param(grid, row, "Pausado:", 'paused', cb)
+        w = _spin_int(5, 1000); w.setValue(self.params.get('physics_steps_per_second', 30)); row = self._add_grid_param(grid, row, "Fisica fixa (Hz):", 'physics_steps_per_second', w)
+        w = _spin_int(1, 1000); w.setValue(self.params.get('max_physics_steps_per_frame', 8)); row = self._add_grid_param(grid, row, "Substeps max/frame:", 'max_physics_steps_per_frame', w)
+        w = _spin_double(0.0, 60.0, 0.25, 2); w.setValue(self.params.get('max_physics_backlog_seconds', 0.25)); row = self._add_grid_param(grid, row, "Atraso max fisico (s):", 'max_physics_backlog_seconds', w)
         v.addWidget(g_time)
 
         g_perf = QGroupBox("Performance & Determinismo")
@@ -890,8 +1697,6 @@ class SimulationUI(QMainWindow):
         la = QVBoxLayout(g_act)
         buttons = [
             ("Aplicar TODOS", self.apply_all_params),
-            ("Iniciar", self.start_simulation),
-            ("Resetar Populacao", self.reset_population),
             ("Salvar preferencias UI", self.save_ui_params),
         ]
         for text, slot in buttons:
@@ -900,6 +1705,236 @@ class SimulationUI(QMainWindow):
             la.addWidget(b)
         v.addWidget(g_act)
         v.addStretch(1)
+
+    def _build_tab_labels(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Labels")
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        info = QLabel("Use S, selecao quadrada ou lasso para selecionar organismos; depois atribua uma label ao grupo.")
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self._updating_labels_table = False
+        self.labels_table = QTableWidget(0, 3)
+        self.labels_table.setHorizontalHeaderLabels(["Grupo", "Individuos", "Grafico"])
+        self.labels_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.labels_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.labels_table.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked |
+            QAbstractItemView.EditTrigger.SelectedClicked |
+            QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.labels_table.verticalHeader().setVisible(False)
+        self.labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.labels_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.labels_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.labels_table.itemChanged.connect(self._on_label_table_item_changed)
+        self.labels_table.cellDoubleClicked.connect(self._on_label_table_double_clicked)
+        self.labels_table.currentCellChanged.connect(lambda *_args: self._sync_label_editor_from_selection())
+        layout.addWidget(self.labels_table, stretch=1)
+
+        color_row = QHBoxLayout()
+        self.label_color_btn = QPushButton("Cor")
+        self.label_color_btn.clicked.connect(self._choose_current_label_color)
+        color_row.addWidget(self.label_color_btn)
+        color_row.addStretch(1)
+        layout.addLayout(color_row)
+
+        buttons = QGridLayout()
+        actions = [
+            ("Atribuir label aos selecionados", self._create_label_from_selection),
+            ("Adicionar selecionados a label", self._assign_selection_to_current_label),
+            ("Selecionar grupo", self._select_current_label_group),
+            ("Remover selecionados da label", self._remove_selection_from_current_label),
+            ("Excluir label", self._delete_current_label),
+            ("Atualizar lista", self._refresh_labels_list),
+        ]
+        for idx, (text, slot) in enumerate(actions):
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            buttons.addWidget(btn, idx // 2, idx % 2)
+        layout.addLayout(buttons)
+        self._refresh_labels_list()
+
+    def _current_label_id(self):
+        table = getattr(self, 'labels_table', None)
+        if table is None:
+            return None
+        row = table.currentRow()
+        if row < 0:
+            return None
+        item = table.item(row, 0)
+        if item is None:
+            return None
+        value = item.data(Qt.ItemDataRole.UserRole)
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _select_label_row(self, label_id: int):
+        table = getattr(self, 'labels_table', None)
+        if table is None:
+            return False
+        for row in range(table.rowCount()):
+            item = table.item(row, 0)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole) == label_id:
+                table.setCurrentCell(row, 0)
+                table.selectRow(row)
+                return True
+        return False
+
+    def _refresh_labels_list(self):
+        if 'labels_table' not in self.__dict__:
+            return
+        current_id = self._current_label_id()
+        table = self.labels_table
+        self._updating_labels_table = True
+        table.blockSignals(True)
+        table.setRowCount(0)
+        for row, (label_id, meta) in enumerate(sorted(getattr(self.engine, 'agent_labels', {}).items())):
+            count = len(self.engine.get_agents_by_label(label_id))
+            color = QColor(*meta.get('color', (220, 220, 220)))
+            table.insertRow(row)
+
+            name_item = QTableWidgetItem(str(meta.get('name', f'Label {label_id}')))
+            name_item.setData(Qt.ItemDataRole.UserRole, label_id)
+            name_item.setForeground(QBrush(color))
+            name_item.setFlags(name_item.flags() | Qt.ItemFlag.ItemIsEditable)
+
+            count_item = QTableWidgetItem(str(count))
+            count_item.setData(Qt.ItemDataRole.UserRole, label_id)
+            count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+            graph_item = QTableWidgetItem("")
+            graph_item.setData(Qt.ItemDataRole.UserRole, label_id)
+            graph_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            graph_item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled |
+                Qt.ItemFlag.ItemIsSelectable |
+                Qt.ItemFlag.ItemIsUserCheckable
+            )
+            graph_item.setCheckState(
+                Qt.CheckState.Checked if bool(meta.get('show_chart', True)) else Qt.CheckState.Unchecked
+            )
+
+            table.setItem(row, 0, name_item)
+            table.setItem(row, 1, count_item)
+            table.setItem(row, 2, graph_item)
+
+        table.blockSignals(False)
+        self._updating_labels_table = False
+        if table.rowCount() > 0:
+            if current_id is None or not self._select_label_row(current_id):
+                table.setCurrentCell(0, 0)
+                table.selectRow(0)
+        self._refresh_chart_metric_checkboxes()
+        self._sync_label_editor_from_selection()
+
+    def _sync_label_editor_from_selection(self):
+        label_id = self._current_label_id()
+        meta = self.engine.agent_labels.get(label_id) if label_id is not None else None
+        enabled = meta is not None
+        widget = getattr(self, 'label_color_btn', None)
+        if widget is not None:
+            widget.setEnabled(enabled)
+        if meta:
+            color = QColor(*meta.get('color', (220, 220, 220)))
+            self.label_color_btn.setStyleSheet(f"background: rgb({color.red()},{color.green()},{color.blue()});")
+        else:
+            if widget is not None:
+                widget.setStyleSheet("")
+
+    def _on_label_table_item_changed(self, item: QTableWidgetItem):
+        if getattr(self, '_updating_labels_table', False) or item is None:
+            return
+        label_id = item.data(Qt.ItemDataRole.UserRole)
+        try:
+            label_id = int(label_id)
+        except Exception:
+            return
+        meta = self.engine.agent_labels.get(label_id)
+        if meta is None:
+            return
+        if item.column() == 0:
+            text = item.text().strip()
+            if text:
+                meta['name'] = text
+                self._refresh_chart_metric_checkboxes()
+            else:
+                item.setText(str(meta.get('name', f'Label {label_id}')))
+        elif item.column() == 2:
+            meta['show_chart'] = item.checkState() == Qt.CheckState.Checked
+            self._refresh_chart_metric_checkboxes()
+
+    def _on_label_table_double_clicked(self, row: int, column: int):
+        item = self.labels_table.item(row, 0) if 'labels_table' in self.__dict__ else None
+        if item is None:
+            return
+        try:
+            label_id = int(item.data(Qt.ItemDataRole.UserRole))
+        except Exception:
+            return
+        self.engine.select_label(label_id)
+
+    def _create_label_from_selection(self):
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        if not agents:
+            QMessageBox.information(self, "Labels", "Selecione organismos antes de atribuir uma label.")
+            return
+        label_id = self.engine.create_agent_label()
+        self.engine.assign_label_to_agents(label_id, agents)
+        self._refresh_labels_list()
+        self._select_label_row(label_id)
+
+    def _assign_selection_to_current_label(self):
+        label_id = self._current_label_id()
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        if label_id is None or not agents:
+            return
+        self.engine.assign_label_to_agents(label_id, agents)
+        self._refresh_labels_list()
+
+    def _remove_selection_from_current_label(self):
+        label_id = self._current_label_id()
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        if label_id is None or not agents:
+            return
+        self.engine.remove_label_from_agents(label_id, agents)
+        self._refresh_labels_list()
+
+    def _select_current_label_group(self):
+        label_id = self._current_label_id()
+        if label_id is None:
+            return
+        self.engine.select_label(label_id)
+        self._refresh_labels_list()
+
+    def _delete_current_label(self):
+        label_id = self._current_label_id()
+        if label_id is None:
+            return
+        self.engine.delete_agent_label(label_id)
+        self._refresh_labels_list()
+
+    def _choose_current_label_color(self):
+        label_id = self._current_label_id()
+        if label_id is None:
+            return
+        meta = self.engine.agent_labels[label_id]
+        current = QColor(*meta.get('color', (220, 220, 220)))
+        color = QColorDialog.getColor(current, self, "Cor da label")
+        if not color.isValid():
+            return
+        new_color = (color.red(), color.green(), color.blue())
+        meta['color'] = new_color
+        for agent in self.engine.get_agents_by_label(label_id):
+            agent.color = new_color
+        self._refresh_labels_list()
 
     # ---------------------- Tabs: Simulation -------------------------
     def _build_tab_simulation(self):
@@ -1494,7 +2529,7 @@ class SimulationUI(QMainWindow):
         for widget in self.widgets.values():
             if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox)):
                 widget.installEventFilter(self)
-        for name in ['time_scale','fps','paused','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
                 w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
@@ -1514,6 +2549,37 @@ class SimulationUI(QMainWindow):
         profiler.enabled = checked
         self.params.set('disable_brain_activations', not checked)
 
+    def _start_diagnostic_heartbeat(self):
+        minutes = float(self.params.get('diagnostic_heartbeat_minutes', 1.0) or 1.0)
+        interval_ms = max(10_000, int(minutes * 60_000))
+        self._diagnostic_timer = QTimer(self)
+        self._diagnostic_timer.timeout.connect(self._diagnostic_heartbeat)
+        self._diagnostic_timer.start(interval_ms)
+        self._diagnostic_heartbeat(reason='startup')
+
+    def _diagnostic_heartbeat(self, reason: str = 'timer'):
+        try:
+            engine = self.engine
+            log_event(
+                "HEARTBEAT",
+                reason=reason,
+                running=bool(getattr(engine, 'running', False)),
+                paused=bool(self.params.get('paused', False)),
+                sim_time=round(float(getattr(engine, 'total_simulation_time', 0.0)), 3),
+                frame_count=int(getattr(engine, 'frame_count', 0)),
+                bacteria=len(engine.entities.get('bacteria', [])),
+                predators=len(engine.entities.get('predators', [])),
+                foods=len(engine.entities.get('foods', [])),
+                all_agents=len(getattr(engine, 'all_agents', [])),
+                fps=round(float(getattr(engine, 'current_fps', 0.0)), 3),
+                cpu_proc_percent=round(float(getattr(engine, 'cpu_proc_percent', 0.0)), 3),
+                mem_used_mb=round(float(getattr(engine, 'mem_used_mb', 0.0)), 3),
+                spatial_rebuilds=int(getattr(engine, 'spatial_hash_rebuilds', 0)),
+                spatial_skips=int(getattr(engine, 'spatial_hash_skips', 0)),
+            )
+        except Exception as exc:
+            self._log_exception("DIAGNOSTIC_HEARTBEAT_ERROR", exc)
+
     def _update_param_real_time(self, name: str):
         try:
             value = self._get_widget_value(name)
@@ -1531,23 +2597,83 @@ class SimulationUI(QMainWindow):
 
     def _init_pygame_view(self):
         try:
+            log_event("PYGAME_INIT_START")
             win_id = int(self.pygame_host.winId())  # native window id
             self.pygame_view.initialize(win_id)
             def runner():
                 try:
+                    log_event("PYGAME_THREAD_START")
                     self.pygame_view.run()
+                    log_event("PYGAME_THREAD_STOP")
                 except Exception as e:
                     self._log_exception("Erro thread sim", e)
+                    try:
+                        self.engine.stop()
+                    except Exception:
+                        pass
             self._sim_thread = threading.Thread(target=runner, daemon=True)
             self._sim_thread.start()
+            log_event("PYGAME_INIT_DONE")
         except Exception as e:
             self._log_exception("Falha ao inicializar pygame embutido", e)
 
     # ------------------------------------------------------------------
     # Apply parameter groups
     # ------------------------------------------------------------------
+    def apply_population_params(self):
+        for name in [
+            'bacteria_count',
+            'bacteria_min_limit',
+            'bacteria_max_limit',
+            'predators_enabled',
+            'predator_count',
+            'predator_min_limit',
+            'predator_max_limit',
+            'population_min_rescue_enabled',
+        ]:
+            if name in self.widgets:
+                self.params.set(name, self._get_widget_value(name))
+
+        def _trim(entity_key: str, max_key: str) -> int:
+            agents = list(self.engine.entities.get(entity_key, []))
+            max_count = max(0, int(self.params.get(max_key, len(agents))))
+            overflow = len(agents) - max_count
+            if overflow <= 0:
+                return 0
+            victims = set(sorted(
+                agents,
+                key=lambda a: (float(getattr(a, 'energy', 0.0)), float(getattr(a, 'age', 0.0)))
+            )[:overflow])
+            self.engine.entities[entity_key] = [a for a in agents if a not in victims]
+            self.engine.all_agents = [a for a in self.engine.all_agents if a not in victims]
+            self.engine.selected_agents.difference_update(victims)
+            if self.engine.selected_agent in victims:
+                self.engine.selected_agent = next(iter(self.engine.selected_agents), None)
+            if self.engine.dragged_object in victims:
+                self.engine.dragged_object = None
+            return len(victims)
+
+        removed_bacteria = 0
+        removed_predators = 0
+        lock = getattr(self.engine, 'state_lock', None)
+        if lock is not None:
+            with lock:
+                removed_bacteria = _trim('bacteria', 'bacteria_max_limit')
+                removed_predators = _trim('predators', 'predator_max_limit')
+                if removed_bacteria or removed_predators:
+                    self.engine._spatial_hash_dirty = True
+        else:
+            removed_bacteria = _trim('bacteria', 'bacteria_max_limit')
+            removed_predators = _trim('predators', 'predator_max_limit')
+            if removed_bacteria or removed_predators:
+                self.engine._spatial_hash_dirty = True
+        print(
+            "Parametros de populacao aplicados "
+            f"(removidas {removed_bacteria} bacterias e {removed_predators} predadores acima do maximo)"
+        )
+
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','population_min_rescue_enabled','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -1581,25 +2707,60 @@ class SimulationUI(QMainWindow):
     def _agent_param_names(self, species: str) -> list[str]:
         if species == 'bacteria':
             return [
-                'bacteria_count','bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
+                'bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
                 'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
                 'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
                 'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
-                'bacteria_max_speed','bacteria_min_limit','bacteria_max_limit','bacteria_hidden_layers','bacteria_mutation_rate',
+                'bacteria_max_speed','bacteria_hidden_layers','bacteria_mutation_rate',
                 'bacteria_mutation_strength','bacteria_max_turn_deg'
             ]
         return [
-            'predators_enabled','predator_count','predator_initial_energy','predator_death_energy','predator_split_energy',
+            'predator_initial_energy','predator_death_energy','predator_split_energy',
             'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
             'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
             'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
-            'predator_min_limit','predator_max_limit','predator_hidden_layers','predator_mutation_rate','predator_mutation_strength','predator_max_turn_deg'
+            'predator_hidden_layers','predator_mutation_rate','predator_mutation_strength','predator_max_turn_deg'
         ]
 
-    def _collect_agent_params_from_widgets(self, species: str):
+    def _agent_param_group_names(self, species: str, group: str) -> list[str]:
+        groups = {
+            'energy': [
+                f'{species}_initial_energy',
+                f'{species}_death_energy',
+                f'{species}_split_energy',
+                f'{species}_metab_v0_cost',
+                f'{species}_metab_vmax_cost',
+                f'{species}_energy_cap',
+            ],
+            'body_sensor_motion': [
+                f'{species}_show_vision',
+                f'{species}_body_size',
+                f'{species}_vision_radius',
+                f'{species}_retina_count',
+                f'{species}_retina_fov_degrees',
+                f'{species}_retina_see_food',
+                f'{species}_retina_see_bacteria',
+                f'{species}_retina_see_predators',
+                f'{species}_max_speed',
+                f'{species}_max_turn_deg',
+            ],
+            'color': [f'{species}_color'],
+            'brain': [
+                f'{species}_hidden_layers',
+                f'{species}_mutation_rate',
+                f'{species}_mutation_strength',
+                *[f'{species}_neurons_layer_{i}' for i in range(1, 6)],
+            ],
+        }
+        return groups.get(group, self._agent_param_names(species))
+
+    def _collect_agent_params_from_widgets(self, species: str, names: list[str] | None = None):
+        names_set = set(names) if names is not None else None
         turn_deg_key = f'{species}_max_turn_deg'
         turn_key = f'{species}_max_turn'
         for name in self._agent_param_names(species):
+            if names_set is not None and name not in names_set:
+                continue
             if name in self.widgets:
                 value = self._get_widget_value(name)
                 if name == turn_deg_key:
@@ -1608,6 +2769,8 @@ class SimulationUI(QMainWindow):
                     self.params.set(name, value)
         for i in range(1, 6):
             name = f'{species}_neurons_layer_{i}'
+            if names_set is not None and name not in names_set:
+                continue
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
 
@@ -1664,6 +2827,14 @@ class SimulationUI(QMainWindow):
             key = 'predators' if is_predator else 'bacteria'
             return list(self.engine.entities.get(key, []))
 
+        selected_group = [
+            agent for agent in (getattr(self.engine, 'selected_agents', set()) or set())
+            if agent in getattr(self.engine, 'all_agents', [])
+            and bool(getattr(agent, 'is_predator', False)) == is_predator
+        ]
+        if selected_group:
+            return selected_group
+
         selected = getattr(self.engine, 'selected_agent', None)
         if selected is None or bool(getattr(selected, 'is_predator', False)) != is_predator:
             try:
@@ -1674,7 +2845,11 @@ class SimulationUI(QMainWindow):
             return []
         return [selected]
 
-    def _agents_requiring_brain_rebuild(self, species: str, agents: list[Any]) -> list[Any]:
+    def _agents_requiring_brain_rebuild(self, species: str, agents: list[Any], param_names: list[str] | None = None) -> list[Any]:
+        if param_names is not None:
+            structural_names = {f'{species}_hidden_layers'} | {f'{species}_neurons_layer_{i}' for i in range(1, 6)}
+            if not (set(param_names) & structural_names):
+                return []
         desired = self._desired_agent_brain_sizes(species)
         changed = []
         for agent in agents:
@@ -1709,39 +2884,71 @@ class SimulationUI(QMainWindow):
         except Exception:
             return False
 
-    def _apply_agent_template_to_agents(self, species: str, agents: list[Any], rebuild_brain: bool) -> dict[str, int]:
+    def _apply_agent_template_to_agents(
+        self,
+        species: str,
+        agents: list[Any],
+        rebuild_brain: bool,
+        param_names: list[str] | None = None,
+    ) -> dict[str, int]:
         helpers = self._agent_factory_helpers(species)
         desired_sizes = self._desired_agent_brain_sizes(species)
         body_key = f'{species}_body_size'
         color_key = f'{species}_color'
         stats = {'agents': 0, 'brains_rebuilt': 0, 'brains_resized': 0, 'brains_kept': 0}
+        names = set(param_names) if param_names is not None else None
+        full_apply = names is None
+        energy_names = {
+            f'{species}_initial_energy', f'{species}_death_energy', f'{species}_split_energy',
+            f'{species}_metab_v0_cost', f'{species}_metab_vmax_cost', f'{species}_energy_cap',
+        }
+        sensor_names = {
+            f'{species}_vision_radius', f'{species}_retina_count', f'{species}_retina_fov_degrees',
+            f'{species}_retina_see_food', f'{species}_retina_see_bacteria', f'{species}_retina_see_predators',
+            f'{species}_show_vision',
+        }
+        locomotion_names = {f'{species}_max_speed', f'{species}_max_turn_deg'}
+        brain_names = {f'{species}_hidden_layers', f'{species}_mutation_rate', f'{species}_mutation_strength'} | {
+            f'{species}_neurons_layer_{i}' for i in range(1, 6)
+        }
+        apply_body = full_apply or body_key in names
+        apply_color = full_apply or color_key in names
+        apply_energy = full_apply or bool(names & energy_names)
+        apply_sensor = full_apply or bool(names & sensor_names)
+        apply_locomotion = full_apply or bool(names & locomotion_names)
+        apply_brain = full_apply or bool(names & brain_names)
 
         for agent in agents:
             stats['agents'] += 1
-            try:
-                radius = float(self.params.get(body_key, getattr(agent, 'r', 1.0)))
-                agent.r = max(0.1, radius)
-                agent.m = agent.r * agent.r
-            except Exception:
-                pass
+            if apply_body:
+                try:
+                    radius = float(self.params.get(body_key, getattr(agent, 'r', 1.0)))
+                    agent.r = max(0.1, radius)
+                    agent.m = agent.r * agent.r
+                except Exception:
+                    pass
 
-            agent.sensor = helpers['sensor'](self.params)
-            agent.locomotion = helpers['locomotion'](self.params)
-            agent.energy_model = helpers['energy'](self.params)
-            cap = getattr(agent.energy_model, 'energy_cap', None)
-            if cap is not None and getattr(agent, 'energy', 0.0) > cap:
-                agent.energy = float(cap)
+            if apply_sensor:
+                agent.sensor = helpers['sensor'](self.params)
+            if apply_locomotion:
+                agent.locomotion = helpers['locomotion'](self.params)
+            if apply_energy:
+                agent.energy_model = helpers['energy'](self.params)
+                cap = getattr(agent.energy_model, 'energy_cap', None)
+                if cap is not None and getattr(agent, 'energy', 0.0) > cap:
+                    agent.energy = float(cap)
 
-            try:
-                color = self.params.get(color_key, None)
-                if color is not None:
-                    agent.color = tuple(color)
-            except Exception:
-                pass
+            if apply_color:
+                try:
+                    color = self.params.get(color_key, None)
+                    if color is not None:
+                        agent.color = tuple(color)
+                except Exception:
+                    pass
 
             brain = getattr(agent, 'brain', None)
             current_sizes = tuple(getattr(brain, 'sizes', ()) or ())
-            if current_sizes != desired_sizes:
+            if apply_brain and current_sizes != desired_sizes:
                 if brain is not None and len(current_sizes) == len(desired_sizes) and current_sizes[1:] == desired_sizes[1:] and hasattr(brain, 'resize_input'):
                     brain.resize_input(desired_sizes[0])
                     brain.version = int(getattr(brain, 'version', 0)) + 1
@@ -1751,6 +2958,12 @@ class SimulationUI(QMainWindow):
                     stats['brains_rebuilt'] += 1
                 else:
                     stats['brains_kept'] += 1
+            elif apply_sensor and not apply_brain and brain is not None and hasattr(brain, 'sizes'):
+                desired_input = int(self.params.get(f'{species}_retina_count', current_sizes[0] if current_sizes else 0))
+                if current_sizes and current_sizes[0] != desired_input and hasattr(brain, 'resize_input'):
+                    brain.resize_input(desired_input)
+                    brain.version = int(getattr(brain, 'version', 0)) + 1
+                    stats['brains_resized'] += 1
 
             agent.last_brain_output = []
             agent.last_brain_activations = []
@@ -1764,11 +2977,18 @@ class SimulationUI(QMainWindow):
                 pass
         return stats
 
-    def _apply_agent_params(self, species: str, mode: str = 'template', confirm_structural: bool = True):
+    def _apply_agent_params(
+        self,
+        species: str,
+        mode: str = 'template',
+        confirm_structural: bool = True,
+        param_names: list[str] | None = None,
+        group_label: str | None = None,
+    ):
         if mode not in {'template', 'all_alive', 'selected'}:
             mode = 'template'
 
-        self._collect_agent_params_from_widgets(species)
+        self._collect_agent_params_from_widgets(species, param_names)
         label = "predadores" if species == 'predator' else "bacterias"
         if mode == 'template':
             print(f"Parametros de {label} aplicados ao template de novos individuos")
@@ -1778,10 +2998,10 @@ class SimulationUI(QMainWindow):
         if lock is not None:
             with lock:
                 agents = self._target_live_agents(species, mode)
-                structural = self._agents_requiring_brain_rebuild(species, agents)
+                structural = self._agents_requiring_brain_rebuild(species, agents, param_names)
         else:
             agents = self._target_live_agents(species, mode)
-            structural = self._agents_requiring_brain_rebuild(species, agents)
+            structural = self._agents_requiring_brain_rebuild(species, agents, param_names)
 
         if not agents:
             print(f"Nenhum agente vivo de {label} recebeu parametros")
@@ -1793,13 +3013,14 @@ class SimulationUI(QMainWindow):
 
         if lock is not None:
             with lock:
-                stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain)
+                stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain, param_names)
         else:
-            stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain)
+            stats = self._apply_agent_template_to_agents(species, agents, rebuild_brain, param_names)
 
         scope = "selecionado" if mode == 'selected' else "todos vivos"
+        group = f" ({group_label})" if group_label else ""
         print(
-            f"Parametros de {label} aplicados a {scope}: "
+            f"Parametros de {label}{group} aplicados a {scope}: "
             f"{stats['agents']} agentes, {stats['brains_rebuilt']} cerebros recriados, "
             f"{stats['brains_resized']} entradas redimensionadas, {stats['brains_kept']} cerebros preservados"
         )
@@ -1810,8 +3031,24 @@ class SimulationUI(QMainWindow):
     def apply_predator_params(self, mode: str = 'template', confirm_structural: bool = True):
         self._apply_agent_params('predator', mode, confirm_structural)
 
+    def apply_agent_param_group(self, species: str, group: str, mode: str):
+        names = self._agent_param_group_names(species, group)
+        labels = {
+            'energy': 'metabolismo/energia',
+            'body_sensor_motion': 'corpo/sensores/movimento',
+            'color': 'cor',
+            'brain': 'cerebro/mutacao',
+        }
+        self._apply_agent_params(
+            species,
+            mode,
+            confirm_structural=True,
+            param_names=names,
+            group_label=labels.get(group, group),
+        )
+
     def apply_all_params(self):
-        self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
+        self.apply_population_params(); self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
         for name in [
             'auto_export_substrate',
             'export_substrate_include_brain_activations',
@@ -1826,42 +3063,108 @@ class SimulationUI(QMainWindow):
     # ------------------------------------------------------------------
     # Engine actions
     # ------------------------------------------------------------------
+    def _set_paused_state(self, paused: bool):
+        if 'paused' in self.widgets:
+            self._set_widget_value('paused', bool(paused))
+        self.params.set('paused', bool(paused), validate=False)
+
+    def delete_selected_agents(self):
+        state_lock = getattr(self.engine, 'state_lock', None)
+        if state_lock is None:
+            removed = self.engine.remove_selected_agents()
+        else:
+            with state_lock:
+                removed = self.engine.remove_selected_agents()
+        if removed and 'labels_table' in self.__dict__:
+            self._refresh_labels_list()
+        if removed:
+            print(f"{removed} organismo(s) selecionado(s) removido(s)")
+
+    def _reset_population_now(self):
+        state_lock = getattr(self.engine, 'state_lock', None)
+        if state_lock is not None:
+            state_lock.acquire()
+        try:
+            self.engine._initialize_population()
+            self.engine.total_simulation_time = 0.0
+            self.engine.frame_count = 0
+            self.engine._spatial_hash_dirty = True
+        finally:
+            if state_lock is not None:
+                state_lock.release()
+        if 'labels_table' in self.__dict__:
+            self._refresh_labels_list()
+
     def reset_population(self):
-        self.engine.send_command('reset_population')
+        self.apply_all_params()
+        self._reset_population_now()
         print("População resetada")
 
     def start_simulation(self):
         self.apply_all_params()
+        self._set_paused_state(False)
         if not self.engine.running:
             self.engine.start(); print("Simulação iniciada")
         else:
             print("Simulação já em execução")
 
+    def play_simulation(self):
+        if self.engine.running:
+            self._set_paused_state(False)
+            print("Simulacao retomada")
+        else:
+            self.start_simulation()
+
+    def pause_simulation(self):
+        self._set_paused_state(True)
+        print("Simulacao pausada")
+
+    def stop_simulation(self):
+        self.apply_all_params()
+        self._set_paused_state(True)
+        self.engine.stop()
+        self._reset_population_now()
+        print("Simulacao parada e populacao resetada")
+
     def save_biosim_window(self):
+        if not getattr(self, '_current_biosim_path', None):
+            self.save_biosim_as_window()
+            return
+        try:
+            self._export_substrate(path_override=self._current_biosim_path, file_type='biosim')
+            QMessageBox.information(self, "Salvar Simulacao", f"Projeto salvo em {self._current_biosim_path}")
+        except Exception as e:
+            self._warn_exception("Erro ao salvar simulacao", e)
+
+    def save_biosim_as_window(self):
         default_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'substrates'))
         os.makedirs(default_dir, exist_ok=True)
-        path, _ = QFileDialog.getSaveFileName(self, "Salvar BioSim", os.path.join(default_dir, 'projeto.biosim'), "BioSim (*.biosim)")
+        initial = getattr(self, '_current_biosim_path', None) or os.path.join(default_dir, 'projeto.biosim')
+        path, _ = QFileDialog.getSaveFileName(self, "Salvar Simulacao Como", initial, "BioSim (*.biosim)")
         if not path:
             return
         if not path.endswith('.biosim'):
             path += '.biosim'
         try:
             self._export_substrate(path_override=path, file_type='biosim')
-            QMessageBox.information(self, "Salvar BioSim", f"Projeto salvo em {path}")
+            self._current_biosim_path = path
+            QMessageBox.information(self, "Salvar Simulacao", f"Projeto salvo em {path}")
         except Exception as e:
-            self._warn_exception("Erro ao salvar BioSim", e)
+            self._warn_exception("Erro ao salvar simulacao", e)
 
     def open_biosim_window(self):
         default_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'substrates'))
         os.makedirs(default_dir, exist_ok=True)
-        path, _ = QFileDialog.getOpenFileName(self, "Abrir BioSim", default_dir, "BioSim (*.biosim);;JSON (*.json)")
+        path, _ = QFileDialog.getOpenFileName(self, "Abrir Simulacao", default_dir, "BioSim (*.biosim);;JSON (*.json)")
         if not path:
             return
         try:
             self._import_substrate(path)
-            QMessageBox.information(self, "Abrir BioSim", "Projeto carregado.")
+            if path.lower().endswith('.biosim'):
+                self._current_biosim_path = path
+            QMessageBox.information(self, "Abrir Simulacao", "Projeto carregado.")
         except Exception as e:
-            self._warn_exception("Erro ao abrir BioSim", e)
+            self._warn_exception("Erro ao abrir simulacao", e)
 
     def new_biosim_project(self):
         answer = QMessageBox.question(
@@ -1888,6 +3191,7 @@ class SimulationUI(QMainWindow):
                 self.engine.total_simulation_time = 0.0
                 self.engine.frame_count = 0
                 self.engine._initialize_population()
+                self._current_biosim_path = None
                 self.engine.camera.fit_world(self.engine.world, self.pygame_view.screen_width, self.pygame_view.screen_height)
             finally:
                 if state_lock is not None:
@@ -1915,7 +3219,7 @@ class SimulationUI(QMainWindow):
         QMessageBox.information(
             self,
             "Ajuda",
-            "Mouse: botao direito move a camera. Na barra inferior use S para selecionar, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
+            "Mouse: botao direito move a camera. Na barra inferior use Play/Pause/Stop, selecao unitaria/quadrada/lasso, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
             "Menus superiores: Arquivo salva/abre projetos .biosim; View controla visualizacao; Preferencias controla export/debug; Agente exporta, carrega e cria linhagens."
         )
 
@@ -1938,7 +3242,7 @@ class SimulationUI(QMainWindow):
                 rows_by_name['food_color'] = {'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))}
                 rows_by_name['bacteria_color'] = {'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))}
                 rows_by_name['predator_color'] = {'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))}
-                for menu_param in ['simple_render', 'show_selected_details', 'bacteria_show_vision', 'predator_show_vision']:
+                for menu_param in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, False)}
                 rows_by_name['enable_brain_activations'] = {
                     'name': 'enable_brain_activations',
@@ -2075,8 +3379,13 @@ class SimulationUI(QMainWindow):
                                     cam.zoom = max(0.01, float(value))
                             except Exception:
                                 pass
-                        if name in ['simple_render', 'show_selected_details', 'bacteria_show_vision', 'predator_show_vision']:
-                            self.params.set(name, value in ('1', 'True', 'true', 'yes', 'YES'), validate=False)
+                        if name in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                            checked = value in ('1', 'True', 'true', 'yes', 'YES')
+                            self.params.set(name, checked, validate=False)
+                            if name == 'show_metrics_chart':
+                                panel = getattr(self, 'metrics_panel', None)
+                                if panel is not None:
+                                    panel.setVisible(checked)
                         if name == 'enable_brain_activations':
                             enabled = value in ('1', 'True', 'true', 'yes', 'YES')
                             profiler.enabled = enabled
@@ -2132,6 +3441,9 @@ class SimulationUI(QMainWindow):
         add('type', 'predator' if getattr(agent,'is_predator', False) else 'bacteria')
         for attr in ['x','y','r','angle','vx','vy','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
+        for attr in ['food_eaten_count','food_energy_eaten_total','prey_eaten_count','prey_energy_eaten_total']:
+            add(attr, getattr(agent, attr, 0.0))
+        add('label_ids', json.dumps(sorted(int(v) for v in (getattr(agent, 'label_ids', set()) or set()))))
         add('last_reproduction_age', getattr(agent, 'last_reproduction_age', ''))
         # Cor do agente (RGB tuple) - exportada em JSON para compatibilidade
         try:
@@ -2260,22 +3572,23 @@ class SimulationUI(QMainWindow):
             self._warn_exception("Erro", e)
 
     def _export_substrate(self, prefix: str='substrato', manual: bool=True,
-                          path_override: str | None = None, file_type: str = 'substrate') -> str:
+                          path_override: str | None = None, file_type: str = 'substrate',
+                          apply_current_params: bool = True) -> str:
         import time
-        prev_paused = bool(self._get_widget_value('paused'))
-        self.widgets['paused'].setChecked(True)
-        self.params.set('paused', True, validate=False)
+        prev_paused = bool(self._get_widget_value('paused')) if 'paused' in self.widgets else bool(self.params.get('paused', False))
+        self._set_paused_state(True)
         state_lock = None
         try:
             engine = self.engine
             state_lock = getattr(engine, 'state_lock', None)
             if state_lock is not None:
                 state_lock.acquire()
-            # Aplica todos os parâmetros atuais antes de capturar snapshot
-            try:
-                self.apply_all_params()
-            except Exception:
-                pass
+            # Manual saves can apply pending widgets; autosaves/recovery stay read-only.
+            if apply_current_params:
+                try:
+                    self.apply_all_params()
+                except Exception:
+                    pass
             manual_dir, auto_root = self._get_substrate_dirs()
             ts_full = time.strftime('%Y%m%d_%H%M%S')
             if path_override:
@@ -2344,7 +3657,12 @@ class SimulationUI(QMainWindow):
                     'type': 'predator' if getattr(agent,'is_predator', False) else 'bacteria',
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
                     'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0),
-                    'last_reproduction_age': getattr(agent, 'last_reproduction_age', None)
+                    'last_reproduction_age': getattr(agent, 'last_reproduction_age', None),
+                    'food_eaten_count': getattr(agent, 'food_eaten_count', 0),
+                    'food_energy_eaten_total': getattr(agent, 'food_energy_eaten_total', 0.0),
+                    'prey_eaten_count': getattr(agent, 'prey_eaten_count', 0),
+                    'prey_energy_eaten_total': getattr(agent, 'prey_energy_eaten_total', 0.0),
+                    'label_ids': sorted(int(v) for v in (getattr(agent, 'label_ids', set()) or set())),
                 }
                 try:
                     ad['color'] = list(getattr(agent, 'color', (220, 220, 220)))
@@ -2406,6 +3724,12 @@ class SimulationUI(QMainWindow):
                     selected_agent_index = engine.all_agents.index(engine.selected_agent)
                 except ValueError:
                     selected_agent_index = None
+            selected_agent_indices = []
+            for agent in getattr(engine, 'selected_agents', set()) or set():
+                try:
+                    selected_agent_indices.append(engine.all_agents.index(agent))
+                except ValueError:
+                    pass
             snapshot = {
                 'version':2,'file_type': file_type,'timestamp': ts_full,'params': params_snapshot,'ui_params': ui_snapshot,
                 'world': {'width': world.width,'height': world.height,'shape': world.shape,'radius': world.radius},
@@ -2414,7 +3738,13 @@ class SimulationUI(QMainWindow):
                 'rng_state': rng_state,
                 'loaded_agent_prototypes': dict(getattr(engine, 'loaded_agent_prototypes', {})),
                 'current_agent_prototype': getattr(engine, 'current_agent_prototype', None),
+                'agent_labels': {
+                    str(label_id): dict(meta)
+                    for label_id, meta in getattr(engine, 'agent_labels', {}).items()
+                },
+                'next_agent_label_id': getattr(engine, '_next_agent_label_id', 1),
                 'selected_agent_index': selected_agent_index,
+                'selected_agent_indices': selected_agent_indices,
                 'tool_state': {
                     'active_tool': getattr(self.pygame_view, 'active_tool', 'food'),
                     'brush_width': getattr(self.pygame_view, 'brush_width', 16.0),
@@ -2443,14 +3773,12 @@ class SimulationUI(QMainWindow):
         finally:
             if state_lock is not None:
                 state_lock.release()
-            self.widgets['paused'].setChecked(prev_paused)
-            self.params.set('paused', prev_paused, validate=False)
+            self._set_paused_state(prev_paused)
 
     def _import_substrate(self, path: str):
         import math as _m
-        prev_paused = bool(self._get_widget_value('paused'))
-        self.widgets['paused'].setChecked(True)
-        self.params.set('paused', True, validate=False)
+        prev_paused = bool(self._get_widget_value('paused')) if 'paused' in self.widgets else bool(self.params.get('paused', False))
+        self._set_paused_state(True)
         state_lock = None
         try:
             with open(path,'r', encoding='utf-8') as f:
@@ -2470,12 +3798,33 @@ class SimulationUI(QMainWindow):
             cam.x = cam_data.get('x', cam.x); cam.y = cam_data.get('y', cam.y); cam.zoom = cam_data.get('zoom', cam.zoom)
             sim_data = data.get('simulation', {})
             self.engine.total_simulation_time = sim_data.get('total_simulation_time', self.engine.total_simulation_time)
+            if hasattr(self.engine, '_sim_time_accumulator'):
+                self.engine._sim_time_accumulator = 0.0
+                self.engine.simulation_backlog = 0.0
             self.engine.loaded_agent_prototypes = dict(data.get('loaded_agent_prototypes', {}))
             self.engine.current_agent_prototype = data.get('current_agent_prototype')
+            raw_labels = data.get('agent_labels', {}) or {}
+            self.engine.agent_labels = {}
+            for raw_id, meta in raw_labels.items():
+                try:
+                    label_id = int(raw_id)
+                except Exception:
+                    continue
+                color = meta.get('color', (220, 220, 220))
+                self.engine.agent_labels[label_id] = {
+                    'id': label_id,
+                    'name': meta.get('name', f'Label {label_id}'),
+                    'color': tuple(int(c) for c in color[:3]),
+                    'show_chart': bool(meta.get('show_chart', True)),
+                }
+            self.engine._next_agent_label_id = max(
+                int(data.get('next_agent_label_id', 1) or 1),
+                (max(self.engine.agent_labels.keys()) + 1) if self.engine.agent_labels else 1,
+            )
             tool_state = data.get('tool_state', {})
             if tool_state:
                 if hasattr(self.pygame_view, 'active_tool'):
-                    self.pygame_view.active_tool = tool_state.get('active_tool', self.pygame_view.active_tool)
+                    self._set_canvas_tool(tool_state.get('active_tool', self.pygame_view.active_tool))
                 if hasattr(self.pygame_view, 'brush_width'):
                     self.pygame_view.brush_width = float(tool_state.get('brush_width', self.pygame_view.brush_width))
                     if 'obstacle_brush_width' in self.widgets:
@@ -2493,6 +3842,8 @@ class SimulationUI(QMainWindow):
             # Clear current entities
             for lst in self.engine.entities.values(): lst.clear()
             self.engine.all_agents.clear(); self.engine.selected_agent = None
+            if hasattr(self.engine, 'selected_agents'):
+                self.engine.selected_agents.clear()
             if hasattr(self.engine, 'obstacles'):
                 self.engine.obstacles.load_dicts(data.get('obstacles', []))
             from .entities import create_random_food, Food
@@ -2553,6 +3904,18 @@ class SimulationUI(QMainWindow):
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
                 agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
                 agent.last_reproduction_age = ad.get('last_reproduction_age', getattr(agent, 'last_reproduction_age', None))
+                agent.food_eaten_count = int(ad.get('food_eaten_count', 0) or 0)
+                agent.food_energy_eaten_total = float(ad.get('food_energy_eaten_total', 0.0) or 0.0)
+                agent.prey_eaten_count = int(ad.get('prey_eaten_count', 0) or 0)
+                agent.prey_energy_eaten_total = float(ad.get('prey_energy_eaten_total', 0.0) or 0.0)
+                agent.label_ids = set()
+                for value in (ad.get('label_ids', []) or []):
+                    try:
+                        label_id = int(value)
+                    except Exception:
+                        continue
+                    if label_id in self.engine.agent_labels:
+                        agent.label_ids.add(label_id)
                 agent.last_brain_output = ad.get('last_brain_output', []); agent.last_brain_activations = ad.get('last_brain_activations', [])
                 try:
                     color = ad.get('color')
@@ -2564,11 +3927,25 @@ class SimulationUI(QMainWindow):
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
             selected_idx = data.get('selected_agent_index', None)
+            selected_indices = data.get('selected_agent_indices', [])
+            if selected_indices:
+                selected = []
+                for idx in selected_indices:
+                    try:
+                        selected.append(self.engine.all_agents[int(idx)])
+                    except Exception:
+                        pass
+                self.engine.selected_agents = set(selected)
             if selected_idx is not None:
                 try:
                     self.engine.selected_agent = self.engine.all_agents[int(selected_idx)]
+                    if not self.engine.selected_agents:
+                        self.engine.selected_agents = {self.engine.selected_agent}
                 except Exception:
                     self.engine.selected_agent = None
+                    self.engine.selected_agents.clear()
+            elif self.engine.selected_agents:
+                self.engine.selected_agent = next(iter(self.engine.selected_agents), None)
             if hasattr(self.engine, '_resolve_obstacle_collisions'):
                 self.engine._resolve_obstacle_collisions()
             if hasattr(self.engine, 'obstacles'):
@@ -2586,12 +3963,78 @@ class SimulationUI(QMainWindow):
                 clear_multi_brain_cache()
             except Exception:
                 pass
+            if path.lower().endswith('.biosim'):
+                self._current_biosim_path = path
+            else:
+                self._current_biosim_path = None
+            self.__dict__.setdefault('_metrics_history', []).clear()
+            if 'labels_table' in self.__dict__:
+                self._refresh_labels_list()
             print(f"Substrato importado de {path}")
         finally:
             if state_lock is not None:
                 state_lock.release()
-            self.widgets['paused'].setChecked(prev_paused)
-            self.params.set('paused', prev_paused, validate=False)
+            self._set_paused_state(prev_paused)
+
+    # ------------------------------------------------------------------
+    # Runtime recovery / shutdown diagnostics
+    # ------------------------------------------------------------------
+    def _save_recovery_snapshot(self, reason: str) -> str | None:
+        if self._recovery_snapshot_saved:
+            return None
+        if not bool(self.params.get('save_recovery_on_close', True)):
+            log_event("RECOVERY_SNAPSHOT_SKIPPED", reason=reason, disabled=True)
+            return None
+        try:
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+            out_dir = os.path.join(root_dir, 'substrates', 'recovery')
+            os.makedirs(out_dir, exist_ok=True)
+            import time
+            path = os.path.join(out_dir, f"recovery_{reason}_{time.strftime('%Y%m%d_%H%M%S')}.biosim")
+            saved = self._export_substrate(
+                path_override=path,
+                file_type='biosim',
+                apply_current_params=False,
+            )
+            self._recovery_snapshot_saved = True
+            log_event("RECOVERY_SNAPSHOT_SAVED", reason=reason, path=saved)
+            return saved
+        except Exception as exc:
+            self._log_exception("RECOVERY_SNAPSHOT_ERROR", exc)
+            return None
+
+    def closeEvent(self, event):
+        log_event(
+            "UI_CLOSE_EVENT",
+            running=bool(getattr(self.engine, 'running', False)),
+            bacteria=len(self.engine.entities.get('bacteria', [])),
+            predators=len(self.engine.entities.get('predators', [])),
+            foods=len(self.engine.entities.get('foods', [])),
+            all_agents=len(getattr(self.engine, 'all_agents', [])),
+        )
+        self._save_recovery_snapshot('normal_close')
+        try:
+            if self._auto_export_timer:
+                self._auto_export_timer.stop()
+            if self._diagnostic_timer:
+                self._diagnostic_timer.stop()
+            if getattr(self, '_status_timer', None):
+                self._status_timer.stop()
+            if getattr(self, '_agent_panel_timer', None):
+                self._agent_panel_timer.stop()
+            if getattr(self, '_metrics_chart_timer', None):
+                self._metrics_chart_timer.stop()
+        except Exception:
+            pass
+        try:
+            self.pygame_view.stop()
+            thread = getattr(self, '_sim_thread', None)
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=2.0)
+            self.pygame_view.cleanup()
+        except Exception as exc:
+            self._log_exception("UI_CLOSE_CLEANUP_ERROR", exc)
+        super().closeEvent(event)
 
     # ------------------------------------------------------------------
     # Auto export scheduling
@@ -2630,7 +4073,7 @@ class SimulationUI(QMainWindow):
             return
         try:
             print("[AUTO-EXPORT] Iniciando export...")
-            path = self._export_substrate(manual=False)
+            path = self._export_substrate(manual=False, apply_current_params=False)
             print(f"[AUTO-EXPORT] Concluído: {path}")
         except Exception as e:
             self._log_exception("[AUTO-EXPORT] Erro", e)

@@ -87,3 +87,66 @@ def test_apply_bacteria_to_selected_changes_only_selected_agent():
     assert selected.r == 13.0
     assert tuple(untouched.brain.sizes) == old_untouched_arch
     assert untouched.r == old_untouched_radius
+
+
+def test_apply_bacteria_to_selected_group_changes_all_selected_agents():
+    engine = _engine_with_agents()
+    selected = engine.entities["bacteria"][:2]
+    untouched = engine.entities["bacteria"][2]
+    old_untouched_radius = untouched.r
+    engine.selected_agent = selected[0]
+    engine.selected_agents = set(selected)
+
+    ui = _ui_for_values(engine, {
+        "bacteria_body_size": 14.0,
+    })
+    ui.apply_bacteria_params("selected", confirm_structural=False)
+
+    assert [agent.r for agent in selected] == [14.0, 14.0]
+    assert untouched.r == old_untouched_radius
+
+
+def test_apply_population_params_trims_running_population_to_maximum():
+    engine = _engine_with_agents()
+    for idx, agent in enumerate(engine.entities["bacteria"]):
+        agent.energy = float(idx + 1)
+    engine.selected_agent = engine.entities["bacteria"][0]
+    engine.selected_agents = {engine.entities["bacteria"][0], engine.entities["bacteria"][2]}
+
+    ui = _ui_for_values(engine, {
+        "bacteria_count": 3,
+        "bacteria_min_limit": 0,
+        "bacteria_max_limit": 2,
+        "predators_enabled": False,
+        "predator_count": 0,
+        "predator_min_limit": 0,
+        "predator_max_limit": 10,
+        "population_min_rescue_enabled": True,
+    })
+    ui.apply_population_params()
+
+    assert len(engine.entities["bacteria"]) == 2
+    assert len(engine.all_agents) == 2
+    assert [agent.energy for agent in engine.entities["bacteria"]] == [2.0, 3.0]
+    assert engine.selected_agent in engine.all_agents
+    assert all(agent in engine.all_agents for agent in engine.selected_agents)
+
+
+def test_group_color_apply_does_not_rebuild_mismatched_brain():
+    engine = _engine_with_agents()
+    selected = engine.entities["bacteria"][0]
+    old_brain = selected.brain
+    old_arch = tuple(selected.brain.sizes)
+    engine.selected_agent = selected
+    engine.selected_agents = {selected}
+    engine.params.set("bacteria_color", (10, 20, 30), validate=False)
+
+    ui = _ui_for_values(engine, {
+        "bacteria_hidden_layers": 1,
+        "bacteria_neurons_layer_1": 9,
+    })
+    ui.apply_agent_param_group("bacteria", "color", "selected")
+
+    assert selected.color == (10, 20, 30)
+    assert selected.brain is old_brain
+    assert tuple(selected.brain.sizes) == old_arch

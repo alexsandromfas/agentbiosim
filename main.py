@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from sim.controllers import Params
+from sim.diagnostics import install_qt_message_handler, log_event, log_exception, setup_runtime_diagnostics
 from sim.engine import Engine
 from sim.game import PygameView
 
@@ -47,6 +48,11 @@ def main(argv=None):
             print(f"Detalhe: {_QT_IMPORT_ERROR}")
         return 1
 
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    log_path = setup_runtime_diagnostics(root_dir)
+    print(f"Log de diagnostico: {log_path}")
+    log_event("MAIN_START", backend=backend)
+
     try:
         print(f"Inicializando simulacao... (UI={backend})")
 
@@ -72,6 +78,8 @@ def main(argv=None):
         from PyQt6.QtWidgets import QApplication
 
         app = QApplication.instance() or QApplication([])
+        install_qt_message_handler()
+        app.aboutToQuit.connect(lambda: log_event("QT_ABOUT_TO_QUIT"))
         ui = QtSimulationUI(params, engine, pygame_view)  # type: ignore
 
         # 6. Conexoes
@@ -84,13 +92,16 @@ def main(argv=None):
 
     except KeyboardInterrupt:
         print("\nSimulacao interrompida pelo usuario")
+        log_event("KEYBOARD_INTERRUPT")
     except Exception as e:
         print(f"Erro critico: {e}")
         import traceback
 
         traceback.print_exc()
+        log_exception("MAIN_CRITICAL_EXCEPTION", type(e), e, e.__traceback__)
         return 2
     finally:
+        log_event("MAIN_FINALLY")
         print("Simulacao encerrada")
     return 0
 

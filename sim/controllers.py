@@ -24,6 +24,11 @@ class Params:
             'time_scale': 1.0,
             'fps': 60,
             'paused': False,
+            # Timing fisico: a escala de tempo acumula tempo simulado, mas
+            # cada substep usa dt fixo para preservar a dinamica.
+            'physics_steps_per_second': 30,
+            'max_physics_steps_per_frame': 8,
+            'max_physics_backlog_seconds': 0.25,
             'use_spatial': True,
             'substrate_shape': 'rectangular',  # 'rectangular' ou 'circular'
             'world_w': 1000.0,  # Largura do substrato (retangular)
@@ -147,7 +152,10 @@ class Params:
 
             # UI/Debug
             'show_selected_details': True,
+            'show_metrics_chart': False,
             'debug_tracebacks': False,
+            'diagnostic_heartbeat_minutes': 1.0,
+            'save_recovery_on_close': True,
             'export_substrate_include_brain_activations': False,
             'export_substrate_pretty_json': False,
             # Debug toggles
@@ -206,6 +214,10 @@ class Params:
             return max(0.0, min(1.0, float(value)))
         elif key in ['time_scale', 'fps']:
             return max(0.1, float(value))
+        elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame']:
+            return max(1, int(float(value)))
+        elif key == 'max_physics_backlog_seconds':
+            return max(0.0, float(value))
         elif key.endswith('_fov_degrees'):
             return max(1.0, min(360.0, float(value)))
         else:
@@ -229,7 +241,10 @@ class Params:
             'performance': {
                 **dict(self._data),
                 'simple_render': True,
-                'retina_skip': 2,
+                'retina_skip': 5,
+                'physics_steps_per_second': 30,
+                'max_physics_steps_per_frame': 8,
+                'max_physics_backlog_seconds': 0.25,
                 'bacteria_count': 50,
                 'predator_count': 5,
             },

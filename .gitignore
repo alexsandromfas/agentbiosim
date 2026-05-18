@@ -18,7 +18,9 @@ agents/*.agent.csv
 !agents/README.md
 substrates/auto_exports/
 substrates/manual_exports/
+substrates/recovery/
 !substrates/README.md
+Saves/
 
 # Local benchmark/profiling reports
 tests/otimizacoes/*.json
