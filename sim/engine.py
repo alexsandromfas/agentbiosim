@@ -319,12 +319,7 @@ class Engine:
         if self.headless or self.renderer is None:
             return
         # Limpa tela usando cor configurável
-        bg = self.params.get('substrate_bg_color', (10, 10, 20))
-        try:
-            bg_color = tuple(int(max(0, min(255, c))) for c in bg)
-        except Exception:
-            bg_color = (10, 10, 20)
-        surface.fill(bg_color)
+        self._draw_scene_background(surface)
         visible_bounds = self._visible_world_bounds(surface)
         
         # Desenha limites do mundo
@@ -381,6 +376,87 @@ class Engine:
         y = float(getattr(obj, 'y', 0.0))
         r = float(getattr(obj, 'r', 0.0))
         return x + r >= min_x and x - r <= max_x and y + r >= min_y and y - r <= max_y
+
+    @staticmethod
+    def _render_color(value, fallback=(10, 10, 20)):
+        try:
+            parts = [int(float(c)) for c in list(value)[:3]]
+            if len(parts) < 3:
+                raise ValueError
+            return tuple(max(0, min(255, c)) for c in parts[:3])
+        except Exception:
+            return tuple(fallback)
+
+    @staticmethod
+    def _lerp_color(c0, c1, t: float):
+        t = max(0.0, min(1.0, float(t)))
+        return (
+            int(c0[0] + (c1[0] - c0[0]) * t),
+            int(c0[1] + (c1[1] - c0[1]) * t),
+            int(c0[2] + (c1[2] - c0[2]) * t),
+        )
+
+    def _draw_scene_background(self, surface):
+        """Desenha o fundo global e a area do substrato."""
+        import pygame
+
+        default_bg = self._render_color(self.params.get('substrate_bg_color', (10, 10, 20)))
+        bg_top = self._render_color(self.params.get('background_color_top', default_bg), default_bg)
+        bg_bottom = self._render_color(self.params.get('background_color_bottom', bg_top), bg_top)
+        if bool(self.params.get('background_gradient_enabled', False)) and bg_top != bg_bottom:
+            h = max(1, int(surface.get_height()))
+            w = int(surface.get_width())
+            for y in range(h):
+                color = self._lerp_color(bg_top, bg_bottom, y / max(1, h - 1))
+                pygame.draw.line(surface, color, (0, y), (w, y))
+        else:
+            surface.fill(bg_top)
+
+        sub_top = self._render_color(self.params.get('substrate_color_top', default_bg), default_bg)
+        sub_bottom = self._render_color(self.params.get('substrate_color_bottom', sub_top), sub_top)
+        sub_gradient = bool(self.params.get('substrate_gradient_enabled', False)) and sub_top != sub_bottom
+        if getattr(self.world, 'shape', 'rectangular') == 'circular':
+            center_screen = self.camera.world_to_screen(self.world.cx, self.world.cy)
+            radius_screen = int(max(0.0, self.world.radius * self.camera.zoom))
+            if radius_screen <= 0:
+                return
+            cx, cy = int(center_screen[0]), int(center_screen[1])
+            if not sub_gradient:
+                pygame.draw.circle(surface, sub_top, (cx, cy), radius_screen)
+                return
+            y0 = max(0, cy - radius_screen)
+            y1 = min(surface.get_height() - 1, cy + radius_screen)
+            denom = max(1, radius_screen * 2)
+            for y in range(y0, y1 + 1):
+                dy = y - cy
+                half_width = int(math.sqrt(max(0.0, radius_screen * radius_screen - dy * dy)))
+                x0 = max(0, cx - half_width)
+                x1 = min(surface.get_width() - 1, cx + half_width)
+                if x1 < x0:
+                    continue
+                color = self._lerp_color(sub_top, sub_bottom, (y - (cy - radius_screen)) / denom)
+                pygame.draw.line(surface, color, (x0, y), (x1, y))
+        else:
+            top_left = self.camera.world_to_screen(0, 0)
+            bottom_right = self.camera.world_to_screen(self.world.width, self.world.height)
+            left = int(min(top_left[0], bottom_right[0]))
+            right = int(max(top_left[0], bottom_right[0]))
+            top = int(min(top_left[1], bottom_right[1]))
+            bottom = int(max(top_left[1], bottom_right[1]))
+            rect = pygame.Rect(left, top, max(0, right - left), max(0, bottom - top))
+            if rect.width <= 0 or rect.height <= 0:
+                return
+            if not sub_gradient:
+                surface.fill(sub_top, rect)
+                return
+            y0 = max(0, rect.top)
+            y1 = min(surface.get_height() - 1, rect.bottom)
+            denom = max(1, rect.height)
+            x0 = max(0, rect.left)
+            x1 = min(surface.get_width() - 1, rect.right)
+            for y in range(y0, y1 + 1):
+                color = self._lerp_color(sub_top, sub_bottom, (y - rect.top) / denom)
+                pygame.draw.line(surface, color, (x0, y), (x1, y))
     
     def send_command(self, command: str, **kwargs):
         """
@@ -1208,12 +1284,15 @@ class Engine:
     def _draw_world_bounds(self, surface):
         """Desenha limites do mundo.""" 
         import pygame
+        if not bool(self.params.get('substrate_border_enabled', True)):
+            return
+        border_color = self._render_color(self.params.get('substrate_border_color', (40, 200, 40)), (40, 200, 40))
         if getattr(self.world, 'shape', 'rectangular') == 'circular':
             # Desenha círculo baseado em world.cx, world.cy, world.radius
             center_screen = self.camera.world_to_screen(self.world.cx, self.world.cy)
             radius_screen = int(self.world.radius * self.camera.zoom)
             if radius_screen > 1:
-                pygame.draw.circle(surface, (40, 200, 40), (int(center_screen[0]), int(center_screen[1])), radius_screen, width=1)
+                pygame.draw.circle(surface, border_color, (int(center_screen[0]), int(center_screen[1])), radius_screen, width=1)
         else:
             top_left = self.camera.world_to_screen(0, 0)
             bottom_right = self.camera.world_to_screen(self.world.width, self.world.height)
@@ -1222,7 +1301,7 @@ class Engine:
             rect_w = int(bottom_right[0] - top_left[0])
             rect_h = int(bottom_right[1] - top_left[1])
             if rect_w >= 2 and rect_h >= 2:
-                pygame.draw.rect(surface, (40, 200, 40), pygame.Rect(rect_x, rect_y, rect_w, rect_h), width=1)
+                pygame.draw.rect(surface, border_color, pygame.Rect(rect_x, rect_y, rect_w, rect_h), width=1)
     
     def _gather_render_info(self) -> Dict[str, Any]:
         """Coleta informações para renderização."""

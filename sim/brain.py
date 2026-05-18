@@ -346,9 +346,11 @@ _MULTI_BRAIN_CACHE_MAX_ENTRIES = 32
 _MULTI_BRAIN_CACHE_MAX_MB = 512  # MB totais aproximados
 _DISABLE_MULTI_BRAIN_CACHE = False
 _MULTI_BRAIN_CACHE_LOG = False  # logs silenciosos por padrão
+_USE_NUMBA_BRAIN_FORWARD = False
+_NUMBA_BRAIN_FORWARD_MIN_BATCH = 256
 
-def configure_multi_brain_cache(max_entries: int = None, max_mb: int = None, disable: bool = None, log: bool = None):
-    global _MULTI_BRAIN_CACHE_MAX_ENTRIES, _MULTI_BRAIN_CACHE_MAX_MB, _DISABLE_MULTI_BRAIN_CACHE, _MULTI_BRAIN_CACHE_LOG
+def configure_multi_brain_cache(max_entries: int = None, max_mb: int = None, disable: bool = None, log: bool = None, numba_forward: bool = None, numba_min_batch: int = None):
+    global _MULTI_BRAIN_CACHE_MAX_ENTRIES, _MULTI_BRAIN_CACHE_MAX_MB, _DISABLE_MULTI_BRAIN_CACHE, _MULTI_BRAIN_CACHE_LOG, _USE_NUMBA_BRAIN_FORWARD, _NUMBA_BRAIN_FORWARD_MIN_BATCH
     if max_entries is not None:
         _MULTI_BRAIN_CACHE_MAX_ENTRIES = max(0, int(max_entries))
     if max_mb is not None:
@@ -357,6 +359,10 @@ def configure_multi_brain_cache(max_entries: int = None, max_mb: int = None, dis
         _DISABLE_MULTI_BRAIN_CACHE = bool(disable)
     if log is not None:
         _MULTI_BRAIN_CACHE_LOG = bool(log)
+    if numba_forward is not None:
+        _USE_NUMBA_BRAIN_FORWARD = bool(numba_forward)
+    if numba_min_batch is not None:
+        _NUMBA_BRAIN_FORWARD_MIN_BATCH = max(1, int(numba_min_batch))
 
 def clear_multi_brain_cache(verbose: bool = False):
     """Esvazia o cache liberando memória."""
@@ -466,6 +472,30 @@ def _build_stacks(brains: Sequence[NeuralNet]):
     _prune_multi_brain_cache()
     return weight_stacks, bias_stacks
 
+
+def _forward_many_brains_numba(weight_stacks: list, bias_stacks: list, inputs: np.ndarray) -> np.ndarray | None:
+    """Numba backend para lotes grandes com pesos separados por agente."""
+    if not _USE_NUMBA_BRAIN_FORWARD or inputs.shape[0] < _NUMBA_BRAIN_FORWARD_MIN_BATCH:
+        return None
+    try:
+        from .fast_kernels import brain_layer_forward_kernel, has_numba
+        if not has_numba():
+            return None
+    except Exception:
+        return None
+    x = np.asarray(inputs, dtype=np.float32)
+    num_layers = len(weight_stacks)
+    for layer_idx in range(num_layers):
+        W = np.asarray(weight_stacks[layer_idx], dtype=np.float32)
+        b = np.asarray(bias_stacks[layer_idx], dtype=np.float32)
+        out = np.empty((x.shape[0], W.shape[1]), dtype=np.float32)
+        ok = brain_layer_forward_kernel(x, W, b, layer_idx < num_layers - 1, out)
+        if not ok:
+            return None
+        x = out
+    return x
+
+
 def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.ndarray:
     """Executa forward para vários cérebros (mesma arquitetura) com seus próprios pesos.
 
@@ -483,7 +513,10 @@ def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.n
             outputs = [b.forward(inp) for b, inp in zip(brains, inputs)]
             return np.array(outputs, dtype=np.float32)
     weight_stacks, bias_stacks = _build_stacks(brains)
-    x = inputs.astype(np.float32)
+    numba_result = _forward_many_brains_numba(weight_stacks, bias_stacks, inputs)
+    if numba_result is not None:
+        return numba_result
+    x = np.asarray(inputs, dtype=np.float32)
     num_layers = len(weight_stacks)
     for layer_idx in range(num_layers):
         W = weight_stacks[layer_idx]      # (B,out,in)
@@ -513,7 +546,7 @@ def activations_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> 
                 layer_lists.append(np.stack([per_b[layer_idx] for per_b in per], axis=0))
             return layer_lists
     weight_stacks, bias_stacks = _build_stacks(brains)
-    x = inputs.astype(np.float32)
+    x = np.asarray(inputs, dtype=np.float32)
     activations = []
     num_layers = len(weight_stacks)
     for layer_idx in range(num_layers):

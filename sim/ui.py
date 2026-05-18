@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QMessageBox, QFileDialog, QScrollArea,
     QFormLayout, QGridLayout, QGroupBox, QToolTip, QStackedWidget,
     QColorDialog, QSlider, QRadioButton, QButtonGroup, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QDialog
 )
 
 from .controllers import Params
@@ -642,6 +642,12 @@ class SimulationUI(QMainWindow):
                 continue
             color = QColor(*meta.get('color', (220, 220, 220)))
             name = str(meta.get('name', f'Label {label_id}'))
+            count_color = QColor(
+                min(255, color.red() + 45),
+                min(255, color.green() + 45),
+                min(255, color.blue() + 45),
+            )
+            defs.append((f'label_{label_id}_count', f'{name} individuos', count_color))
             defs.append((f'label_{label_id}_smart', f'{name} inteligencia', color))
         return defs
 
@@ -948,6 +954,7 @@ class SimulationUI(QMainWindow):
                     if not bool(meta.get('show_chart', True)):
                         continue
                     agents = engine.get_agents_by_label(label_id)
+                    row[f'label_{label_id}_count'] = float(len(agents))
                     row[f'label_{label_id}_smart'] = self._group_chart_intelligence_value(label_id, agents, now_t)
             except Exception:
                 pass
@@ -1210,6 +1217,9 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(pref_menu, "Exportar ativacoes neurais nos snapshots", 'export_substrate_include_brain_activations')
         self._add_bool_menu_action(pref_menu, "JSON manual legivel", 'export_substrate_pretty_json')
         self._add_bool_menu_action(pref_menu, "Tracebacks no debug", 'debug_tracebacks')
+        act_appearance = QAction("Aparencia do ambiente", self)
+        act_appearance.triggered.connect(self.open_environment_appearance_window)
+        pref_menu.addAction(act_appearance)
         chart_menu = pref_menu.addMenu("Grafico")
         self._build_chart_sampling_menu(chart_menu)
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
@@ -1283,6 +1293,108 @@ class SimulationUI(QMainWindow):
             action.blockSignals(True)
             action.setChecked(abs(float(action_scale) - scale) < 1e-6)
             action.blockSignals(False)
+
+    def _color_from_param(self, name: str, fallback=(10, 10, 20)) -> QColor:
+        value = self.params.get(name, fallback)
+        try:
+            r, g, b = [int(max(0, min(255, float(c)))) for c in list(value)[:3]]
+            return QColor(r, g, b)
+        except Exception:
+            return QColor(*fallback)
+
+    def _set_color_swatch(self, swatch: QLabel, color: QColor):
+        swatch.setStyleSheet(
+            f"background: rgb({color.red()},{color.green()},{color.blue()}); "
+            "border:1px solid #66717f; border-radius:4px;"
+        )
+
+    def _make_color_picker_row(self, label: str, param_name: str, fallback=(10, 10, 20)):
+        row = QHBoxLayout()
+        row.addWidget(QLabel(label))
+        swatch = QLabel()
+        swatch.setFixedSize(34, 24)
+        color = self._color_from_param(param_name, fallback)
+        self._set_color_swatch(swatch, color)
+        btn = QPushButton("Cor")
+        btn.setFixedWidth(70)
+
+        def pick():
+            current = self._color_from_param(param_name, fallback)
+            chosen = QColorDialog.getColor(current, self, label)
+            if not chosen.isValid():
+                return
+            value = (chosen.red(), chosen.green(), chosen.blue())
+            self.params.set(param_name, value, validate=False)
+            if param_name == 'background_color_top':
+                self.params.set('substrate_bg_color', value, validate=False)
+            self._set_color_swatch(swatch, chosen)
+
+        btn.clicked.connect(pick)
+        row.addWidget(swatch)
+        row.addWidget(btn)
+        row.addStretch(1)
+        return row
+
+    def open_environment_appearance_window(self):
+        existing = getattr(self, '_appearance_dialog', None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return
+
+        dlg = QDialog(self)
+        self._appearance_dialog = dlg
+        dlg.setWindowTitle("Aparencia do ambiente")
+        dlg.setMinimumWidth(420)
+        dlg.setStyleSheet(
+            "QDialog { background:#171a1f; color:#dce7f3; } "
+            "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:24px; padding:8px; } "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; "
+            "margin-left:10px; padding:2px 8px; background:#262b31; color:#cfe1f5; } "
+            "QLabel, QCheckBox { color:#dce7f3; }"
+        )
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        bg_box = QGroupBox("Background")
+        bg_layout = QVBoxLayout(bg_box)
+        cb_bg_grad = QCheckBox("Usar gradiente vertical")
+        cb_bg_grad.setChecked(bool(self.params.get('background_gradient_enabled', False)))
+        cb_bg_grad.toggled.connect(lambda checked: self.params.set('background_gradient_enabled', bool(checked), validate=False))
+        bg_layout.addWidget(cb_bg_grad)
+        bg_layout.addLayout(self._make_color_picker_row("Cor superior / solida:", 'background_color_top', (10, 10, 20)))
+        bg_layout.addLayout(self._make_color_picker_row("Cor inferior:", 'background_color_bottom', (10, 10, 20)))
+        layout.addWidget(bg_box)
+
+        sub_box = QGroupBox("Substrato")
+        sub_layout = QVBoxLayout(sub_box)
+        cb_sub_grad = QCheckBox("Usar gradiente vertical")
+        cb_sub_grad.setChecked(bool(self.params.get('substrate_gradient_enabled', False)))
+        cb_sub_grad.toggled.connect(lambda checked: self.params.set('substrate_gradient_enabled', bool(checked), validate=False))
+        sub_layout.addWidget(cb_sub_grad)
+        sub_layout.addLayout(self._make_color_picker_row("Cor superior / solida:", 'substrate_color_top', (10, 10, 20)))
+        sub_layout.addLayout(self._make_color_picker_row("Cor inferior:", 'substrate_color_bottom', (10, 10, 20)))
+        layout.addWidget(sub_box)
+
+        border_box = QGroupBox("Borda do substrato")
+        border_layout = QVBoxLayout(border_box)
+        cb_border = QCheckBox("Mostrar borda")
+        cb_border.setChecked(bool(self.params.get('substrate_border_enabled', True)))
+        cb_border.toggled.connect(lambda checked: self.params.set('substrate_border_enabled', bool(checked), validate=False))
+        border_layout.addWidget(cb_border)
+        border_layout.addLayout(self._make_color_picker_row("Cor da borda:", 'substrate_border_color', (40, 200, 40)))
+        layout.addWidget(border_box)
+
+        hint = QLabel("As mudancas sao aplicadas enquanto esta janela fica aberta. Desligue os gradientes para o modo mais leve.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#9fb1c4;")
+        layout.addWidget(hint)
+
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(dlg.close)
+        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        dlg.show()
 
     def _add_bool_menu_action(self, menu, text: str, param_name: str, callback=None):
         action = QAction(text, self)
@@ -1410,6 +1522,7 @@ class SimulationUI(QMainWindow):
             'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'use_numba_kernels': 'Ativa kernels numericos por arrays/Numba quando disponiveis. Mantem fallback seguro para o caminho antigo.',
+            'use_numba_batch_retina': 'Experimental: processa varios agentes no mesmo kernel Numba de retina. Desligado por padrao porque ainda nao ganhou benchmark.',
             'use_numba_locomotion_energy': 'Experimental: aplica Numba tambem na locomocao e energia. Desligado por padrao porque pode ser mais lento em alguns perfis.',
             'reuse_spatial_grid': 'Reutiliza a estrutura da grade espacial entre frames quando possivel, reduzindo alocacoes.',
             'agents_inertia': 'Controla suavizacao da velocidade. 1 aplica o comando neural imediatamente; valores maiores deixam movimento mais inercial.',
@@ -1798,7 +1911,7 @@ class SimulationUI(QMainWindow):
 
         add_picker("Cor da comida", 'food_color', (220, 30, 30),
                    lambda rgb: [setattr(food, 'color', rgb) for food in self.engine.entities.get('foods', [])])
-        add_picker("Background Substrato", 'substrate_bg_color', (10, 10, 20))
+        # Cores de fundo/substrato ficam na janela Preferencias > Aparencia do ambiente.
 
     def _build_tab_experiment(self):
         tab = QWidget()
@@ -2160,6 +2273,10 @@ class SimulationUI(QMainWindow):
         add_perf("Aceleracao arrays/Numba:", 'use_numba_kernels', cb)
 
         cb = QCheckBox()
+        cb.setChecked(self.params.get('use_numba_batch_retina', False))
+        add_perf("Retina Numba em lote:", 'use_numba_batch_retina', cb)
+
+        cb = QCheckBox()
         cb.setChecked(self.params.get('use_numba_locomotion_energy', False))
         add_perf("Numba locomocao/energia:", 'use_numba_locomotion_energy', cb)
 
@@ -2310,34 +2427,6 @@ class SimulationUI(QMainWindow):
         shape = QComboBox(); shape.addItems(["rectangular","circular"]); shape.setCurrentText(self.params.get('substrate_shape','rectangular')); add_world("Formato do substrato:", 'substrate_shape', shape)
         w = _spin_double(1.0,5000.0,1.0,1); w.setValue(self.params.get('substrate_radius',400.0)); add_world("Raio do substrato:", 'substrate_radius', w)
         v.addWidget(g_world)
-
-        # Color picker for substrate background (updates params)
-        try:
-            sub_picker_box = QGroupBox("Background Substrato")
-            sub_picker_box.setStyleSheet(card_style)
-            sp_layout = QHBoxLayout(sub_picker_box)
-            sub_swatch = QLabel(); sub_swatch.setFixedSize(36,36)
-            # keep reference for persistence updates
-            self._swatch_substrate = sub_swatch
-            sbg = self.params.get('substrate_bg_color', (10,10,20))
-            sub_swatch.setStyleSheet(f"background: rgb({sbg[0]},{sbg[1]},{sbg[2]}); border:1px solid #333; border-radius:4px;")
-            btn_sub = QPushButton("Escolher cor do substrato")
-            def _pick_sub_color():
-                col = QColorDialog.getColor(QColor(*sbg), self, "Escolha cor do substrato")
-                if col.isValid():
-                    r,g,b = col.red(), col.green(), col.blue()
-                    sub_swatch.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
-                    try:
-                        self.params.set('substrate_bg_color', (r,g,b))
-                    except Exception:
-                        pass
-            btn_sub.clicked.connect(_pick_sub_color)
-            sp_layout.addWidget(sub_swatch); sp_layout.addWidget(btn_sub)
-            v.addWidget(sub_picker_box)
-        except Exception:
-            pass
-
-        
 
         # Grupo Ações
         g_act = QGroupBox("Ações")
@@ -2700,7 +2789,7 @@ class SimulationUI(QMainWindow):
         for widget in self.widgets.values():
             if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox)):
                 widget.installEventFilter(self)
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','use_numba_kernels','use_numba_locomotion_energy','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
                 w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
@@ -2844,7 +2933,7 @@ class SimulationUI(QMainWindow):
         )
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -3414,10 +3503,29 @@ class SimulationUI(QMainWindow):
             try:
                 import json as _json
                 rows_by_name['substrate_shape'] = {'name': 'substrate_shape', 'value': self._get_widget_value('substrate_shape')}
-                rows_by_name['substrate_bg_color'] = {'name': 'substrate_bg_color', 'value': _json.dumps(list(self.params.get('substrate_bg_color', (10,10,20))))}
-                rows_by_name['food_color'] = {'name': 'food_color', 'value': _json.dumps(list(self.params.get('food_color', (220,30,30))))}
-                rows_by_name['bacteria_color'] = {'name': 'bacteria_color', 'value': _json.dumps(list(self.params.get('bacteria_color', (220,220,220))))}
-                rows_by_name['predator_color'] = {'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))}
+                color_params = {
+                    'substrate_bg_color': (10, 10, 20),
+                    'background_color_top': (10, 10, 20),
+                    'background_color_bottom': (10, 10, 20),
+                    'substrate_color_top': (10, 10, 20),
+                    'substrate_color_bottom': (10, 10, 20),
+                    'substrate_border_color': (40, 200, 40),
+                    'food_color': (220, 30, 30),
+                    'bacteria_color': (220, 220, 220),
+                    'predator_color': (80, 120, 220),
+                }
+                for param_name, default in color_params.items():
+                    rows_by_name[param_name] = {
+                        'name': param_name,
+                        'value': _json.dumps(list(self.params.get(param_name, default))),
+                    }
+                bool_params = {
+                    'background_gradient_enabled': False,
+                    'substrate_gradient_enabled': False,
+                    'substrate_border_enabled': True,
+                }
+                for param_name, default in bool_params.items():
+                    rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
                 for menu_param in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, False)}
                 rows_by_name['render_resolution_scale'] = {
@@ -3455,8 +3563,9 @@ class SimulationUI(QMainWindow):
             return
         try:
             with open(load_path,'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
+                rows = list(csv.DictReader(f))
+                saved_names = {row.get('name') for row in rows}
+                for row in rows:
                     name = row.get('name'); value = row.get('value')
                     if not name or name.startswith('test_param_'):
                         continue
@@ -3477,12 +3586,33 @@ class SimulationUI(QMainWindow):
                             pass
                     # Additional: load saved color params or substrate shape even if not in widgets
                     try:
-                        if name == 'substrate_bg_color':
+                        color_param_defaults = {
+                            'substrate_bg_color': (10, 10, 20),
+                            'background_color_top': (10, 10, 20),
+                            'background_color_bottom': (10, 10, 20),
+                            'substrate_color_top': (10, 10, 20),
+                            'substrate_color_bottom': (10, 10, 20),
+                            'substrate_border_color': (40, 200, 40),
+                        }
+                        if name in color_param_defaults:
                             import json as _json
-                            col = _json.loads(value)
-                            self.params.set('substrate_bg_color', tuple(col), validate=False)
-                            if hasattr(self, '_swatch_substrate'):
-                                r,g,b = col[:3]; self._swatch_substrate.setStyleSheet(f"background: rgb({r},{g},{b}); border:1px solid #333; border-radius:4px;")
+                            col = tuple(int(max(0, min(255, float(c)))) for c in _json.loads(value)[:3])
+                            self.params.set(name, col, validate=False)
+                            if name == 'substrate_bg_color' and 'background_color_top' not in saved_names:
+                                self.params.set('background_color_top', col, validate=False)
+                            if name == 'substrate_bg_color' and 'background_color_bottom' not in saved_names:
+                                self.params.set('background_color_bottom', col, validate=False)
+                            if name == 'substrate_bg_color' and 'substrate_color_top' not in saved_names:
+                                self.params.set('substrate_color_top', col, validate=False)
+                            if name == 'substrate_bg_color' and 'substrate_color_bottom' not in saved_names:
+                                self.params.set('substrate_color_bottom', col, validate=False)
+                        bool_param_defaults = {
+                            'background_gradient_enabled': False,
+                            'substrate_gradient_enabled': False,
+                            'substrate_border_enabled': True,
+                        }
+                        if name in bool_param_defaults:
+                            self.params.set(name, value in ('1', 'True', 'true', 'yes', 'YES'), validate=False)
                         if name == 'food_color':
                             import json as _json
                             col = _json.loads(value)

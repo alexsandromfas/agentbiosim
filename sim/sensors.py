@@ -372,15 +372,27 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     species_configs = {}
     fast_retina_single = None
     fast_retina_fullbody = None
+    fast_retina_batch_single = None
+    fast_retina_batch_fullbody = None
     if bool(param_get('use_numba_kernels', True)):
         try:
-            from .fast_kernels import has_numba, retina_fullbody_kernel, retina_single_kernel
+            from .fast_kernels import (
+                has_numba,
+                retina_batch_fullbody_kernel,
+                retina_batch_single_kernel,
+                retina_fullbody_kernel,
+                retina_single_kernel,
+            )
             if has_numba():
                 fast_retina_single = retina_single_kernel
                 fast_retina_fullbody = retina_fullbody_kernel
+                fast_retina_batch_single = retina_batch_single_kernel
+                fast_retina_batch_fullbody = retina_batch_fullbody_kernel
         except Exception:
             fast_retina_single = None
             fast_retina_fullbody = None
+            fast_retina_batch_single = None
+            fast_retina_batch_fullbody = None
 
     def _species_sensor_config(prefix, sensor):
         config = species_configs.get(prefix)
@@ -480,6 +492,140 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
             return results  # type: ignore
+
+    batch_retina_enabled = (
+        bool(param_get('use_numba_batch_retina', True))
+        and scene.spatial_hash is not None
+        and len(need_update_idx) >= 8
+        and (
+            (vision_mode == 'fullbody' and fast_retina_batch_fullbody is not None)
+            or ((vision_mode == 'single' or sensors[need_update_idx[0]].retina_count == 1) and fast_retina_batch_single is not None)
+        )
+    )
+    if batch_retina_enabled:
+        retina_counts = {int(sensors[i].retina_count) for i in need_update_idx}
+        if len(retina_counts) == 1:
+            retina_count = int(next(iter(retina_counts)))
+            n_update = len(need_update_idx)
+            eye_x_arr = np.empty(n_update, dtype=np.float64)
+            eye_y_arr = np.empty(n_update, dtype=np.float64)
+            angle_arr = np.empty(n_update, dtype=np.float64)
+            vision_radius_arr = np.empty(n_update, dtype=np.float64)
+            half_fov_arr = np.empty(n_update, dtype=np.float64)
+            cand_start = np.empty(n_update, dtype=np.int64)
+            cand_count = np.empty(n_update, dtype=np.int64)
+            cand_x_values = []
+            cand_y_values = []
+            cand_r_values = []
+            self_values = []
+            candidate_buffer = set()
+            total_candidates = 0
+            first_sensor = sensors[need_update_idx[0]]
+            for local_idx, idx in enumerate(need_update_idx):
+                agent = agents[idx]
+                sensor = sensors[idx]
+                (
+                    _desired_count,
+                    _desired_fov,
+                    _desired_radius,
+                    _desired_skip,
+                    _desired_see_food,
+                    _desired_see_bacteria,
+                    _desired_see_predators,
+                    type_codes,
+                    max_seen_radius,
+                ) = runtime_configs[idx]
+                eye_x = agent.x + math.cos(agent.angle) * agent.r
+                eye_y = agent.y + math.sin(agent.angle) * agent.r
+                search_r = sensor.vision_radius + max_seen_radius
+                candidates_local = (
+                    scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
+                    if type_codes else ()
+                )
+                eye_x_arr[local_idx] = float(eye_x)
+                eye_y_arr[local_idx] = float(eye_y)
+                angle_arr[local_idx] = float(agent.angle)
+                vision_radius_arr[local_idx] = float(sensor.vision_radius)
+                half_fov_arr[local_idx] = math.radians(sensor.fov_degrees / 2.0)
+                cand_start[local_idx] = total_candidates
+                count = 0
+                for candidate in candidates_local:
+                    cand_x_values.append(float(candidate.x))
+                    cand_y_values.append(float(candidate.y))
+                    cand_r_values.append(float(getattr(candidate, 'r', 0.0)))
+                    self_values.append(candidate is agent)
+                    count += 1
+                cand_count[local_idx] = count
+                total_candidates += count
+
+            if total_candidates == 0:
+                for idx in need_update_idx:
+                    sensor = sensors[idx]
+                    inputs = [0.0] * sensor.retina_count
+                    sensor.last_inputs = inputs
+                    sensor._countdown = sensor.skip
+                    results[idx] = inputs
+                return results  # type: ignore
+
+            cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
+            cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
+            cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
+            cand_type_arr = np.zeros(total_candidates, dtype=np.int8)
+            self_arr = np.asarray(self_values, dtype=bool)
+            out = np.empty((n_update, retina_count), dtype=np.float64)
+            if vision_mode == 'fullbody' and fast_retina_batch_fullbody is not None:
+                ok = fast_retina_batch_fullbody(
+                    eye_x_arr,
+                    eye_y_arr,
+                    angle_arr,
+                    vision_radius_arr,
+                    half_fov_arr,
+                    cand_start,
+                    cand_count,
+                    cand_x_arr,
+                    cand_y_arr,
+                    cand_r_arr,
+                    cand_type_arr,
+                    self_arr,
+                    retina_count,
+                    bool(first_sensor.see_food),
+                    bool(first_sensor.see_bacteria),
+                    bool(first_sensor.see_predators),
+                    True,
+                    out,
+                )
+            elif fast_retina_batch_single is not None:
+                ok = fast_retina_batch_single(
+                    eye_x_arr,
+                    eye_y_arr,
+                    angle_arr,
+                    vision_radius_arr,
+                    half_fov_arr,
+                    cand_start,
+                    cand_count,
+                    cand_x_arr,
+                    cand_y_arr,
+                    cand_r_arr,
+                    cand_type_arr,
+                    self_arr,
+                    retina_count,
+                    bool(first_sensor.see_food),
+                    bool(first_sensor.see_bacteria),
+                    bool(first_sensor.see_predators),
+                    True,
+                    out,
+                )
+            else:
+                ok = False
+            if ok:
+                out32 = out.astype(np.float32)
+                for local_idx, idx in enumerate(need_update_idx):
+                    sensor = sensors[idx]
+                    inputs = out32[local_idx].tolist()
+                    sensor.last_inputs = inputs
+                    sensor._countdown = sensor.skip
+                    results[idx] = inputs
+                return results  # type: ignore
 
     def angle_wrap(a):
         return (a + np.pi) % (2 * np.pi) - np.pi

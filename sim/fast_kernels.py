@@ -478,6 +478,207 @@ if NUMBA_AVAILABLE:  # pragma: no cover - requires optional dependency
                     act = 1.0
                 out[r_idx] = act
 
+    @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_batch_single_kernel_numba(
+        eye_x,
+        eye_y,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_start,
+        cand_count,
+        cand_x,
+        cand_y,
+        cand_r,
+        cand_type,
+        self_flags,
+        retina_count,
+        see_food,
+        see_bacteria,
+        see_predators,
+        spatial_filtered,
+        out,
+    ):
+        for agent_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                out[agent_idx, r_idx] = 0.0
+            hf = half_fov[agent_idx]
+            vr = vision_radius[agent_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+            start = cand_start[agent_idx]
+            end = start + cand_count[agent_idx]
+            ex = eye_x[agent_idx]
+            ey = eye_y[agent_idx]
+            aa = agent_angle[agent_idx]
+            for i in range(start, end):
+                if self_flags[i]:
+                    continue
+                if not spatial_filtered:
+                    tc = cand_type[i]
+                    if not ((tc == 0 and see_food) or (tc == 1 and see_bacteria) or (tc == 2 and see_predators)):
+                        continue
+                dx = cand_x[i] - ex
+                dy = cand_y[i] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[i]
+                if dist - cr > vr:
+                    continue
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if dist <= cr:
+                    half_span = math.pi
+                else:
+                    ratio = cr / dist
+                    if ratio > 1.0:
+                        ratio = 1.0
+                    elif ratio < 0.0:
+                        ratio = 0.0
+                    half_span = math.asin(ratio)
+                if abs(ang) > hf + half_span:
+                    continue
+                eff_dist = dist - cr
+                if eff_dist < 0.0:
+                    eff_dist = 0.0
+                elif eff_dist > vr:
+                    eff_dist = vr
+                if retina_count > 1:
+                    rel = (ang + hf) / (2.0 * hf) * (retina_count - 1)
+                    ray_idx = int(math.floor(rel + 0.5))
+                    if ray_idx < 0:
+                        ray_idx = 0
+                    elif ray_idx >= retina_count:
+                        ray_idx = retina_count - 1
+                else:
+                    ray_idx = 0
+                if eff_dist < ray_best[ray_idx]:
+                    ray_best[ray_idx] = eff_dist
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if math.isfinite(best):
+                    act = (vr - best) / vr
+                    if act < 0.0:
+                        act = 0.0
+                    elif act > 1.0:
+                        act = 1.0
+                    out[agent_idx, r_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_batch_fullbody_kernel_numba(
+        eye_x,
+        eye_y,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_start,
+        cand_count,
+        cand_x,
+        cand_y,
+        cand_r,
+        cand_type,
+        self_flags,
+        retina_count,
+        see_food,
+        see_bacteria,
+        see_predators,
+        spatial_filtered,
+        out,
+    ):
+        for agent_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                out[agent_idx, r_idx] = 0.0
+            hf = half_fov[agent_idx]
+            vr = vision_radius[agent_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+            start = cand_start[agent_idx]
+            end = start + cand_count[agent_idx]
+            ex = eye_x[agent_idx]
+            ey = eye_y[agent_idx]
+            aa = agent_angle[agent_idx]
+
+            for i in range(start, end):
+                if self_flags[i]:
+                    continue
+                if not spatial_filtered:
+                    tc = cand_type[i]
+                    if not ((tc == 0 and see_food) or (tc == 1 and see_bacteria) or (tc == 2 and see_predators)):
+                        continue
+
+                dx = cand_x[i] - ex
+                dy = cand_y[i] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[i]
+                if dist - cr > vr:
+                    continue
+
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if dist <= cr:
+                    half_span = math.pi
+                else:
+                    ratio = cr / dist
+                    if ratio > 1.0:
+                        ratio = 1.0
+                    elif ratio < 0.0:
+                        ratio = 0.0
+                    half_span = math.asin(ratio)
+                if abs(ang) > hf + half_span:
+                    continue
+
+                ox = -dx
+                oy = -dy
+                c = ox * ox + oy * oy - cr * cr
+                for r_idx in range(retina_count):
+                    if retina_count > 1:
+                        rel = -hf + (r_idx / (retina_count - 1)) * (2.0 * hf)
+                    else:
+                        rel = 0.0
+                    ray_angle = aa + rel
+                    dir_x = math.cos(ray_angle)
+                    dir_y = math.sin(ray_angle)
+                    b = dir_x * ox + dir_y * oy
+                    disc = b * b - c
+                    if disc < 0.0:
+                        continue
+                    root = math.sqrt(disc)
+                    t1 = -b - root
+                    t2 = -b + root
+                    t = np.inf
+                    if t1 >= 0.0:
+                        t = t1
+                    if t2 >= 0.0 and t2 < t:
+                        t = t2
+                    if t >= 0.0 and t <= vr and t < ray_best[r_idx]:
+                        ray_best[r_idx] = t
+
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if math.isfinite(best):
+                    act = (vr - best) / vr
+                    if act < 0.0:
+                        act = 0.0
+                    elif act > 1.0:
+                        act = 1.0
+                    out[agent_idx, r_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
+    def _brain_layer_forward_kernel_numba(inputs, weights, biases, apply_tanh, out):
+        for agent_idx in prange(inputs.shape[0]):
+            for out_idx in range(weights.shape[1]):
+                total = biases[agent_idx, out_idx]
+                for in_idx in range(inputs.shape[1]):
+                    total += weights[agent_idx, out_idx, in_idx] * inputs[agent_idx, in_idx]
+                if apply_tanh:
+                    total = math.tanh(total)
+                out[agent_idx, out_idx] = total
+
 
 def apply_locomotion_energy_arrays(
     x: np.ndarray,
@@ -607,6 +808,99 @@ def retina_fullbody_kernel(
             float(half_fov), int(retina_count), bool(see_food), bool(see_bacteria),
             bool(see_predators), bool(spatial_filtered), out,
         )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_batch_single_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_start: np.ndarray,
+    cand_count: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    cand_type: np.ndarray,
+    self_flags: np.ndarray,
+    retina_count: int,
+    see_food: bool,
+    see_bacteria: bool,
+    see_predators: bool,
+    spatial_filtered: bool,
+    out: np.ndarray,
+) -> bool:
+    """Fill ``out`` for a batch of agents using the single retina mapping."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _retina_batch_single_kernel_numba(
+            eye_x, eye_y, agent_angle, vision_radius, half_fov,
+            cand_start, cand_count, cand_x, cand_y, cand_r, cand_type,
+            self_flags, int(retina_count), bool(see_food), bool(see_bacteria),
+            bool(see_predators), bool(spatial_filtered), out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_batch_fullbody_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_start: np.ndarray,
+    cand_count: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    cand_type: np.ndarray,
+    self_flags: np.ndarray,
+    retina_count: int,
+    see_food: bool,
+    see_bacteria: bool,
+    see_predators: bool,
+    spatial_filtered: bool,
+    out: np.ndarray,
+) -> bool:
+    """Fill ``out`` for a batch of agents using exact fullbody intersections."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _retina_batch_fullbody_kernel_numba(
+            eye_x, eye_y, agent_angle, vision_radius, half_fov,
+            cand_start, cand_count, cand_x, cand_y, cand_r, cand_type,
+            self_flags, int(retina_count), bool(see_food), bool(see_bacteria),
+            bool(see_predators), bool(spatial_filtered), out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def brain_layer_forward_kernel(
+    inputs: np.ndarray,
+    weights: np.ndarray,
+    biases: np.ndarray,
+    apply_tanh: bool,
+    out: np.ndarray,
+) -> bool:
+    """Forward one neural layer for many agents with agent-specific weights."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _brain_layer_forward_kernel_numba(inputs, weights, biases, bool(apply_tanh), out)
         return True
     except Exception:
         _NUMBA_RUNTIME_FAILED = True

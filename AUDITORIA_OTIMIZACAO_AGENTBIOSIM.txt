@@ -178,6 +178,51 @@ Observacoes:
   no profiler. Sao os proximos candidatos reais antes de qualquer tentativa de
   GPU.
 
+Atualizacao de execucao - preparacao multicanal/Numba 2026-05-18
+----------------------------------------------------------------
+Status: PARCIAL FEITO E TESTADO; caminhos que pioraram ficaram desligados.
+
+Alteracoes aplicadas:
+- sim/fast_kernels.py ganhou kernels experimentais de retina em lote e forward
+  neural por camada com Numba.
+- sim/sensors.py ganhou caminho opcional "Retina Numba em lote".
+- sim/brain.py ganhou caminho opcional para forward neural Numba em lotes
+  grandes, mas fica desligado por padrao.
+- O caminho padrao do forward neural evita copia desnecessaria quando a entrada
+  ja esta em float32: inputs.astype(...) foi trocado por np.asarray(...).
+
+Resultados:
+- Headless 5 s:
+  baseline_pre_batch_retina: wall 0.919 s, agent_brain_forward 0.245 s
+  final_default_after_rgb_prep: wall 0.738 s, agent_brain_forward 0.087 s
+- Substrato real 5 s, caminho padrao seguro:
+  numba_fullbody_substrate_aquecido: wall 3.246 s, ms/agente/step 0.010607
+  default_after_experiments_5s: wall 2.963 s, ms/agente/step 0.009684
+  ganho medido no substrato: ~8.7% no wall e ~8.7% em ms/agente/step.
+
+Tentativas que NAO viraram padrao:
+- Retina Numba em lote:
+  batch_retina_substrate_5s: wall 5.504 s, ms/agente/step 0.017988.
+  Motivo: montar blocos de candidatos e agendar paralelismo ficou mais caro que
+  chamar o kernel por agente no perfil atual.
+- Forward neural Numba em lote no substrato:
+  numba_brain_substrate_5s: wall 6.076 s, ms/agente/step 0.019855.
+  Motivo: o einsum/cache atual do NumPy ainda e melhor para os lotes reais do
+  substrato; o kernel Numba ficou disponivel apenas como experimento.
+
+Validacao executada:
+- python -m compileall sim tests\unit
+- python -m pytest tests\unit\test_fast_kernels.py tests\unit\test_check_batch_forward.py -q
+- python -m pytest tests\unit -q
+- Resultado atual: 43 passed
+
+Conclusao desta etapa:
+- A melhor decisao agora e manter a retina Numba por agente, manter NumPy/einsum
+  no cerebro, e continuar preparando a arquitetura para multicanal sem ligar
+  paralelismo que piore benchmark real.
+- Antes da retina RGB, o proximo alvo mais promissor continua sendo reduzir
+  copias/alocacoes no sensoriamento e estruturar arrays persistentes de estado.
+
 Diagnostico por area
 --------------------
 

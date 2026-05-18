@@ -47,6 +47,7 @@ class Params:
             'simple_render': False,
             'render_resolution_scale': 1.0,
             'use_numba_kernels': True,
+            'use_numba_batch_retina': False,
             'use_numba_locomotion_energy': False,
             'reuse_spatial_grid': True,
             
@@ -166,6 +167,14 @@ class Params:
             'debug_reproduction_color': False,
             # Colors (RGB tuples)
             'substrate_bg_color': (10, 10, 20),
+            'background_gradient_enabled': False,
+            'background_color_top': (10, 10, 20),
+            'background_color_bottom': (10, 10, 20),
+            'substrate_gradient_enabled': False,
+            'substrate_color_top': (10, 10, 20),
+            'substrate_color_bottom': (10, 10, 20),
+            'substrate_border_enabled': True,
+            'substrate_border_color': (40, 200, 40),
             'food_color': (220, 30, 30),
             'bacteria_color': (220, 220, 220),
             'predator_color': (80, 120, 220),
