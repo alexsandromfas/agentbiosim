@@ -45,6 +45,7 @@ class Params:
             # 'fullbody' = geometric ray/body intersection for stricter experiments.
             'retina_vision_mode': 'single',
             'simple_render': False,
+            'render_resolution_scale': 1.0,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -219,6 +220,8 @@ class Params:
             return max(1, int(float(value)))
         elif key == 'max_physics_backlog_seconds':
             return max(0.0, float(value))
+        elif key == 'render_resolution_scale':
+            return max(1.0, min(3.0, float(value)))
         elif key.endswith('_fov_degrees'):
             return max(1.0, min(360.0, float(value)))
         else:

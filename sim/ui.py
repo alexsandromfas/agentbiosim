@@ -1222,6 +1222,8 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(pref_menu, "Tracebacks no debug", 'debug_tracebacks')
         chart_menu = pref_menu.addMenu("Grafico")
         self._build_chart_sampling_menu(chart_menu)
+        render_menu = pref_menu.addMenu("Resolucao da renderizacao")
+        self._build_render_resolution_menu(render_menu)
         act_pref_tab = QAction("Abrir aba Experimento", self)
         act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
         pref_menu.addAction(act_pref_tab)
@@ -1256,6 +1258,41 @@ class SimulationUI(QMainWindow):
             group.addAction(action)
             menu.addAction(action)
             self._chart_sample_actions[int(seconds)] = action
+
+    def _build_render_resolution_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        self._render_resolution_action_group = group
+        self._render_resolution_actions = {}
+        current = float(self.params.get('render_resolution_scale', 1.0) or 1.0)
+        options = (
+            ("Normal 1x", 1.0, "Renderizacao nativa, mais leve."),
+            ("Alta 1.5x", 1.5, "Desenha em 1.5x e reduz para suavizar bordas."),
+            ("Muito alta 2x", 2.0, "Mais suave, com custo maior de renderizacao."),
+            ("Ultra 3x", 3.0, "Maxima nitidez visual; pode pesar bastante."),
+        )
+        for label, scale, tip in options:
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(abs(float(scale) - current) < 1e-6)
+            action.setToolTip(tip)
+            action.triggered.connect(lambda _checked=False, s=scale: self._set_render_resolution_scale(s))
+            group.addAction(action)
+            menu.addAction(action)
+            self._render_resolution_actions[float(scale)] = action
+
+    def _set_render_resolution_scale(self, scale: float):
+        try:
+            scale = max(1.0, min(3.0, float(scale)))
+        except (TypeError, ValueError):
+            scale = 1.0
+        self.params.set('render_resolution_scale', scale, validate=True)
+        if hasattr(self.pygame_view, 'set_render_scale'):
+            self.pygame_view.set_render_scale(scale)
+        for action_scale, action in self.__dict__.get('_render_resolution_actions', {}).items():
+            action.blockSignals(True)
+            action.setChecked(abs(float(action_scale) - scale) < 1e-6)
+            action.blockSignals(False)
 
     def _add_bool_menu_action(self, menu, text: str, param_name: str, callback=None):
         action = QAction(text, self)
@@ -3383,6 +3420,10 @@ class SimulationUI(QMainWindow):
                 rows_by_name['predator_color'] = {'name': 'predator_color', 'value': _json.dumps(list(self.params.get('predator_color', (80,120,220))))}
                 for menu_param in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, False)}
+                rows_by_name['render_resolution_scale'] = {
+                    'name': 'render_resolution_scale',
+                    'value': self.params.get('render_resolution_scale', 1.0),
+                }
                 rows_by_name['enable_brain_activations'] = {
                     'name': 'enable_brain_activations',
                     'value': not self.params.get('disable_brain_activations', False),
@@ -3525,6 +3566,11 @@ class SimulationUI(QMainWindow):
                                 panel = getattr(self, 'metrics_panel', None)
                                 if panel is not None:
                                     panel.setVisible(checked)
+                        if name == 'render_resolution_scale':
+                            scale = max(1.0, min(3.0, float(value)))
+                            self.params.set('render_resolution_scale', scale, validate=False)
+                            if hasattr(getattr(self, 'pygame_view', None), 'set_render_scale'):
+                                self.pygame_view.set_render_scale(scale)
                         if name == 'enable_brain_activations':
                             enabled = value in ('1', 'True', 'true', 'yes', 'YES')
                             profiler.enabled = enabled

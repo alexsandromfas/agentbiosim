@@ -44,8 +44,65 @@ class PygameView:
         
         # Pygame
         self.screen: Optional[pygame.Surface] = None
+        self._render_surface: Optional[pygame.Surface] = None
+        self._render_surface_size: tuple[int, int] = (0, 0)
+        self.render_scale = self._coerce_render_scale(self.engine.params.get('render_resolution_scale', 1.0))
         self.clock = pygame.time.Clock()
         self.running = False
+
+    @staticmethod
+    def _coerce_render_scale(value) -> float:
+        try:
+            scale = float(value)
+        except (TypeError, ValueError):
+            scale = 1.0
+        return max(1.0, min(3.0, scale))
+
+    def set_render_scale(self, scale: float):
+        """Atualiza a escala de supersampling usada apenas na renderizacao."""
+        new_scale = self._coerce_render_scale(scale)
+        if abs(new_scale - self.render_scale) > 1e-6:
+            self.render_scale = new_scale
+            self._render_surface = None
+            self._render_surface_size = (0, 0)
+
+    def _current_render_scale(self) -> float:
+        scale = self._coerce_render_scale(self.engine.params.get('render_resolution_scale', self.render_scale))
+        if abs(scale - self.render_scale) > 1e-6:
+            self.set_render_scale(scale)
+        return self.render_scale
+
+    def _get_render_target(self, scale: float) -> pygame.Surface:
+        if self.screen is None:
+            raise RuntimeError("Pygame screen not initialized")
+        width, height = self.screen.get_size()
+        target_size = (max(1, int(round(width * scale))), max(1, int(round(height * scale))))
+        if self._render_surface is None or self._render_surface_size != target_size:
+            self._render_surface = pygame.Surface(target_size)
+            self._render_surface_size = target_size
+        return self._render_surface
+
+    def _render_frame(self):
+        if self.screen is None:
+            return
+        scale = self._current_render_scale()
+        if scale <= 1.01:
+            self.engine.render(self.screen)
+            self._draw_tool_preview()
+            pygame.display.flip()
+            return
+
+        target = self._get_render_target(scale)
+        camera = self.engine.camera
+        old_zoom = camera.zoom
+        camera.zoom = old_zoom * scale
+        try:
+            self.engine.render(target)
+        finally:
+            camera.zoom = old_zoom
+        pygame.transform.smoothscale(target, self.screen.get_size(), self.screen)
+        self._draw_tool_preview()
+        pygame.display.flip()
     
     def initialize(self, window_id: Optional[str] = None):
         """
@@ -64,6 +121,7 @@ class PygameView:
 
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
         pygame.display.set_caption("AgentBioSim V1.0.0")
+        self.set_render_scale(self.engine.params.get('render_resolution_scale', 1.0))
         
         # Configura renderer baseado nos parâmetros
         if self.engine.params.get('simple_render', False):
@@ -96,12 +154,10 @@ class PygameView:
             # Renderiza
             if self.screen:
                 if state_lock is None:
-                    self.engine.render(self.screen)
+                    self._render_frame()
                 else:
                     with state_lock:
-                        self.engine.render(self.screen)
-                self._draw_tool_preview()
-                pygame.display.flip()
+                        self._render_frame()
 
     def _draw_tool_preview(self):
         """Desenha feedback visual leve para selecao por area."""
