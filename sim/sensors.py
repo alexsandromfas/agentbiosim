@@ -370,6 +370,17 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     param_get = params.get if params is not None else (lambda _key, default=None: default)
     vision_mode = normalize_retina_vision_mode(param_get('retina_vision_mode') if params is not None else None)
     species_configs = {}
+    fast_retina_single = None
+    fast_retina_fullbody = None
+    if bool(param_get('use_numba_kernels', True)):
+        try:
+            from .fast_kernels import has_numba, retina_fullbody_kernel, retina_single_kernel
+            if has_numba():
+                fast_retina_single = retina_single_kernel
+                fast_retina_fullbody = retina_fullbody_kernel
+        except Exception:
+            fast_retina_single = None
+            fast_retina_fullbody = None
 
     def _species_sensor_config(prefix, sensor):
         config = species_configs.get(prefix)
@@ -524,9 +535,80 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             if type_flags is not None:
                 type_flags.append(getattr(candidate, 'type_code', -1))
         is_self = np.array(self_flags, dtype=bool)
-        cand_x = np.array(xs, dtype=np.float32)
-        cand_y = np.array(ys, dtype=np.float32)
-        cand_r = np.array(rs, dtype=np.float32)
+        fast_retina_enabled = fast_retina_single is not None or fast_retina_fullbody is not None
+        candidate_dtype = np.float64 if fast_retina_enabled else np.float32
+        cand_x = np.array(xs, dtype=candidate_dtype)
+        cand_y = np.array(ys, dtype=candidate_dtype)
+        cand_r = np.array(rs, dtype=candidate_dtype)
+
+        if fast_retina_single is not None and (vision_mode == 'single' or sensor.retina_count == 1):
+            half_fov_fast = math.radians(sensor.fov_degrees / 2.0)
+            if half_fov_fast > 0:
+                if type_flags is None:
+                    cand_type_fast = np.zeros(cand_x.shape[0], dtype=np.int8)
+                    spatial_filtered = True
+                else:
+                    cand_type_fast = np.array(type_flags, dtype=np.int8)
+                    spatial_filtered = False
+                out = np.empty((sensor.retina_count,), dtype=np.float64)
+                ok = fast_retina_single(
+                    cand_x,
+                    cand_y,
+                    cand_r,
+                    cand_type_fast,
+                    is_self,
+                    float(eye_x),
+                    float(eye_y),
+                    float(agent.angle),
+                    float(sensor.vision_radius),
+                    float(half_fov_fast),
+                    int(sensor.retina_count),
+                    bool(sensor.see_food),
+                    bool(sensor.see_bacteria),
+                    bool(sensor.see_predators),
+                    bool(spatial_filtered),
+                    out,
+                )
+                if ok:
+                    inputs = out.astype(np.float32).tolist()
+                    sensor.last_inputs = inputs
+                    sensor._countdown = sensor.skip
+                    results[idx] = inputs
+                    continue
+        elif fast_retina_fullbody is not None and vision_mode == 'fullbody':
+            half_fov_fast = math.radians(sensor.fov_degrees / 2.0)
+            if half_fov_fast > 0:
+                if type_flags is None:
+                    cand_type_fast = np.zeros(cand_x.shape[0], dtype=np.int8)
+                    spatial_filtered = True
+                else:
+                    cand_type_fast = np.array(type_flags, dtype=np.int8)
+                    spatial_filtered = False
+                out = np.empty((sensor.retina_count,), dtype=np.float64)
+                ok = fast_retina_fullbody(
+                    cand_x,
+                    cand_y,
+                    cand_r,
+                    cand_type_fast,
+                    is_self,
+                    float(eye_x),
+                    float(eye_y),
+                    float(agent.angle),
+                    float(sensor.vision_radius),
+                    float(half_fov_fast),
+                    int(sensor.retina_count),
+                    bool(sensor.see_food),
+                    bool(sensor.see_bacteria),
+                    bool(sensor.see_predators),
+                    bool(spatial_filtered),
+                    out,
+                )
+                if ok:
+                    inputs = out.astype(np.float32).tolist()
+                    sensor.last_inputs = inputs
+                    sensor._countdown = sensor.skip
+                    results[idx] = inputs
+                    continue
 
         # Vetores para candidatos
         dx = cand_x - eye_x

@@ -46,6 +46,8 @@ class Params:
             'retina_vision_mode': 'single',
             'simple_render': False,
             'render_resolution_scale': 1.0,
+            'use_numba_kernels': True,
+            'use_numba_locomotion_energy': False,
             'reuse_spatial_grid': True,
             
             # Comida/substrato

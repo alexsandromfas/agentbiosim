@@ -1419,6 +1419,8 @@ class SimulationUI(QMainWindow):
             'random_seed': 'Seed do gerador aleatorio. Use -1 para aleatorio; use um numero fixo para repetir experimentos com o mesmo ponto de partida.',
             'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
+            'use_numba_kernels': 'Ativa kernels numericos por arrays/Numba quando disponiveis. Mantem fallback seguro para o caminho antigo.',
+            'use_numba_locomotion_energy': 'Experimental: aplica Numba tambem na locomocao e energia. Desligado por padrao porque pode ser mais lento em alguns perfis.',
             'reuse_spatial_grid': 'Reutiliza a estrutura da grade espacial entre frames quando possivel, reduzindo alocacoes.',
             'agents_inertia': 'Controla suavizacao da velocidade. 1 aplica o comando neural imediatamente; valores maiores deixam movimento mais inercial.',
             'allow_reverse_locomotion': 'Permite que a saida neural gere movimento para tras. Desligado preserva a locomocao historica apenas para frente.',
@@ -2163,6 +2165,14 @@ class SimulationUI(QMainWindow):
         cb.setChecked(self.params.get('simple_render', False))
         add_perf("Renderização simples:", 'simple_render', cb)
 
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('use_numba_kernels', True))
+        add_perf("Aceleracao arrays/Numba:", 'use_numba_kernels', cb)
+
+        cb = QCheckBox()
+        cb.setChecked(self.params.get('use_numba_locomotion_energy', False))
+        add_perf("Numba locomocao/energia:", 'use_numba_locomotion_energy', cb)
+
         cb2 = QCheckBox()
         cb2.setChecked(self.params.get('reuse_spatial_grid', True))
         add_perf("Reutilizar grid espacial:", 'reuse_spatial_grid', cb2)
@@ -2700,7 +2710,7 @@ class SimulationUI(QMainWindow):
         for widget in self.widgets.values():
             if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox)):
                 widget.installEventFilter(self)
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','use_numba_kernels','use_numba_locomotion_energy','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
                 w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
@@ -2844,7 +2854,7 @@ class SimulationUI(QMainWindow):
         )
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':

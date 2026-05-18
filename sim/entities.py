@@ -50,12 +50,17 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
         if ag is not selected_agent:
             if ag.last_brain_activations:
                 ag.last_brain_activations = []
-    with profile_section('agent_locomotion'):
-        for ag in agents:
-            ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
-    with profile_section('agent_energy'):
-        for ag in agents:
-            ag.energy_model.apply(ag, dt, params)
+    fast_backend = None
+    if bool(params.get('use_numba_kernels', True)) and bool(params.get('use_numba_locomotion_energy', False)):
+        with profile_section('agent_locomotion_energy_fast'):
+            fast_backend = _apply_fast_locomotion_energy(agents, outs, dt, world, params)
+    if fast_backend is None:
+        with profile_section('agent_locomotion'):
+            for ag in agents:
+                ag.locomotion.step(ag, ag.last_brain_output, dt, world, params)
+        with profile_section('agent_energy'):
+            for ag in agents:
+                ag.energy_model.apply(ag, dt, params)
     # Activations somente para agente selecionado. Nao depende do profiler:
     # o profiler mede custo; a UI precisa dos valores mesmo fora de benchmark.
     if selected_agent and not params.get('disable_brain_activations', False):
@@ -73,6 +78,109 @@ def update_agents_batch(agents, dt, world, scene, params, selected_agent=None):
                 selected_agent.last_brain_activations = selected_agent.brain.activations(sel_inp)
             except Exception:
                 selected_agent.last_brain_activations = []
+
+
+def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_python: bool = False):
+    """Apply locomotion and energy through temporary arrays.
+
+    The neural outputs and agent-specific locomotion parameters stay separated
+    per agent. This is safe for mixed neural architectures because callers
+    already group agents before invoking this function.
+    """
+    if not agents:
+        return None
+    try:
+        from .fast_kernels import apply_locomotion_energy_arrays, has_numba
+    except Exception:
+        return None
+    if not force_python and not has_numba():
+        return None
+    outputs_arr = np.asarray(outputs, dtype=np.float64)
+    if outputs_arr.ndim != 2 or outputs_arr.shape[1] < 2:
+        return None
+
+    n = len(agents)
+    x = np.empty(n, dtype=np.float64)
+    y = np.empty(n, dtype=np.float64)
+    radius = np.empty(n, dtype=np.float64)
+    angle = np.empty(n, dtype=np.float64)
+    vx = np.empty(n, dtype=np.float64)
+    vy = np.empty(n, dtype=np.float64)
+    energy = np.empty(n, dtype=np.float64)
+    max_speed = np.empty(n, dtype=np.float64)
+    max_turn = np.empty(n, dtype=np.float64)
+
+    for i, ag in enumerate(agents):
+        x[i] = float(getattr(ag, 'x', 0.0))
+        y[i] = float(getattr(ag, 'y', 0.0))
+        radius[i] = float(getattr(ag, 'r', 0.0))
+        angle[i] = float(getattr(ag, 'angle', 0.0))
+        vx[i] = float(getattr(ag, 'vx', 0.0))
+        vy[i] = float(getattr(ag, 'vy', 0.0))
+        energy[i] = float(getattr(ag, 'energy', 0.0))
+        loc = getattr(ag, 'locomotion', None)
+        max_speed[i] = float(getattr(loc, 'max_speed', 0.0))
+        max_turn[i] = float(getattr(loc, 'max_turn', 0.0))
+
+    first_energy = getattr(agents[0], 'energy_model', None)
+    is_predator = bool(getattr(agents[0], 'is_predator', False))
+    if is_predator:
+        v0_cost = float(params.get('predator_metab_v0_cost', getattr(first_energy, 'v0_cost', 1.0)))
+        vmax_cost = float(params.get('predator_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 15.0)))
+        vmax_ref = float(params.get('predator_max_speed', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(params.get('predator_energy_cap', getattr(first_energy, 'energy_cap', 600.0)))
+    else:
+        v0_cost = float(params.get('bacteria_metab_v0_cost', getattr(first_energy, 'v0_cost', 0.5)))
+        vmax_cost = float(params.get('bacteria_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 8.0)))
+        vmax_ref = float(params.get('bacteria_max_speed', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(params.get('bacteria_energy_cap', getattr(first_energy, 'energy_cap', 400.0)))
+
+    backend = apply_locomotion_energy_arrays(
+        x,
+        y,
+        radius,
+        angle,
+        vx,
+        vy,
+        energy,
+        outputs_arr,
+        max_speed,
+        max_turn,
+        float(dt),
+        1 if getattr(world, 'shape', 'rectangular') == 'circular' else 0,
+        float(getattr(world, 'width', 1.0)),
+        float(getattr(world, 'height', 1.0)),
+        float(getattr(world, 'cx', 0.0)),
+        float(getattr(world, 'cy', 0.0)),
+        float(getattr(world, 'radius', 1.0)),
+        bool(params.get('allow_reverse_locomotion', False)),
+        max(0.0, float(params.get('agents_inertia', 1.0))),
+        v0_cost,
+        vmax_cost,
+        vmax_ref,
+        energy_cap,
+        prefer_numba=bool(params.get('use_numba_kernels', True)),
+        allow_numpy=False,
+        force_python=force_python,
+    )
+    if backend is None:
+        return None
+
+    for i, ag in enumerate(agents):
+        ag.x = float(x[i])
+        ag.y = float(y[i])
+        ag.r = float(radius[i])
+        ag.angle = float(angle[i])
+        ag.vx = float(vx[i])
+        ag.vy = float(vy[i])
+        ag.energy = float(energy[i])
+        energy_model = getattr(ag, 'energy_model', None)
+        if energy_model is not None:
+            energy_model.v0_cost = v0_cost
+            energy_model.vmax_cost = vmax_cost
+            energy_model.vmax_ref = max(1e-6, vmax_ref)
+            energy_model.energy_cap = energy_cap
+    return backend
 """
 Entidades da simulação: Agent (base), Bacteria, Predator, Food.
 Usando herança onde há comportamento compartilhado e composição para capacidades.

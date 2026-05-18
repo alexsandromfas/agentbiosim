@@ -131,6 +131,53 @@ Observacao:
   parecem vir da ordem de iteracao de sets/queries, nao de mudanca conceitual
   da regra biologica.
 
+Atualizacao de execucao - Numba/arrays 2026-05-18
+-------------------------------------------------
+Status: PRIMEIRA ETAPA FEITA E TESTADA.
+
+Alteracoes aplicadas:
+- Criado sim/fast_kernels.py com kernels opcionais por arrays e Numba.
+- sim/sensors.py usa kernel Numba para retina single e fullbody quando
+  use_numba_kernels=True e Numba esta disponivel.
+- A simulacao preserva o caminho antigo como fallback automatico se Numba nao
+  existir ou falhar em runtime.
+- requirements.txt agora inclui numba>=0.60,<1.0.
+- UI ganhou controle "Aceleracao arrays/Numba" e controle experimental
+  "Numba locomocao/energia".
+- Locomocao/energia por arrays foi implementada e testada contra o caminho
+  orientado a objetos, mas ficou desligada por padrao porque neste perfil ela
+  nao foi mais rapida que o codigo antigo.
+
+Ponto conceitual importante:
+- Diferentes organismos e diferentes arquiteturas neurais continuam seguros.
+  O forward neural ainda roda por grupos compatíveis e cada agente mantem seus
+  proprios pesos. O Numba aplicado agora acelera a geometria da retina, nao
+  mistura pesos nem homogeneiza cerebros.
+
+Benchmarks aquecidos:
+- Headless 5 s, sem activations:
+  baseline_pre_numba_arrays: wall 1.934 s, agent_sensor 1.505 s
+  pos_numba_retina_aquecido: wall 0.941 s, agent_sensor 0.385 s
+  ganho aproximado: 51% no wall e 74% no sensoriamento.
+- Substrato real 5 s, fullbody:
+  opt_final_5s_20260518: wall 5.085 s, ms/agente/step 0.016617,
+  agent_sensor 2.616 s
+  numba_fullbody_substrate_aquecido: wall 3.246 s,
+  ms/agente/step 0.010607, agent_sensor 0.645 s
+  ganho aproximado: 36% no substrato real e 75% no sensoriamento.
+
+Validacao executada:
+- python -m compileall sim tests\unit
+- python -m pytest tests\unit\test_fast_kernels.py -q
+- python -m pytest tests\unit -q
+
+Observacoes:
+- A primeira execucao apos iniciar o Python pode ter uma pausa de compilacao
+  JIT. O ganho aparece depois do aquecimento/cache.
+- Depois desta etapa, agent_brain_forward e spatial_hash ficam mais visiveis
+  no profiler. Sao os proximos candidatos reais antes de qualquer tentativa de
+  GPU.
+
 Diagnostico por area
 --------------------
 
@@ -164,7 +211,7 @@ Risco para a simulacao: nenhum se for apenas medicao.
 
 
 P0 - [PARCIAL FEITO/TESTADO] Visao/sensoriamento e o gargalo principal
-Status: parcialmente otimizado; ainda falta backend compilado/buffers mais profundos.
+Status: backend Numba exato para retina single/fullbody implementado e testado; ainda falta reduzir alocacao/copia e migrar mais estado para arrays persistentes.
 
 O caminho atual em sim/sensors.py usa batch_retina_sense, mas o "batch" ainda
 processa cada agente individualmente. Para cada agente:
@@ -184,8 +231,9 @@ Otimizações seguras, sem mudar a regra biologica:
   via list comprehension em todo agente.
 - Trocar query_ball por uma API que preenche uma lista/buffer reutilizavel, para
   reduzir set/list temporarios.
-- Migrar a intersecao fullbody exata para Numba ou outro kernel compilado.
-- Separar backend de visao: VisionBackendExactPython, VisionBackendExactNumba.
+- [FEITO/TESTADO] Migrar a intersecao fullbody exata para Numba ou outro kernel compilado.
+- [PARCIAL FEITO/TESTADO] Separar backend de visao: fallback Python/NumPy antigo
+  continua existindo; falta transformar em classes formais VisionBackend.
   A saida deve ser comparada contra o backend atual dentro de tolerancia.
 - Precomputar configuracao de sensores por especie e so atualizar quando a UI
   mudar algum parametro, nao em todo agente/todo frame.
@@ -385,8 +433,8 @@ Otimizações seguras:
 Risco: baixo a medio, depende da refatoracao.
 
 
-P2 - [NAO FEITO NESTE LOTE] Arquitetura SoA ja tem semente, mas ainda nao e backend
-Status: medio/longo prazo.
+P2 - [PARCIAL FEITO/TESTADO] Arquitetura SoA ja tem semente, mas ainda nao e backend
+Status: primeira etapa feita com arrays temporarios e Numba na retina; estado real ainda mora nos objetos.
 
 Existe sim/soa.py com conversao de agentes para arrays. Isso e um bom primeiro
 passo, mas hoje ainda copia dados. Para alto desempenho, o estado real precisa
@@ -466,10 +514,10 @@ Fase 2 - Quick wins do core sem mudar dinamica
 Motivo: reduz overhead Python sem mexer na biologia.
 
 Fase 3 - Visao exata mais rapida
-1. Criar VisionBackend com backend atual como referencia.
-2. Implementar backend exato otimizado com Numba ou arrays reutilizaveis.
-3. Testar equivalencia local da retina.
-4. Rodar benchmark do substrato comparando eventos e metricas.
+1. Criar VisionBackend com backend atual como referencia. [PARCIAL: fallback seguro existe; classes formais pendentes]
+2. Implementar backend exato otimizado com Numba ou arrays reutilizaveis. [FEITO/TESTADO para single/fullbody]
+3. Testar equivalencia local da retina. [FEITO/TESTADO com kernel basico; ampliar para mais geometrias]
+4. Rodar benchmark do substrato comparando eventos e metricas. [FEITO/TESTADO]
 
 Motivo: esta e a maior alavanca antes de criar visao nova.
 
@@ -482,8 +530,8 @@ Fase 4 - Spatial hash incremental
 Motivo: reduz custo recorrente e melhora todos os sistemas que consultam o grid.
 
 Fase 5 - Backend SoA progressivo
-1. Locomocao e energia em arrays.
-2. Sensores usando arrays de posicao/tipo.
+1. Locomocao e energia em arrays. [PARCIAL: implementado/testado, desligado por padrao por nao ganhar benchmark ainda]
+2. Sensores usando arrays de posicao/tipo. [PARCIAL FEITO/TESTADO: retina Numba usa arrays temporarios]
 3. Interacoes em arrays.
 4. Escrita de volta em objetos somente para UI/export quando necessario.
 
@@ -520,12 +568,12 @@ Prioridade final
 ----------------
 1. Medir renderizacao separadamente.
 2. Culling visual + simple render automatico.
-3. Otimizar sensoriamento mantendo fullbody exato.
+3. Otimizar sensoriamento mantendo fullbody exato. [PARCIAL FEITO/TESTADO com Numba]
 4. Spatial hash por tipo e query buffers.
 5. RuntimeConfig/config dirty para reduzir params.get em loop.
 6. Colisoes com indice de par em vez de tuple/sorted/id.
 7. Spatial hash incremental.
-8. SoA/Numba progressivo.
+8. SoA/Numba progressivo. [PARCIAL FEITO/TESTADO]
 
 Conclusao
 ---------
