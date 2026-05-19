@@ -54,6 +54,143 @@ class InteractionSystem:
         self.last_foods_eaten = len(self._foods_to_remove)
         self.last_agents_predated = len(self._agents_to_remove)
         return set(self._agents_to_remove) if self._agents_to_remove else set()
+
+    def apply_generic(self, agents: List['Agent'], foods: List['Food'], spatial_hash: 'SpatialHash',
+                      params: 'Params', frozen_agents: Set['Agent'] | None = None,
+                      agent_labels: dict | None = None) -> Set['Agent']:
+        """Aplica dieta genÃ©rica: organismos podem comer comida e/ou outros organismos."""
+        self._foods_to_remove.clear()
+        self._agents_to_remove.clear()
+        self._removed_bacteria_count = 0
+        frozen_agents = frozen_agents or set()
+        agent_labels = agent_labels or {}
+        agent_eaters = [agent for agent in agents if bool(getattr(agent, 'diet_agents', False))]
+        max_agent_radius = max((float(getattr(agent, 'r', 0.0)) for agent in agents), default=0.0)
+        self._agents_eat_food_generic(agents, foods, spatial_hash, frozen_agents)
+        if agent_eaters:
+            label_limits_active = any(
+                int(meta.get('min_limit', 0) or 0) > 0 or int(meta.get('max_limit', 0) or 0) > 0
+                for meta in agent_labels.values()
+            )
+            label_counts = self._label_counts(agents) if label_limits_active else {}
+            self._agents_eat_agents_generic(
+                agents, agent_eaters, spatial_hash, frozen_agents, agent_labels, label_counts, max_agent_radius
+            )
+        if self._foods_to_remove:
+            foods[:] = [f for f in foods if f not in self._foods_to_remove]
+        self.last_foods_eaten = len(self._foods_to_remove)
+        self.last_agents_predated = len(self._agents_to_remove)
+        return set(self._agents_to_remove) if self._agents_to_remove else set()
+
+    @staticmethod
+    def _label_counts(agents: List['Agent']) -> dict[int, int]:
+        counts: dict[int, int] = {}
+        for agent in agents:
+            for label_id in getattr(agent, 'label_ids', set()) or set():
+                try:
+                    label_id = int(label_id)
+                except Exception:
+                    continue
+                counts[label_id] = counts.get(label_id, 0) + 1
+        return counts
+
+    @staticmethod
+    def _shares_label(a: 'Agent', b: 'Agent') -> bool:
+        labels_a = getattr(a, 'label_ids', set()) or set()
+        labels_b = getattr(b, 'label_ids', set()) or set()
+        return bool(labels_a and labels_b and labels_a.intersection(labels_b))
+
+    @staticmethod
+    def _can_remove_by_label_limits(agent: 'Agent', agent_labels: dict, label_counts: dict[int, int]) -> bool:
+        for label_id in getattr(agent, 'label_ids', set()) or set():
+            try:
+                label_id = int(label_id)
+            except Exception:
+                continue
+            meta = agent_labels.get(label_id, {}) if agent_labels else {}
+            min_limit = int(meta.get('min_limit', 0) or 0)
+            if min_limit > 0 and label_counts.get(label_id, 0) <= min_limit:
+                return False
+        return True
+
+    @staticmethod
+    def _register_label_removal(agent: 'Agent', label_counts: dict[int, int]):
+        for label_id in getattr(agent, 'label_ids', set()) or set():
+            try:
+                label_id = int(label_id)
+            except Exception:
+                continue
+            label_counts[label_id] = max(0, label_counts.get(label_id, 0) - 1)
+
+    def _agents_eat_food_generic(self, agents: List['Agent'], foods: List['Food'],
+                                 spatial_hash: 'SpatialHash', frozen_agents: Set['Agent']):
+        nearby_buffer = set()
+        for agent in agents:
+            if agent in frozen_agents or not bool(getattr(agent, 'diet_food', False)):
+                continue
+            if spatial_hash:
+                nearby_foods = spatial_hash.query_ball_filtered_into(agent.x, agent.y, agent.r + 8.0, 0, nearby_buffer)
+            else:
+                nearby_foods = foods
+            for food in nearby_foods:
+                if food in self._foods_to_remove:
+                    continue
+                dx = agent.x - food.x
+                dy = agent.y - food.y
+                r_sum = agent.r + food.r
+                if dx*dx + dy*dy <= r_sum * r_sum:
+                    cap = getattr(getattr(agent, 'energy_model', None), 'energy_cap', None)
+                    before_energy = getattr(agent, 'energy', 0.0)
+                    efficiency = max(0.0, float(getattr(agent, 'diet_food_efficiency', 1.0)))
+                    agent.add_energy(food.energy * efficiency, cap=cap)
+                    gained = max(0.0, getattr(agent, 'energy', 0.0) - before_energy)
+                    agent.food_eaten_count = getattr(agent, 'food_eaten_count', 0) + 1
+                    agent.food_energy_eaten_total = getattr(agent, 'food_energy_eaten_total', 0.0) + gained
+                    self._foods_to_remove.add(food)
+                    break
+
+    def _agents_eat_agents_generic(self, agents: List['Agent'], agent_eaters: List['Agent'], spatial_hash: 'SpatialHash',
+                                   frozen_agents: Set['Agent'], agent_labels: dict,
+                                   label_counts: dict[int, int], max_agent_radius: float):
+        nearby_buffer = set()
+        label_limits_active = bool(label_counts)
+        for eater in agent_eaters:
+            if eater in frozen_agents:
+                continue
+            if spatial_hash:
+                type_filter = 1 if bool(getattr(eater, 'is_predator', False)) else (1, 2)
+                nearby_objects = spatial_hash.query_ball_filtered_into(
+                    eater.x, eater.y, eater.r + max_agent_radius, type_filter, nearby_buffer
+                )
+            else:
+                nearby_objects = agents
+            for prey in nearby_objects:
+                if (
+                    prey is eater or prey in frozen_agents or prey in self._agents_to_remove
+                    or not hasattr(prey, 'energy_model')
+                ):
+                    continue
+                if bool(getattr(eater, 'is_predator', False)) and bool(getattr(prey, 'is_predator', False)):
+                    continue
+                if not bool(getattr(eater, 'diet_same_label', False)) and self._shares_label(eater, prey):
+                    continue
+                if label_limits_active and not self._can_remove_by_label_limits(prey, agent_labels, label_counts):
+                    continue
+                dx = eater.x - prey.x
+                dy = eater.y - prey.y
+                r_sum = eater.r + prey.r
+                if dx*dx + dy*dy <= r_sum * r_sum:
+                    cap = getattr(getattr(eater, 'energy_model', None), 'energy_cap', None)
+                    before_energy = getattr(eater, 'energy', 0.0)
+                    efficiency = max(0.0, float(getattr(eater, 'diet_agent_efficiency', 0.7)))
+                    eater.add_energy(getattr(prey, 'energy', 0.0) * efficiency, cap=cap)
+                    gained = max(0.0, getattr(eater, 'energy', 0.0) - before_energy)
+                    eater.prey_eaten_count = getattr(eater, 'prey_eaten_count', 0) + 1
+                    eater.prey_energy_eaten_total = getattr(eater, 'prey_energy_eaten_total', 0.0) + gained
+                    self._agents_to_remove.add(prey)
+                    if label_limits_active:
+                        self._register_label_removal(prey, label_counts)
+                    break
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
                           spatial_hash: 'SpatialHash', params: 'Params',
@@ -152,7 +289,7 @@ class ReproductionSystem:
         self.last_blocked_by_age = 0
         self.last_blocked_by_cooldown = 0
     
-    def apply(self, agents: List['Agent'], params: 'Params') -> List['Agent']:
+    def apply(self, agents: List['Agent'], params: 'Params', agent_labels: dict | None = None) -> List['Agent']:
         """
         Processa reprodução de agentes.
         
@@ -176,8 +313,11 @@ class ReproductionSystem:
         bacteria_new_count = 0
         predator_new_count = 0
         
-        bacteria_max = params.get('bacteria_max_limit', 300)
-        predator_max = params.get('predator_max_limit', 100)
+        bacteria_max = max(0, int(params.get('bacteria_max_limit', 0) or 0))
+        predator_max = max(0, int(params.get('predator_max_limit', 0) or 0))
+        agent_labels = agent_labels or {}
+        label_counts = InteractionSystem._label_counts(agents)
+        label_new_counts: dict[int, int] = {}
         
         for agent in agents:
             if min_age > 0.0 and getattr(agent, 'age', 0.0) < min_age:
@@ -196,11 +336,13 @@ class ReproductionSystem:
             # Verifica limites de população
             is_predator = getattr(agent, 'is_predator', False)
             if is_predator:
-                if predator_count + predator_new_count >= predator_max:
+                if predator_max > 0 and predator_count + predator_new_count >= predator_max:
                     continue
             else:
-                if bacteria_count + bacteria_new_count >= bacteria_max:
+                if bacteria_max > 0 and bacteria_count + bacteria_new_count >= bacteria_max:
                     continue
+            if self._blocked_by_label_max(agent, agent_labels, label_counts, label_new_counts):
+                continue
             
             # Cria filho
             try:
@@ -216,6 +358,12 @@ class ReproductionSystem:
                     predator_new_count += 1
                 else:
                     bacteria_new_count += 1
+                for label_id in getattr(child, 'label_ids', set()) or set():
+                    try:
+                        label_id = int(label_id)
+                    except Exception:
+                        continue
+                    label_new_counts[label_id] = label_new_counts.get(label_id, 0) + 1
                     
             except Exception as e:
                 print(f"Erro na reprodução: {e}")
@@ -223,6 +371,21 @@ class ReproductionSystem:
         
         self.last_births = list(new_agents)
         return new_agents
+
+    @staticmethod
+    def _blocked_by_label_max(agent: 'Agent', agent_labels: dict,
+                              label_counts: dict[int, int],
+                              label_new_counts: dict[int, int]) -> bool:
+        for label_id in getattr(agent, 'label_ids', set()) or set():
+            try:
+                label_id = int(label_id)
+            except Exception:
+                continue
+            meta = agent_labels.get(label_id, {}) if agent_labels else {}
+            max_limit = int(meta.get('max_limit', 0) or 0)
+            if max_limit > 0 and label_counts.get(label_id, 0) + label_new_counts.get(label_id, 0) >= max_limit:
+                return True
+        return False
 
 
 class DeathSystem:
@@ -237,8 +400,8 @@ class DeathSystem:
         self._death_queue = []  # Fila de agentes marcados para morrer
         self.last_deaths = []
     
-    def apply(self, bacteria: List['Bacteria'], predators: List['Predator'], 
-              params: 'Params') -> tuple:
+    def apply(self, bacteria: List['Bacteria'], predators: List['Predator'],
+              params: 'Params', agent_labels: dict | None = None) -> tuple:
         """
         Aplica sistema de morte controlada.
         
@@ -255,9 +418,10 @@ class DeathSystem:
         # Processa morte de bactérias
         bacteria_survivors = self._process_deaths(
             bacteria,
-            params.get('bacteria_min_limit', 10),
+            params.get('bacteria_min_limit', 0),
             params.get('bacteria_death_energy', 0.0),
-            params
+            params,
+            agent_labels or {}
         )
         
         # Processa morte de predadores
@@ -265,13 +429,14 @@ class DeathSystem:
             predators,
             params.get('predator_min_limit', 0),
             params.get('predator_death_energy', 0.0),
-            params
+            params,
+            agent_labels or {}
         )
         
         return bacteria_survivors, predator_survivors
     
     def _process_deaths(self, agents: List['Agent'], min_limit: int,
-                       death_energy: float, params: 'Params') -> List['Agent']:
+                       death_energy: float, params: 'Params', agent_labels: dict | None = None) -> List['Agent']:
         """Processa morte de um tipo específico de agente."""
         if not agents:
             return agents
@@ -297,7 +462,15 @@ class DeathSystem:
             return agents
 
         death_candidates.sort(key=lambda a: a.energy)
-        agents_to_kill = death_candidates[:deaths_available]
+        label_counts = InteractionSystem._label_counts(agents)
+        agents_to_kill = []
+        for candidate in death_candidates:
+            if len(agents_to_kill) >= deaths_available:
+                break
+            if not InteractionSystem._can_remove_by_label_limits(candidate, agent_labels or {}, label_counts):
+                continue
+            agents_to_kill.append(candidate)
+            InteractionSystem._register_label_removal(candidate, label_counts)
         self.last_deaths.extend(agents_to_kill)
         if min_rescue_enabled:
             for a in death_candidates[deaths_available:]:

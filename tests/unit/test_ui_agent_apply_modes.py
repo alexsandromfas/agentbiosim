@@ -106,7 +106,7 @@ def test_apply_bacteria_to_selected_group_changes_all_selected_agents():
     assert untouched.r == old_untouched_radius
 
 
-def test_apply_population_params_trims_running_population_to_maximum():
+def test_apply_population_params_keeps_running_population_and_neutralizes_legacy_limits():
     engine = _engine_with_agents()
     for idx, agent in enumerate(engine.entities["bacteria"]):
         agent.energy = float(idx + 1)
@@ -125,9 +125,10 @@ def test_apply_population_params_trims_running_population_to_maximum():
     })
     ui.apply_population_params()
 
-    assert len(engine.entities["bacteria"]) == 2
-    assert len(engine.all_agents) == 2
-    assert [agent.energy for agent in engine.entities["bacteria"]] == [2.0, 3.0]
+    assert len(engine.entities["bacteria"]) == 3
+    assert len(engine.all_agents) == 3
+    assert engine.params.get("bacteria_max_limit") == 0
+    assert engine.params.get("predator_max_limit") == 0
     assert engine.selected_agent in engine.all_agents
     assert all(agent in engine.all_agents for agent in engine.selected_agents)
 

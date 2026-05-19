@@ -478,6 +478,98 @@ if NUMBA_AVAILABLE:  # pragma: no cover - requires optional dependency
                     act = 1.0
                 out[r_idx] = act
 
+    @njit(cache=True, fastmath=True)
+    def _retina_fullbody_precomputed_kernel_numba(
+        cand_x,
+        cand_y,
+        cand_r,
+        cand_type,
+        self_flags,
+        eye_x,
+        eye_y,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        ray_cos_rel,
+        ray_sin_rel,
+        retina_count,
+        see_food,
+        see_bacteria,
+        see_predators,
+        spatial_filtered,
+        out,
+    ):
+        for r_idx in range(retina_count):
+            out[r_idx] = 0.0
+        if retina_count <= 0 or half_fov <= 0.0 or vision_radius <= 0.0:
+            return
+        ray_best = np.empty(retina_count, dtype=np.float64)
+        for r_idx in range(retina_count):
+            ray_best[r_idx] = np.inf
+
+        cos_a = math.cos(agent_angle)
+        sin_a = math.sin(agent_angle)
+
+        for i in range(cand_x.shape[0]):
+            if self_flags[i]:
+                continue
+            if not spatial_filtered:
+                tc = cand_type[i]
+                if not ((tc == 0 and see_food) or (tc == 1 and see_bacteria) or (tc == 2 and see_predators)):
+                    continue
+
+            dx = cand_x[i] - eye_x
+            dy = cand_y[i] - eye_y
+            dist = math.sqrt(dx * dx + dy * dy)
+            cr = cand_r[i]
+            if dist - cr > vision_radius:
+                continue
+
+            obj_angle = math.atan2(dy, dx)
+            ang = (obj_angle - agent_angle + math.pi) % (2.0 * math.pi) - math.pi
+            if dist <= cr:
+                half_span = math.pi
+            else:
+                ratio = cr / dist
+                if ratio > 1.0:
+                    ratio = 1.0
+                elif ratio < 0.0:
+                    ratio = 0.0
+                half_span = math.asin(ratio)
+            if abs(ang) > half_fov + half_span:
+                continue
+
+            ox = -dx
+            oy = -dy
+            c = ox * ox + oy * oy - cr * cr
+            for r_idx in range(retina_count):
+                dir_x = cos_a * ray_cos_rel[r_idx] - sin_a * ray_sin_rel[r_idx]
+                dir_y = sin_a * ray_cos_rel[r_idx] + cos_a * ray_sin_rel[r_idx]
+                b = dir_x * ox + dir_y * oy
+                disc = b * b - c
+                if disc < 0.0:
+                    continue
+                root = math.sqrt(disc)
+                t1 = -b - root
+                t2 = -b + root
+                t = np.inf
+                if t1 >= 0.0:
+                    t = t1
+                if t2 >= 0.0 and t2 < t:
+                    t = t2
+                if t >= 0.0 and t <= vision_radius and t < ray_best[r_idx]:
+                    ray_best[r_idx] = t
+
+        for r_idx in range(retina_count):
+            best = ray_best[r_idx]
+            if math.isfinite(best):
+                act = (vision_radius - best) / vision_radius
+                if act < 0.0:
+                    act = 0.0
+                elif act > 1.0:
+                    act = 1.0
+                out[r_idx] = act
+
     @njit(cache=True, fastmath=True, parallel=True)
     def _retina_batch_single_kernel_numba(
         eye_x,
@@ -807,6 +899,44 @@ def retina_fullbody_kernel(
             float(eye_x), float(eye_y), float(agent_angle), float(vision_radius),
             float(half_fov), int(retina_count), bool(see_food), bool(see_bacteria),
             bool(see_predators), bool(spatial_filtered), out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_fullbody_precomputed_kernel(
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    cand_type: np.ndarray,
+    self_flags: np.ndarray,
+    eye_x: float,
+    eye_y: float,
+    agent_angle: float,
+    vision_radius: float,
+    half_fov: float,
+    ray_cos_rel: np.ndarray,
+    ray_sin_rel: np.ndarray,
+    retina_count: int,
+    see_food: bool,
+    see_bacteria: bool,
+    see_predators: bool,
+    spatial_filtered: bool,
+    out: np.ndarray,
+) -> bool:
+    """Fullbody retina using precomputed relative ray vectors."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _retina_fullbody_precomputed_kernel_numba(
+            cand_x, cand_y, cand_r, cand_type, self_flags,
+            float(eye_x), float(eye_y), float(agent_angle), float(vision_radius),
+            float(half_fov), ray_cos_rel, ray_sin_rel, int(retina_count),
+            bool(see_food), bool(see_bacteria), bool(see_predators),
+            bool(spatial_filtered), out,
         )
         return True
     except Exception:

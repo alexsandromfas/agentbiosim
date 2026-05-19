@@ -174,6 +174,12 @@ def _build_brain(agent_data: dict[str, Any]) -> NeuralNet:
 
 def _build_agent(agent_data: dict[str, Any], params: Params):
     brain = _build_brain(agent_data)
+    raw_channels = agent_data.get("sensor_channels", ("d",))
+    if isinstance(raw_channels, str):
+        try:
+            raw_channels = json.loads(raw_channels)
+        except Exception:
+            raw_channels = [raw_channels]
     sensor = RetinaSensor(
         retina_count=int(agent_data.get("sensor_retina_count", 18)),
         vision_radius=_safe_float(agent_data.get("sensor_vision_radius", 120.0), 120.0),
@@ -182,6 +188,7 @@ def _build_agent(agent_data: dict[str, Any], params: Params):
         see_food=_safe_bool(agent_data.get("sensor_see_food", True), True),
         see_bacteria=_safe_bool(agent_data.get("sensor_see_bacteria", False), False),
         see_predators=_safe_bool(agent_data.get("sensor_see_predators", False), False),
+        channels=raw_channels,
     )
     locomotion = Locomotion(
         max_speed=_safe_float(agent_data.get("locomotion_max_speed", 300.0), 300.0),
@@ -219,6 +226,26 @@ def _build_agent(agent_data: dict[str, Any], params: Params):
         color = agent_data.get("color")
         if isinstance(color, list) and len(color) >= 3:
             agent.color = tuple(int(c) for c in color[:3])
+    agent.diet_food = _safe_bool(
+        agent_data.get("diet_food", getattr(agent, "diet_food", not agent.is_predator)),
+        not agent.is_predator,
+    )
+    agent.diet_agents = _safe_bool(
+        agent_data.get("diet_agents", getattr(agent, "diet_agents", agent.is_predator)),
+        agent.is_predator,
+    )
+    agent.diet_same_label = _safe_bool(
+        agent_data.get("diet_same_label", getattr(agent, "diet_same_label", False)),
+        False,
+    )
+    agent.diet_food_efficiency = _safe_float(
+        agent_data.get("diet_food_efficiency", getattr(agent, "diet_food_efficiency", 1.0)),
+        1.0,
+    )
+    agent.diet_agent_efficiency = _safe_float(
+        agent_data.get("diet_agent_efficiency", getattr(agent, "diet_agent_efficiency", 0.7)),
+        0.7,
+    )
     return agent
 
 
@@ -327,10 +354,38 @@ def load_substrate_engine(
         zoom=max(0.01, _safe_float(camera_data.get("zoom", 1.0), 1.0)),
     )
     engine = Engine(world, camera, params, headless=True)
+    raw_labels = snapshot.get("agent_labels", {}) or {}
+    engine.agent_labels = {}
+    for raw_id, meta in raw_labels.items():
+        try:
+            label_id = int(raw_id)
+        except Exception:
+            continue
+        color = meta.get("color", (220, 220, 220))
+        engine.agent_labels[label_id] = {
+            "id": label_id,
+            "name": meta.get("name", f"Label {label_id}"),
+            "color": tuple(int(c) for c in color[:3]),
+            "show_chart": bool(meta.get("show_chart", True)),
+            "min_limit": int(meta.get("min_limit", 0) or 0),
+            "max_limit": int(meta.get("max_limit", 0) or 0),
+        }
+    engine._next_agent_label_id = max(
+        int(snapshot.get("next_agent_label_id", 1) or 1),
+        (max(engine.agent_labels.keys()) + 1) if engine.agent_labels else 1,
+    )
 
     food_restore = _restore_foods(snapshot, engine, params, path, food_layout_dir, seed, rebuild_food_layout)
     for agent_data in snapshot.get("agents", []):
         agent = _build_agent(agent_data, params)
+        agent.label_ids = set()
+        for raw_label_id in agent_data.get("label_ids", []) or []:
+            try:
+                label_id = int(raw_label_id)
+            except Exception:
+                continue
+            if label_id in engine.agent_labels:
+                agent.label_ids.add(label_id)
         if agent.is_predator:
             engine.entities["predators"].append(agent)
         else:

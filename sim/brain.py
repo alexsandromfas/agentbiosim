@@ -344,7 +344,7 @@ _multi_brain_cache_order: list = []  # lista de keys
 # Limites (podem ser ajustados via setters externos)
 _MULTI_BRAIN_CACHE_MAX_ENTRIES = 32
 _MULTI_BRAIN_CACHE_MAX_MB = 512  # MB totais aproximados
-_DISABLE_MULTI_BRAIN_CACHE = False
+_DISABLE_MULTI_BRAIN_CACHE = True
 _MULTI_BRAIN_CACHE_LOG = False  # logs silenciosos por padrão
 _USE_NUMBA_BRAIN_FORWARD = False
 _NUMBA_BRAIN_FORWARD_MIN_BATCH = 256

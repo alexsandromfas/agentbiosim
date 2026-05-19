@@ -8,6 +8,8 @@ import os
 import sys
 import ctypes
 import threading
+import json
+import random
 try:
     import psutil  # type: ignore
 except Exception:  # ImportError ou outros
@@ -29,6 +31,16 @@ except Exception:  # pygame import pode falhar em headless puro
     RendererStrategy = object  # type: ignore
     SimpleRenderer = EllipseRenderer = None  # type: ignore
 from .profiler import profile_section, profiler
+
+
+def _truthy(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "y", "sim"}
+    return bool(value)
 
 
 class Engine:
@@ -153,7 +165,7 @@ class Engine:
             from .brain import clear_multi_brain_cache, configure_multi_brain_cache
             configure_multi_brain_cache(max_entries=self.params.get('brain_cache_max_entries', 32),
                                         max_mb=self.params.get('brain_cache_max_mb', 512),
-                                        disable=self.params.get('brain_cache_disable', False),
+                                        disable=self.params.get('brain_cache_disable', True),
                                         log=self.params.get('brain_cache_log', False))
             clear_multi_brain_cache(verbose=True)
         except Exception:
@@ -490,7 +502,18 @@ class Engine:
         self.selected_agent = None
         self.selected_agents.clear()
 
-    def create_agent_label(self, name: Optional[str] = None, color: Optional[tuple] = None) -> int:
+    def ensure_default_agent_label(self) -> int:
+        """Garante uma label base; novos organismos nunca devem ficar sem grupo."""
+        if self.agent_labels:
+            return int(sorted(self.agent_labels.keys())[0])
+        try:
+            default_count = max(0, int(self.params.get('bacteria_count', 150)))
+        except Exception:
+            default_count = 150
+        return self.create_agent_label(name='organismo_1', color=(135, 220, 130), max_limit=default_count)
+
+    def create_agent_label(self, name: Optional[str] = None, color: Optional[tuple] = None,
+                           min_limit: int = 0, max_limit: int = 0) -> int:
         label_id = int(self._next_agent_label_id)
         self._next_agent_label_id += 1
         if color is None:
@@ -501,9 +524,11 @@ class Engine:
             color = palette[(label_id - 1) % len(palette)]
         self.agent_labels[label_id] = {
             'id': label_id,
-            'name': name or f'Label {label_id}',
+            'name': name or f'organismo_{label_id}',
             'color': tuple(int(max(0, min(255, c))) for c in color[:3]),
             'show_chart': True,
+            'min_limit': max(0, int(min_limit or 0)),
+            'max_limit': max(0, int(max_limit or 0)),
         }
         return label_id
 
@@ -516,28 +541,39 @@ class Engine:
         for agent in agents:
             if agent not in live:
                 continue
-            if not hasattr(agent, 'label_ids'):
-                agent.label_ids = set()
-            agent.label_ids.add(label_id)
+            # Labels agora representam a linhagem/grupo principal do organismo.
+            # Ao atribuir a uma nova label, removemos a anterior para evitar que
+            # limites populacionais de grupos antigos continuem afetando o agente.
+            agent.label_ids = {label_id}
             agent.color = label_color
             count += 1
         return count
 
     def remove_label_from_agents(self, label_id: int, agents) -> int:
         count = 0
+        fallback_id = self.ensure_default_agent_label()
+        fallback_color = tuple(self.agent_labels[fallback_id].get('color', (220, 220, 220)))
         for agent in agents:
             labels = getattr(agent, 'label_ids', None)
             if labels and label_id in labels:
                 labels.discard(label_id)
+                if not labels:
+                    agent.label_ids = {fallback_id}
+                    agent.color = fallback_color
                 count += 1
         return count
 
     def delete_agent_label(self, label_id: int):
         self.agent_labels.pop(label_id, None)
+        fallback_id = self.ensure_default_agent_label()
+        fallback_color = tuple(self.agent_labels[fallback_id].get('color', (220, 220, 220)))
         for agent in self.all_agents:
             labels = getattr(agent, 'label_ids', None)
             if labels:
                 labels.discard(label_id)
+            if not getattr(agent, 'label_ids', set()):
+                agent.label_ids = {fallback_id}
+                agent.color = fallback_color
 
     def get_agents_by_label(self, label_id: int):
         return [
@@ -616,6 +652,39 @@ class Engine:
         if self.obstacles.circle_overlaps(world_x, world_y, radius):
             return False
         return True
+
+    def _has_active_label_limits(self) -> bool:
+        for meta in self.agent_labels.values():
+            if int(meta.get('min_limit', 0) or 0) > 0 or int(meta.get('max_limit', 0) or 0) > 0:
+                return True
+        return False
+
+    def _has_active_label_min_limits(self) -> bool:
+        for meta in self.agent_labels.values():
+            if int(meta.get('min_limit', 0) or 0) > 0:
+                return True
+        return False
+
+    def _can_use_legacy_interactions(self) -> bool:
+        """Fast path para o modelo antigo quando a dieta generica equivale a ele."""
+        for agent in self.entities.get('bacteria', []):
+            if (
+                not bool(getattr(agent, 'diet_food', True))
+                or bool(getattr(agent, 'diet_agents', False))
+                or abs(float(getattr(agent, 'diet_food_efficiency', 1.0)) - 1.0) > 1e-9
+            ):
+                return False
+        for agent in self.entities.get('predators', []):
+            if (
+                bool(getattr(agent, 'diet_food', False))
+                or not bool(getattr(agent, 'diet_agents', True))
+                or bool(getattr(agent, 'diet_same_label', False))
+                or abs(float(getattr(agent, 'diet_agent_efficiency', 0.7)) - 0.7) > 1e-9
+            ):
+                return False
+        if self.entities.get('predators') and self._has_active_label_min_limits():
+            return False
+        return True
     
     def add_food_at(self, world_x: float, world_y: float):
         """Adiciona comida na posição especificada."""
@@ -643,6 +712,9 @@ class Engine:
                                          at=(world_x, world_y))
         if bacterium is None or not self.can_place_circle(bacterium.x, bacterium.y, bacterium.r):
             return None
+        label_id = self.ensure_default_agent_label()
+        bacterium.label_ids = {label_id}
+        bacterium.color = tuple(self.agent_labels[label_id].get('color', bacterium.color))
         self.entities['bacteria'].append(bacterium)
         self.all_agents.append(bacterium)
         self._spatial_hash_dirty = True
@@ -870,13 +942,28 @@ class Engine:
 
         topology_changed = False
         with profile_section('interaction'):
-            removed_agents = self.interaction_system.apply(
-                self.entities['bacteria'], self.entities['predators'],
-                self.entities['foods'], self.spatial_hash, step_params,
-                frozen_agents=frozen_agents
-            )
+            if self._can_use_legacy_interactions():
+                removed_agents = self.interaction_system.apply(
+                    self.entities['bacteria'],
+                    self.entities['predators'],
+                    self.entities['foods'],
+                    self.spatial_hash,
+                    step_params,
+                    frozen_agents=frozen_agents,
+                )
+            else:
+                removed_agents = self.interaction_system.apply_generic(
+                    self.all_agents,
+                    self.entities['foods'],
+                    self.spatial_hash,
+                    step_params,
+                    frozen_agents=frozen_agents,
+                    agent_labels=self.agent_labels,
+                )
             if removed_agents:
                 topology_changed = True
+                self.entities['bacteria'] = [a for a in self.entities['bacteria'] if a not in removed_agents]
+                self.entities['predators'] = [a for a in self.entities['predators'] if a not in removed_agents]
                 self.all_agents = [a for a in self.all_agents if a not in removed_agents]
                 if self.selected_agent in removed_agents:
                     self.selected_agent = None
@@ -888,7 +975,7 @@ class Engine:
 
         with profile_section('reproduction'):
             reproductive_agents = [a for a in self.all_agents if a not in frozen_agents]
-            new_agents = self.reproduction_system.apply(reproductive_agents, step_params)
+            new_agents = self.reproduction_system.apply(reproductive_agents, step_params, agent_labels=self.agent_labels)
 
         if new_agents:
             for agent in new_agents:
@@ -904,7 +991,7 @@ class Engine:
         with profile_section('death'):
             before_death_count = len(self.entities['bacteria']) + len(self.entities['predators'])
             surviving_bacteria, surviving_predators = self.death_system.apply(
-                self.entities['bacteria'], self.entities['predators'], step_params
+                self.entities['bacteria'], self.entities['predators'], step_params, agent_labels=self.agent_labels
             )
             self.entities['bacteria'] = surviving_bacteria
             self.entities['predators'] = surviving_predators
@@ -1096,7 +1183,8 @@ class Engine:
         else:
             print(f"Comando desconhecido: {command}")
 
-    def _spawn_agent_from_prototype(self, data: dict, world_x: float, world_y: float):
+    def _spawn_agent_from_prototype(self, data: dict, world_x: float, world_y: float,
+                                    label_id: Optional[int] = None, select: bool = True):
         """Cria e insere um agente a partir de um dicionário de dados carregados."""
         try:
             agent_type = data.get('type','bacteria')
@@ -1125,6 +1213,16 @@ class Engine:
                 except Exception: return default
             def _b(k, default=False):
                 v = data.get(k, str(default)); return v in ('1','True','true','YES','yes')
+            def _channels(default=("d",)):
+                raw = data.get('sensor_channels', None)
+                if raw is None:
+                    return default
+                if isinstance(raw, str):
+                    try:
+                        raw = _json.loads(raw)
+                    except Exception:
+                        raw = [raw]
+                return raw
             sensor = RetinaSensor(
                 retina_count=_i('sensor_retina_count',18),
                 vision_radius=_f('sensor_vision_radius',120.0),
@@ -1132,7 +1230,8 @@ class Engine:
                 skip=_i('sensor_skip',0),
                 see_food=_b('sensor_see_food',True),
                 see_bacteria=_b('sensor_see_bacteria',False),
-                see_predators=_b('sensor_see_predators',False)
+                see_predators=_b('sensor_see_predators',False),
+                channels=_channels()
             )
             locomotion = Locomotion(max_speed=_f('locomotion_max_speed',300.0), max_turn=_f('locomotion_max_turn', _math.pi))
             def _pick_num(*names, default=0.0):
@@ -1151,7 +1250,7 @@ class Engine:
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)
             if not self.can_place_circle(world_x, world_y, r):
-                return
+                return None
             if agent_type == 'predator':
                 agent = Predator(world_x, world_y, r, brain, sensor, locomotion, energy_model, angle)
             else:
@@ -1163,6 +1262,11 @@ class Engine:
             agent.food_energy_eaten_total = _f('food_energy_eaten_total', 0.0)
             agent.prey_eaten_count = _i('prey_eaten_count', 0)
             agent.prey_energy_eaten_total = _f('prey_energy_eaten_total', 0.0)
+            agent.diet_food = _b('diet_food', getattr(agent, 'diet_food', not getattr(agent, 'is_predator', False)))
+            agent.diet_agents = _b('diet_agents', getattr(agent, 'diet_agents', getattr(agent, 'is_predator', False)))
+            agent.diet_same_label = _b('diet_same_label', getattr(agent, 'diet_same_label', False))
+            agent.diet_food_efficiency = _f('diet_food_efficiency', getattr(agent, 'diet_food_efficiency', 1.0))
+            agent.diet_agent_efficiency = _f('diet_agent_efficiency', getattr(agent, 'diet_agent_efficiency', 0.7))
             if 'last_reproduction_age' in data:
                 agent.last_reproduction_age = _f('last_reproduction_age', agent.age)
             # Cor importada (suporta JSON array ou legacy tuple string)
@@ -1185,20 +1289,31 @@ class Engine:
             except Exception:
                 pass
             # Inserção
+            try:
+                label_id = int(label_id) if label_id is not None else self.ensure_default_agent_label()
+            except Exception:
+                label_id = self.ensure_default_agent_label()
+            if label_id not in self.agent_labels:
+                label_id = self.ensure_default_agent_label()
+            agent.label_ids = {label_id}
+            agent.color = tuple(self.agent_labels[label_id].get('color', getattr(agent, 'color', (220, 220, 220))))
             if agent.is_predator:
                 self.entities['predators'].append(agent)
             else:
                 self.entities['bacteria'].append(agent)
             self.all_agents.append(agent)
-            self.set_selected_agents([agent], primary=agent)
+            if select:
+                self.set_selected_agents([agent], primary=agent)
             self._spatial_hash_dirty = True
             try:
                 from .brain import clear_multi_brain_cache
                 clear_multi_brain_cache()
             except Exception:
                 pass
+            return agent
         except Exception as e:
             print(f"Falha ao spawnar protótipo: {e}")
+            return None
     
     def _apply_configured_random_seed(self, force: bool = False) -> Optional[int]:
         seed = normalize_seed(self.params.get('random_seed', -1))
@@ -1208,6 +1323,40 @@ class Engine:
             apply_global_seed(seed)
             self._applied_random_seed = seed
         return seed
+
+    def _prototype_radius(self, data: dict) -> float:
+        try:
+            return max(0.1, float(data.get('r', self.params.get('bacteria_body_size', 9.0))))
+        except Exception:
+            return max(0.1, float(self.params.get('bacteria_body_size', 9.0)))
+
+    def _random_spawn_point(self, radius: float) -> tuple[float, float]:
+        shape = getattr(self.world, 'shape', self.params.get('substrate_shape', 'rectangular'))
+        if shape == 'circular':
+            cx = self.world.width / 2.0
+            cy = self.world.height / 2.0
+            max_r = max(0.0, float(getattr(self.world, 'radius', min(self.world.width, self.world.height) / 2.0)) - radius)
+            ang = random.random() * 2.0 * math.pi
+            rad = (random.random() ** 0.5) * max_r
+            return cx + math.cos(ang) * rad, cy + math.sin(ang) * rad
+        x = self.world.width / 2.0 if self.world.width <= 2 * radius else random.uniform(radius, self.world.width - radius)
+        y = self.world.height / 2.0 if self.world.height <= 2 * radius else random.uniform(radius, self.world.height - radius)
+        return x, y
+
+    def _label_spawn_plan(self) -> list[tuple[int, int]]:
+        default_count = min(max(0, int(self.params.get('bacteria_count', 150) or 0)), 10000)
+        self.ensure_default_agent_label()
+        plan: list[tuple[int, int]] = []
+        for label_id, meta in sorted(self.agent_labels.items()):
+            min_limit = max(0, int(meta.get('min_limit', 0) or 0))
+            max_limit = max(0, int(meta.get('max_limit', 0) or 0))
+            count = max_limit if max_limit > 0 else min_limit
+            if count > 0:
+                plan.append((int(label_id), min(count, 10000)))
+        if not plan:
+            first_label = self.ensure_default_agent_label()
+            plan.append((first_label, default_count))
+        return plan
 
     def _initialize_population(self):
         """Inicializa população baseada nos parâmetros."""
@@ -1224,15 +1373,48 @@ class Engine:
         all_entities = []
         self.all_agents.clear()
         self._clear_selection()
-        self.agent_labels.clear()
-        self._next_agent_label_id = 1
+        self.ensure_default_agent_label()
         self._sim_time_accumulator = 0.0
         self.simulation_backlog = 0.0
         self.last_physics_steps = 0
         self.last_simulated_dt = 0.0
 
         # Cria bactérias
-        bacteria_count = min(self.params.get('bacteria_count', 150), 10000)
+        prototype = None
+        if self.current_agent_prototype and self.current_agent_prototype in self.loaded_agent_prototypes:
+            prototype = self.loaded_agent_prototypes[self.current_agent_prototype]
+
+        for label_id, count in self._label_spawn_plan():
+            label_color = tuple(self.agent_labels[label_id].get('color', (220, 220, 220)))
+            for _ in range(count):
+                organism = None
+                attempts = 120 if self.obstacles.has_obstacles or prototype is not None else 1
+                if prototype is not None:
+                    radius = self._prototype_radius(prototype)
+                    for _attempt in range(attempts):
+                        x, y = self._random_spawn_point(radius)
+                        if any(math.hypot(getattr(entity, 'x', 0.0) - x, getattr(entity, 'y', 0.0) - y) < getattr(entity, 'r', 0.0) + radius for entity in all_entities):
+                            continue
+                        organism = self._spawn_agent_from_prototype(prototype, x, y, label_id=label_id, select=False)
+                        if organism is not None:
+                            break
+                else:
+                    for _attempt in range(attempts):
+                        candidate = create_random_bacteria(all_entities, self.params,
+                                                           self.world.width, self.world.height)
+                        if self.can_place_circle(candidate.x, candidate.y, candidate.r):
+                            organism = candidate
+                            break
+                if organism is None:
+                    continue
+                organism.label_ids = {label_id}
+                organism.color = label_color
+                if organism not in self.all_agents:
+                    self.entities['bacteria'].append(organism)
+                    self.all_agents.append(organism)
+                all_entities.append(organism)
+
+        bacteria_count = 0
         for _ in range(bacteria_count):
             bacterium = None
             for _attempt in range(120 if self.obstacles.has_obstacles else 1):
@@ -1248,7 +1430,7 @@ class Engine:
             self.all_agents.append(bacterium)
 
         # Cria predadores se habilitados
-        if self.params.get('predators_enabled', False):
+        if False and self.params.get('predators_enabled', False):
             predator_count = min(self.params.get('predator_count', 0), 1000)
             for _ in range(predator_count):
                 predator = None
@@ -1306,6 +1488,7 @@ class Engine:
     def _gather_render_info(self) -> Dict[str, Any]:
         """Coleta informações para renderização."""
         return {
+            'organism_count': len(self.all_agents),
             'bacteria_count': len(self.entities['bacteria']),
             'predator_count': len(self.entities['predators']),
             'food_count': len(self.entities['foods']),

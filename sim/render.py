@@ -110,6 +110,7 @@ class SimpleRenderer(RendererStrategy):
             return
         bacteria_count = info.get('bacteria_count', 0)
         predator_count = info.get('predator_count', 0)
+        organism_count = info.get('organism_count', bacteria_count + predator_count)
         food_count = info.get('food_count', 0)
         food_target = info.get('food_target', 0)
         fps = info.get('fps', 0)
@@ -121,6 +122,7 @@ class SimpleRenderer(RendererStrategy):
 
         obstacle_count = info.get('obstacle_count', 0)
         main_info = f"Bactérias: {bacteria_count}  |  Predadores: {predator_count}  |  Comida: {food_count}  |  Target: {food_target}  |  Obstáculos: {obstacle_count}  |  FPS: {int(fps)}"
+        main_info = f"Organismos: {organism_count}  |  Comida: {food_count}  |  Target: {food_target}  |  Obstaculos: {obstacle_count}  |  FPS: {int(fps)}"
         if cpu_percent is not None and mem_used_mb is not None:
             try:
                 if resources_available:
@@ -201,6 +203,9 @@ class SimpleRenderer(RendererStrategy):
             f"Direção (deg): {math.degrees(agent.angle):.1f}",
             f"Energia: {getattr(agent, 'energy', 0.0):.2f}  Raio: {agent.r:.2f}",
         ]
+
+        if len(lines) > 1:
+            lines[1] = "Tipo: Organismo legado" if getattr(agent, 'is_predator', False) else "Tipo: Organismo"
 
         if hasattr(agent, 'sensor') and getattr(agent.sensor, 'last_inputs', None):
             lines.append(f"Retinas ({len(agent.sensor.last_inputs)}):")

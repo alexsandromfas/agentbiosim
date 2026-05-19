@@ -236,6 +236,7 @@ class Agent(Entity):
         "is_predator", "energy",
         "food_eaten_count", "food_energy_eaten_total",
         "prey_eaten_count", "prey_energy_eaten_total",
+        "diet_food", "diet_agents", "diet_same_label", "diet_food_efficiency", "diet_agent_efficiency",
         "label_ids",
     )
 
@@ -269,6 +270,11 @@ class Agent(Entity):
         self.food_energy_eaten_total = 0.0
         self.prey_eaten_count = 0
         self.prey_energy_eaten_total = 0.0
+        self.diet_food = True
+        self.diet_agents = False
+        self.diet_same_label = False
+        self.diet_food_efficiency = 1.0
+        self.diet_agent_efficiency = 0.7
         self.label_ids = set()
     
     def update(self, dt: float, world: 'World', scene: 'SceneQuery', params: 'Params'):
@@ -385,6 +391,11 @@ class Agent(Entity):
                 child.color = getattr(self, 'color')
             except Exception:
                 pass
+        for attr in ("diet_food", "diet_agents", "diet_same_label", "diet_food_efficiency", "diet_agent_efficiency"):
+            try:
+                setattr(child, attr, getattr(self, attr))
+            except Exception:
+                pass
         child.label_ids = set(getattr(self, 'label_ids', set()) or set())
         if params.get('debug_reproduction_color', False):
             print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
@@ -431,6 +442,8 @@ class Bacteria(Agent):
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy_model, angle)
         self.is_predator = False
         self.type_code = 1
+        self.diet_food = True
+        self.diet_agents = False
     
     def _get_mutation_rate(self, params: 'Params') -> float:
         return params.get('bacteria_mutation_rate', 0.05)
@@ -442,7 +455,7 @@ class Bacteria(Agent):
         return params.get('bacteria_structural_jitter', 0)
     
     def _create_child_sensor(self, params: 'Params') -> 'RetinaSensor':
-        from .sensors import RetinaSensor
+        from .sensors import RetinaSensor, active_retina_channels
         return RetinaSensor(
             retina_count=params.get('bacteria_retina_count', 18),
             vision_radius=params.get('bacteria_vision_radius', 120.0),
@@ -450,7 +463,8 @@ class Bacteria(Agent):
             skip=params.get('retina_skip', 0),
             see_food=params.get('bacteria_retina_see_food', True),
             see_bacteria=params.get('bacteria_retina_see_bacteria', False),
-            see_predators=params.get('bacteria_retina_see_predators', False)
+            see_predators=params.get('bacteria_retina_see_predators', False),
+            channels=active_retina_channels(params, 'bacteria')
         )
     
     def _create_child_locomotion(self, params: 'Params') -> 'Locomotion':
@@ -483,6 +497,8 @@ class Predator(Agent):
         super().__init__(x, y, r, color, brain, sensor, locomotion, energy_model, angle)
         self.is_predator = True
         self.type_code = 2
+        self.diet_food = False
+        self.diet_agents = True
     
     def _get_mutation_rate(self, params: 'Params') -> float:
         return params.get('predator_mutation_rate', 0.05)
@@ -494,7 +510,7 @@ class Predator(Agent):
         return params.get('predator_structural_jitter', 0)
     
     def _create_child_sensor(self, params: 'Params') -> 'RetinaSensor':
-        from .sensors import RetinaSensor
+        from .sensors import RetinaSensor, active_retina_channels
         return RetinaSensor(
             retina_count=params.get('predator_retina_count', 18),
             vision_radius=params.get('predator_vision_radius', 120.0),
@@ -502,7 +518,8 @@ class Predator(Agent):
             skip=params.get('retina_skip', 0),
             see_food=params.get('predator_retina_see_food', True),
             see_bacteria=params.get('predator_retina_see_bacteria', True),
-            see_predators=params.get('predator_retina_see_predators', False)
+            see_predators=params.get('predator_retina_see_predators', False),
+            channels=active_retina_channels(params, 'predator')
         )
     
     def _create_child_locomotion(self, params: 'Params') -> 'Locomotion':
@@ -551,12 +568,21 @@ def _random_position_for_radius(shape: str, world_w: float, world_h: float,
     return x, y
 
 
+def _apply_diet_from_params(agent: 'Agent', params: 'Params', prefix: str):
+    agent.diet_food = bool(params.get(f'{prefix}_diet_food', not getattr(agent, 'is_predator', False)))
+    agent.diet_agents = bool(params.get(f'{prefix}_diet_agents', getattr(agent, 'is_predator', False)))
+    agent.diet_same_label = bool(params.get(f'{prefix}_diet_same_label', False))
+    agent.diet_food_efficiency = float(params.get(f'{prefix}_diet_food_efficiency', 1.0))
+    agent.diet_agent_efficiency = float(params.get(f'{prefix}_diet_agent_efficiency', 0.7))
+
+
 def create_random_bacteria(existing_entities: list, params: 'Params', 
                           world_w: float, world_h: float,
                           at: Optional[tuple] = None) -> Bacteria:
     """Cria bactéria aleatória evitando sobreposições."""
     from .brain import NeuralNet
-    from .sensors import RetinaSensor  
+    from .sensors import retina_input_size
+    from .sensors import RetinaSensor, active_retina_channels
     from .actuators import Locomotion, EnergyModel
     
     r = _agent_spawn_radius(params, 'bacteria_body_size', 'bacteria_min_r', 'bacteria_max_r', 6.0, 12.0)
@@ -595,6 +621,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
         bacterium.color = tuple(params.get('bacteria_color', bacterium.color))
     except Exception:
         pass
+    _apply_diet_from_params(bacterium, params, 'bacteria')
     bacterium.energy = params.get('bacteria_initial_energy', 100.0)
     
     return bacterium
@@ -605,7 +632,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
                           at: Optional[tuple] = None) -> Predator:
     """Cria predador aleatório evitando sobreposições."""
     from .brain import NeuralNet
-    from .sensors import RetinaSensor
+    from .sensors import RetinaSensor, active_retina_channels
     from .actuators import Locomotion, EnergyModel
     
     r = _agent_spawn_radius(params, 'predator_body_size', 'predator_min_r', 'predator_max_r', 10.0, 18.0)
@@ -643,6 +670,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
         predator.color = tuple(params.get('predator_color', predator.color))
     except Exception:
         pass
+    _apply_diet_from_params(predator, params, 'predator')
     predator.energy = params.get('predator_initial_energy', 100.0)
     
     return predator
@@ -704,7 +732,8 @@ def _create_bacteria_brain(params: 'Params'):
     """Cria cérebro para bactéria baseado nos parâmetros."""
     from .brain import NeuralNet
     
-    input_size = params.get('bacteria_retina_count', 18)
+    from .sensors import retina_input_size
+    input_size = retina_input_size(params, 'bacteria', params.get('bacteria_retina_count', 18))
     hidden_layers = params.get('bacteria_hidden_layers', 4)
     
     # Coleta neurônios por camada
@@ -724,7 +753,7 @@ def _create_bacteria_brain(params: 'Params'):
 
 def _create_bacteria_sensor(params: 'Params'):
     """Cria sensor para bactéria."""
-    from .sensors import RetinaSensor
+    from .sensors import RetinaSensor, active_retina_channels
     return RetinaSensor(
         retina_count=params.get('bacteria_retina_count', 18),
         vision_radius=params.get('bacteria_vision_radius', 120.0),
@@ -732,7 +761,8 @@ def _create_bacteria_sensor(params: 'Params'):
         skip=params.get('retina_skip', 0),
         see_food=params.get('bacteria_retina_see_food', True),
         see_bacteria=params.get('bacteria_retina_see_bacteria', False),
-        see_predators=params.get('bacteria_retina_see_predators', False)
+        see_predators=params.get('bacteria_retina_see_predators', False),
+        channels=active_retina_channels(params, 'bacteria')
     )
 
 
@@ -762,7 +792,8 @@ def _create_predator_brain(params: 'Params'):
     """Cria cérebro para predador.""" 
     from .brain import NeuralNet
     
-    input_size = params.get('predator_retina_count', 18)
+    from .sensors import retina_input_size
+    input_size = retina_input_size(params, 'predator', params.get('predator_retina_count', 18))
     hidden_layers = params.get('predator_hidden_layers', 2)
     
     # Coleta neurônios por camada
@@ -782,7 +813,7 @@ def _create_predator_brain(params: 'Params'):
 
 def _create_predator_sensor(params: 'Params'):
     """Cria sensor para predador."""
-    from .sensors import RetinaSensor
+    from .sensors import RetinaSensor, active_retina_channels
     return RetinaSensor(
         retina_count=params.get('predator_retina_count', 18),
         vision_radius=params.get('predator_vision_radius', 120.0),
@@ -790,7 +821,8 @@ def _create_predator_sensor(params: 'Params'):
         skip=params.get('retina_skip', 0),
         see_food=params.get('predator_retina_see_food', True),
         see_bacteria=params.get('predator_retina_see_bacteria', True),
-        see_predators=params.get('predator_retina_see_predators', False)
+        see_predators=params.get('predator_retina_see_predators', False),
+        channels=active_retina_channels(params, 'predator')
     )
 
 

@@ -35,6 +35,7 @@ class Params:
             'world_h': 700.0,   # Altura do substrato (retangular)
             'substrate_radius': 400.0,  # Raio do substrato (circular)
             'random_seed': -1,  # -1 disables fixed seeding; >=0 makes reset/start reproducible
+            'agent_template_name': 'organismo_1',
             'max_deaths_per_step': 5,
             'population_min_rescue_enabled': True,
             
@@ -49,6 +50,7 @@ class Params:
             'use_numba_kernels': True,
             'use_numba_batch_retina': False,
             'use_numba_locomotion_energy': False,
+            'brain_cache_disable': True,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -63,8 +65,8 @@ class Params:
             'bacteria_count': 150,
             'bacteria_min_r': 6.0,
             'bacteria_max_r': 12.0,
-            'bacteria_min_limit': 10,
-            'bacteria_max_limit': 300,
+            'bacteria_min_limit': 0,
+            'bacteria_max_limit': 0,
             
             # Bactérias - energia (modelo contínuo)
             'bacteria_initial_energy': 100.0,  # Energia inicial
@@ -91,6 +93,15 @@ class Params:
             'bacteria_retina_see_food': True,
             'bacteria_retina_see_bacteria': False,
             'bacteria_retina_see_predators': False,
+            'bacteria_retina_channel_r': False,
+            'bacteria_retina_channel_g': False,
+            'bacteria_retina_channel_b': False,
+            'bacteria_retina_channel_d': True,
+            'bacteria_diet_food': True,
+            'bacteria_diet_agents': False,
+            'bacteria_diet_same_label': False,
+            'bacteria_diet_food_efficiency': 1.0,
+            'bacteria_diet_agent_efficiency': 0.7,
             
             # Bactérias - rede neural
             'bacteria_hidden_layers': 4,
@@ -136,6 +147,15 @@ class Params:
             'predator_retina_see_food': True,
             'predator_retina_see_bacteria': True,
             'predator_retina_see_predators': False,
+            'predator_retina_channel_r': False,
+            'predator_retina_channel_g': False,
+            'predator_retina_channel_b': False,
+            'predator_retina_channel_d': True,
+            'predator_diet_food': False,
+            'predator_diet_agents': True,
+            'predator_diet_same_label': False,
+            'predator_diet_food_efficiency': 1.0,
+            'predator_diet_agent_efficiency': 0.7,
             
             # Predadores - rede neural
             'predator_hidden_layers': 2,
@@ -265,8 +285,8 @@ class Params:
             },
             'large_population': {
                 **dict(self._data),
-                'bacteria_max_limit': 1000,
-                'predator_max_limit': 200,
+                'bacteria_max_limit': 0,
+                'predator_max_limit': 0,
                 'use_spatial': True,
                 'simple_render': True,
             }

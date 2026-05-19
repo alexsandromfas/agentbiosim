@@ -35,7 +35,7 @@ from PyQt6.QtWidgets import (
     QLineEdit, QTextEdit, QMessageBox, QFileDialog, QScrollArea,
     QFormLayout, QGridLayout, QGroupBox, QToolTip, QStackedWidget,
     QColorDialog, QSlider, QRadioButton, QButtonGroup, QFrame,
-    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QDialog
+    QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView, QAbstractSpinBox, QDialog
 )
 
 from .controllers import Params
@@ -91,8 +91,7 @@ class MetricHistoryChart(QWidget):
         self.visible_keys: set[str] | None = None
         self.time_window_seconds: float | None = 3600.0
         self.metric_defs = [
-            ("bacteria", "Bacterias", QColor(118, 205, 255)),
-            ("predators", "Predadores", QColor(255, 120, 120)),
+            ("organisms", "Organismos", QColor(118, 205, 255)),
             ("foods", "Comida", QColor(255, 208, 92)),
             ("effective_time_scale", "Tempo efetivo", QColor(120, 180, 255)),
         ]
@@ -361,8 +360,7 @@ class SimulationUI(QMainWindow):
 
     def _base_chart_metric_defs(self):
         return [
-            ("bacteria", "Bacterias", QColor(118, 205, 255)),
-            ("predators", "Predadores", QColor(255, 120, 120)),
+            ("organisms", "Organismos", QColor(118, 205, 255)),
             ("foods", "Comida", QColor(255, 208, 92)),
             ("effective_time_scale", "Tempo efetivo", QColor(120, 180, 255)),
         ]
@@ -499,8 +497,7 @@ class SimulationUI(QMainWindow):
             self._status_labels[key] = value
 
         for key, name in [
-            ('bacteria', 'Bacterias'),
-            ('predators', 'Predadores'),
+            ('organisms', 'Organismos'),
             ('foods', 'Comida'),
             ('food_target', 'Alvo'),
             ('obstacles', 'Obstaculos'),
@@ -575,8 +572,7 @@ class SimulationUI(QMainWindow):
         if not labels:
             return
         engine = self.engine
-        labels['bacteria'].setText(str(len(engine.entities.get('bacteria', []))))
-        labels['predators'].setText(str(len(engine.entities.get('predators', []))))
+        labels['organisms'].setText(str(len(getattr(engine, 'all_agents', []))))
         labels['foods'].setText(str(len(engine.entities.get('foods', []))))
         labels['food_target'].setText(str(self.params.get('food_target', 0)))
         labels['obstacles'].setText(str(len(getattr(engine, 'obstacles', []))))
@@ -758,6 +754,7 @@ class SimulationUI(QMainWindow):
             ('body', 'Corpo'),
             ('brain', 'Rede neural'),
             ('sensor', 'Retina'),
+            ('diet', 'Dieta'),
             ('locomotion', 'Motor'),
             ('metabolism', 'Metabolismo'),
             ('smart_local', 'Fator intel. local'),
@@ -943,8 +940,7 @@ class SimulationUI(QMainWindow):
         now_t = float(getattr(engine, 'total_simulation_time', 0.0))
         row = {
             't': now_t,
-            'bacteria': float(len(engine.entities.get('bacteria', []))),
-            'predators': float(len(engine.entities.get('predators', []))),
+            'organisms': float(len(getattr(engine, 'all_agents', []))),
             'foods': float(len(engine.entities.get('foods', []))),
             'effective_time_scale': float(getattr(engine, 'effective_time_scale', 0.0) or 0.0),
         }
@@ -998,7 +994,7 @@ class SimulationUI(QMainWindow):
         energy_model = getattr(agent, 'energy_model', None)
 
         labels = self._agent_detail_labels
-        labels['species'].setText("Predador" if getattr(agent, 'is_predator', False) else "Bacteria")
+        labels['species'].setText("Organismo legado" if getattr(agent, 'is_predator', False) else "Organismo")
         labels['selected_count'].setText(str(selected_count or 1))
         labels['energy'].setText(self._short_float(getattr(agent, 'energy', 0.0), 2))
         labels['speed'].setText(self._short_float(speed, 2))
@@ -1009,11 +1005,22 @@ class SimulationUI(QMainWindow):
         if sensor is not None:
             labels['sensor'].setText(
                 f"{getattr(sensor, 'retina_count', '-')} retinas, "
+                f"canais {''.join(str(c).upper() for c in getattr(sensor, 'channels', ('D',)) or ('D',))}, "
                 f"raio {self._short_float(getattr(sensor, 'vision_radius', 0.0), 0)}, "
                 f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}"
             )
         else:
             labels['sensor'].setText("-")
+        diet_parts = []
+        if bool(getattr(agent, 'diet_food', False)):
+            diet_parts.append("comida")
+        if bool(getattr(agent, 'diet_agents', False)):
+            diet_parts.append("organismos")
+        if not diet_parts:
+            diet_parts.append("nenhuma")
+        labels['diet'].setText(
+            f"{' + '.join(diet_parts)}; mesma label {'sim' if bool(getattr(agent, 'diet_same_label', False)) else 'nao'}"
+        )
         if locomotion is not None:
             labels['locomotion'].setText(
                 f"max {self._short_float(getattr(locomotion, 'max_speed', 0.0), 1)}, "
@@ -1100,7 +1107,7 @@ class SimulationUI(QMainWindow):
         add_tool('agent', 'A', 'Agente importado: clique esquerdo insere o agente carregado.')
         icon_path = os.path.join(asset_dir, 'draw_icon.png')
         add_tool('draw', 'P', 'Pincel: desenha barreiras solidas no substrato.', icon_path=icon_path)
-        add_tool('move', 'M', 'Mover: clique e arraste comida, bacterias ou predadores.')
+        add_tool('move', 'M', 'Mover: clique e arraste comida ou organismos.')
         add_tool('dead', 'D', 'Dead: remove o objeto clicado, inclusive comida.')
 
         layout.addSpacing(8)
@@ -1167,7 +1174,6 @@ class SimulationUI(QMainWindow):
     def _build_tabs(self):
         """Construct all tabs in a fixed order."""
         self._build_tab_genetic_editor()
-        self._build_tab_population()
         self._build_tab_environment()
         self._build_tab_experiment()
         self._build_tab_labels()
@@ -1209,8 +1215,8 @@ class SimulationUI(QMainWindow):
         act_brain.toggled.connect(self._on_toggle_brain_activations)
         view_menu.addAction(act_brain)
         self._add_bool_menu_action(view_menu, "Grafico de metricas", 'show_metrics_chart', callback=self._set_metrics_chart_visible)
-        self._add_bool_menu_action(view_menu, "Mostrar visao das bacterias", 'bacteria_show_vision')
-        self._add_bool_menu_action(view_menu, "Mostrar visao dos predadores", 'predator_show_vision')
+        self._add_bool_menu_action(view_menu, "Mostrar visao dos organismos", 'bacteria_show_vision')
+        self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
 
         pref_menu = bar.addMenu("Preferencias")
         self._add_bool_menu_action(pref_menu, "Auto exportar substrato", 'auto_export_substrate', callback=self._on_auto_export_menu_toggled)
@@ -1225,7 +1231,7 @@ class SimulationUI(QMainWindow):
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
         self._build_render_resolution_menu(render_menu)
         act_pref_tab = QAction("Abrir aba Experimento", self)
-        act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
+        act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
         pref_menu.addAction(act_pref_tab)
 
         agent_menu = bar.addMenu("Agente")
@@ -1544,28 +1550,37 @@ class SimulationUI(QMainWindow):
             'world_h': 'Altura do substrato retangular base.',
             'substrate_shape': 'Formato fisico do substrato: retangular ou circular.',
             'substrate_radius': 'Raio usado quando o substrato esta no modo circular.',
-            'bacteria_count': 'Quantidade de bacterias criada ao resetar ou iniciar uma populacao nova.',
-            'bacteria_min_limit': 'Numero minimo de bacterias que o sistema tenta preservar.',
-            'bacteria_max_limit': 'Limite maximo de bacterias vivas permitido pela reproducao.',
-            'bacteria_initial_energy': 'Energia inicial de bacterias novas criadas por reset ou spawn padrao.',
-            'bacteria_death_energy': 'Energia abaixo da qual a bacteria vira candidata a morrer.',
-            'bacteria_split_energy': 'Energia minima para a bacteria poder se dividir.',
-            'bacteria_metab_v0_cost': 'Custo energetico por segundo quando a bacteria esta parada.',
-            'bacteria_metab_vmax_cost': 'Custo energetico por segundo quando a bacteria se move perto da velocidade maxima.',
-            'bacteria_energy_cap': 'Energia maxima que uma bacteria consegue armazenar.',
-            'bacteria_body_size': 'Raio corporal da bacteria. Afeta colisao, renderizacao, area ocupada e posicionamento.',
-            'bacteria_vision_radius': 'Distancia maxima que a retina da bacteria consegue perceber.',
-            'bacteria_retina_count': 'Numero de raios/sensores da retina da bacteria. Mais retinas aumentam resolucao e custo.',
-            'bacteria_retina_fov_degrees': 'Campo angular total de visao da bacteria, em graus.',
-            'bacteria_max_speed': 'Velocidade maxima que a locomocao da bacteria pode atingir.',
-            'bacteria_max_turn_deg': 'Velocidade maxima de rotacao da bacteria em graus por segundo.',
-            'bacteria_hidden_layers': 'Quantidade de camadas ocultas no cerebro neural das novas bacterias. Alterar vivos pode recriar cerebros.',
+            'bacteria_count': 'Quantidade de organismos criada ao resetar ou iniciar uma populacao nova.',
+            'bacteria_min_limit': 'Limite legado por tipo. Agora o minimo vivo deve ser definido por label.',
+            'bacteria_max_limit': 'Limite legado por tipo. Agora o maximo vivo deve ser definido por label.',
+            'bacteria_initial_energy': 'Energia inicial de organismos novos criados por reset ou spawn padrao.',
+            'bacteria_death_energy': 'Energia abaixo da qual o organismo vira candidato a morrer.',
+            'bacteria_split_energy': 'Energia minima para o organismo poder se dividir.',
+            'bacteria_metab_v0_cost': 'Custo energetico por segundo quando o organismo esta parado.',
+            'bacteria_metab_vmax_cost': 'Custo energetico por segundo quando o organismo se move perto da velocidade maxima.',
+            'bacteria_energy_cap': 'Energia maxima que um organismo consegue armazenar.',
+            'bacteria_body_size': 'Raio corporal do organismo. Afeta colisao, renderizacao, area ocupada e posicionamento.',
+            'bacteria_vision_radius': 'Distancia maxima que a retina do organismo consegue perceber.',
+            'bacteria_retina_count': 'Numero de raios/sensores da retina do organismo. Mais retinas aumentam resolucao e custo.',
+            'bacteria_retina_fov_degrees': 'Campo angular total de visao do organismo, em graus.',
+            'bacteria_max_speed': 'Velocidade maxima que a locomocao do organismo pode atingir.',
+            'bacteria_max_turn_deg': 'Velocidade maxima de rotacao do organismo em graus por segundo.',
+            'bacteria_hidden_layers': 'Quantidade de camadas ocultas no cerebro neural dos novos organismos. Alterar vivos pode recriar cerebros.',
             'bacteria_mutation_rate': 'Probabilidade de cada peso neural sofrer mutacao na reproducao.',
             'bacteria_mutation_strength': 'Intensidade/desvio das mutacoes numericas aplicadas aos pesos neurais.',
-            'bacteria_show_vision': 'Desenha os raios de visao das bacterias quando habilitado.',
-            'bacteria_retina_see_food': 'Define se a retina da bacteria detecta comida.',
-            'bacteria_retina_see_bacteria': 'Define se a retina da bacteria detecta outras bacterias.',
-            'bacteria_retina_see_predators': 'Define se a retina da bacteria detecta predadores.',
+            'bacteria_show_vision': 'Desenha os raios de visao dos organismos quando habilitado.',
+            'bacteria_retina_see_food': 'Define se a retina do organismo detecta comida.',
+            'bacteria_retina_see_bacteria': 'Define se a retina do organismo detecta outros organismos.',
+            'bacteria_retina_see_predators': 'Define se a retina detecta organismos legados criados como predadores.',
+            'bacteria_retina_channel_d': 'Canal de distancia/proximidade historico da retina.',
+            'bacteria_retina_channel_r': 'Canal vermelho: intensidade de vermelho do objeto ponderada pela proximidade.',
+            'bacteria_retina_channel_g': 'Canal verde: intensidade de verde do objeto ponderada pela proximidade.',
+            'bacteria_retina_channel_b': 'Canal azul: intensidade de azul do objeto ponderada pela proximidade.',
+            'bacteria_diet_food': 'Permite que o organismo ganhe energia ao tocar comida.',
+            'bacteria_diet_agents': 'Permite que o organismo ganhe energia ao tocar e consumir outros organismos.',
+            'bacteria_diet_same_label': 'Quando ativo, organismos podem consumir outros da mesma label.',
+            'bacteria_diet_food_efficiency': 'Multiplicador da energia recebida ao comer comida.',
+            'bacteria_diet_agent_efficiency': 'Multiplicador da energia recebida ao consumir outro organismo.',
             'predators_enabled': 'Liga ou desliga criacao inicial e presenca configurada de predadores.',
             'predator_count': 'Quantidade de predadores criada ao resetar ou iniciar populacao nova.',
             'predator_min_limit': 'Numero minimo de predadores que o sistema tenta preservar.',
@@ -1596,7 +1611,7 @@ class SimulationUI(QMainWindow):
             return help_by_name[name]
         if name.startswith('bacteria_neurons_layer_'):
             layer = name.rsplit('_', 1)[-1]
-            return f"Numero de neuronios na camada oculta {layer} das bacterias. Mudar isso em agentes vivos pode recriar o cerebro e apagar pesos atuais."
+            return f"Numero de neuronios na camada oculta {layer} dos organismos. Mudar isso em agentes vivos pode recriar o cerebro e apagar pesos atuais."
         if name.startswith('predator_neurons_layer_'):
             layer = name.rsplit('_', 1)[-1]
             return f"Numero de neuronios na camada oculta {layer} dos predadores. Mudar isso em agentes vivos pode recriar o cerebro e apagar pesos atuais."
@@ -1638,19 +1653,20 @@ class SimulationUI(QMainWindow):
         outer.setContentsMargins(4, 4, 4, 4)
         outer.setSpacing(6)
 
-        selector_row = QHBoxLayout()
-        selector_row.addWidget(ClickHelpLabel("Tipo de organismo:", "Escolha qual template genetico sera editado. Os campos abaixo mudam entre bacteria e predador sem misturar com regras de populacao."))
-        type_selector = QComboBox()
-        type_selector.addItems(["Bacteria", "Predador"])
-        type_selector.installEventFilter(self)
-        selector_row.addWidget(type_selector)
-        outer.addLayout(selector_row)
-
-        stack = QStackedWidget()
-        stack.addWidget(self._build_genetic_page('bacteria'))
-        stack.addWidget(self._build_genetic_page('predator'))
-        type_selector.currentIndexChanged.connect(stack.setCurrentIndex)
-        outer.addWidget(stack, stretch=1)
+        header = ClickHelpLabel(
+            "Template: Organismo",
+            "Este editor define o genoma base dos novos organismos. O papel ecologico agora vem da dieta: comer comida, comer organismos ou ambos."
+        )
+        outer.addWidget(header)
+        name_row = QHBoxLayout()
+        name_row.addWidget(ClickHelpLabel("Nome do agente:", "Nome do template genetico usado para novos organismos e exports de agente. Pressione Enter para aplicar."))
+        name_edit = QLineEdit(str(self.params.get('agent_template_name', 'organismo_1')))
+        name_edit.setPlaceholderText("organismo_1")
+        name_edit.returnPressed.connect(lambda: self._update_param_real_time('agent_template_name'))
+        self.widgets['agent_template_name'] = name_edit
+        name_row.addWidget(name_edit, stretch=1)
+        outer.addLayout(name_row)
+        outer.addWidget(self._build_genetic_page('bacteria'), stretch=1)
 
     def _build_genetic_page(self, species: str) -> QWidget:
         page = QWidget()
@@ -1709,10 +1725,35 @@ class SimulationUI(QMainWindow):
         w = _spin_double(0.0, 10000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_max_speed', defaults['max_speed'])); row = self._add_grid_param(grid, row, "Velocidade max:", f'{species}_max_speed', w)
         w = _spin_double(1.0, 5000.0, 1.0, 1); w.setValue(math.degrees(self.params.get(f'{species}_max_turn', defaults['max_turn']))); row = self._add_grid_param(grid, row, "Rotacao max (graus/s):", f'{species}_max_turn_deg', w)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_food', True)); row = self._add_grid_param(grid, row, "Ver comida:", f'{species}_retina_see_food', cb)
-        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver bacterias:", f'{species}_retina_see_bacteria', cb)
-        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_predators', False)); row = self._add_grid_param(grid, row, "Ver predadores:", f'{species}_retina_see_predators', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver organismos:", f'{species}_retina_see_bacteria', cb)
+        self.params.set(f'{species}_retina_see_predators', bool(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)), validate=False)
+        grid.addWidget(QLabel("Canais da retina:"), row, 0)
+        channel_wrap = QWidget()
+        channel_row = QHBoxLayout(channel_wrap)
+        channel_row.setContentsMargins(0, 0, 0, 0)
+        channel_row.setSpacing(10)
+        for suffix, label in (('d', 'D'), ('r', 'R'), ('g', 'G'), ('b', 'B')):
+            cbox = QCheckBox(label)
+            cbox.setChecked(self.params.get(f'{species}_retina_channel_{suffix}', suffix == 'd'))
+            self.widgets[f'{species}_retina_channel_{suffix}'] = cbox
+            channel_row.addWidget(cbox)
+        channel_row.addStretch(1)
+        grid.addWidget(channel_wrap, row, 1)
+        row += 1
         grid.addWidget(self._agent_group_apply_buttons(species, 'body_sensor_motion'), row, 0, 1, 2)
         v.addWidget(g_body)
+
+        g_diet = QGroupBox("Dieta")
+        g_diet.setStyleSheet(card_style)
+        grid = QGridLayout(g_diet)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_diet_food', True)); row = self._add_grid_param(grid, row, "Come comida:", f'{species}_diet_food', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_diet_agents', False)); row = self._add_grid_param(grid, row, "Come organismos:", f'{species}_diet_agents', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_diet_same_label', False)); row = self._add_grid_param(grid, row, "Pode comer mesma label:", f'{species}_diet_same_label', cb)
+        w = _spin_double(0.0, 10.0, 0.05, 2); w.setValue(self.params.get(f'{species}_diet_food_efficiency', 1.0)); row = self._add_grid_param(grid, row, "Eficiencia comida:", f'{species}_diet_food_efficiency', w)
+        w = _spin_double(0.0, 10.0, 0.05, 2); w.setValue(self.params.get(f'{species}_diet_agent_efficiency', 0.7)); row = self._add_grid_param(grid, row, "Eficiencia organismo:", f'{species}_diet_agent_efficiency', w)
+        grid.addWidget(self._agent_group_apply_buttons(species, 'diet'), row, 0, 1, 2)
+        v.addWidget(g_diet)
 
         self._add_color_picker(v, species, card_style)
 
@@ -1749,7 +1790,7 @@ class SimulationUI(QMainWindow):
         return page
 
     def _add_color_picker(self, layout: QVBoxLayout, species: str, card_style: str):
-        title = "Cor das bacterias" if species == 'bacteria' else "Cor dos predadores"
+        title = "Cor dos organismos" if species == 'bacteria' else "Cor dos predadores legados"
         key = f'{species}_color'
         default = (220, 220, 220) if species == 'bacteria' else (80, 120, 220)
         box = QGroupBox(title)
@@ -1795,33 +1836,25 @@ class SimulationUI(QMainWindow):
         v.setSpacing(18)
         card_style = self._card_style()
 
-        g_b = QGroupBox("Bacterias")
+        g_b = QGroupBox("Organismos")
         g_b.setStyleSheet(card_style)
         grid = QGridLayout(g_b)
         row = 0
         w = _spin_int(0, 20000); w.setValue(self.params.get('bacteria_count', 150)); row = self._add_grid_param(grid, row, "Quantidade inicial:", 'bacteria_count', w)
-        w = _spin_int(0, 10000); w.setValue(self.params.get('bacteria_min_limit', 10)); row = self._add_grid_param(grid, row, "Minimo:", 'bacteria_min_limit', w)
-        w = _spin_int(0, 50000); w.setValue(self.params.get('bacteria_max_limit', 300)); row = self._add_grid_param(grid, row, "Maximo:", 'bacteria_max_limit', w)
         v.addWidget(g_b)
-
-        g_p = QGroupBox("Predadores")
-        g_p.setStyleSheet(card_style)
-        grid = QGridLayout(g_p)
-        row = 0
-        cb = QCheckBox(); cb.setChecked(self.params.get('predators_enabled', False)); row = self._add_grid_param(grid, row, "Habilitar predadores:", 'predators_enabled', cb)
-        w = _spin_int(0, 5000); w.setValue(self.params.get('predator_count', 0)); row = self._add_grid_param(grid, row, "Quantidade inicial:", 'predator_count', w)
-        w = _spin_int(0, 5000); w.setValue(self.params.get('predator_min_limit', 0)); row = self._add_grid_param(grid, row, "Minimo:", 'predator_min_limit', w)
-        w = _spin_int(0, 50000); w.setValue(self.params.get('predator_max_limit', 100)); row = self._add_grid_param(grid, row, "Maximo:", 'predator_max_limit', w)
-        v.addWidget(g_p)
 
         g_rules = QGroupBox("Regras Populacionais")
         g_rules.setStyleSheet(card_style)
         grid = QGridLayout(g_rules)
         row = 0
-        cb = QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled', True)); row = self._add_grid_param(grid, row, "Resgate pop. minima:", 'population_min_rescue_enabled', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled', True)); row = self._add_grid_param(grid, row, "Respeitar minimo das labels:", 'population_min_rescue_enabled', cb)
+        note = QLabel("Minimo e maximo agora sao definidos por grupo na aba Labels.")
+        note.setWordWrap(True)
+        grid.addWidget(note, row, 0, 1, 2)
+        row += 1
         v.addWidget(g_rules)
         btn_apply = QPushButton("Aplicar populacao")
-        btn_apply.setToolTip("Aplica limites populacionais na simulacao atual e corta excedentes acima do maximo.")
+        btn_apply.setToolTip("Aplica a quantidade inicial para proximos resets. Limites vivos ficam nas labels.")
         btn_apply.clicked.connect(self.apply_population_params)
         v.addWidget(btn_apply)
         v.addStretch(1)
@@ -1994,8 +2027,8 @@ class SimulationUI(QMainWindow):
         layout.addWidget(info)
 
         self._updating_labels_table = False
-        self.labels_table = QTableWidget(0, 3)
-        self.labels_table.setHorizontalHeaderLabels(["Grupo", "Individuos", "Grafico"])
+        self.labels_table = QTableWidget(0, 5)
+        self.labels_table.setHorizontalHeaderLabels(["Grupo", "Individuos", "Min", "Max", "Grafico"])
         self.labels_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.labels_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.labels_table.setEditTriggers(
@@ -2007,6 +2040,8 @@ class SimulationUI(QMainWindow):
         self.labels_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.labels_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.labels_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        self.labels_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.labels_table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.labels_table.itemChanged.connect(self._on_label_table_item_changed)
         self.labels_table.cellDoubleClicked.connect(self._on_label_table_double_clicked)
         self.labels_table.currentCellChanged.connect(lambda *_args: self._sync_label_editor_from_selection())
@@ -2086,6 +2121,16 @@ class SimulationUI(QMainWindow):
             count_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             count_item.setFlags(count_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
+            min_item = QTableWidgetItem(str(int(meta.get('min_limit', 0) or 0)))
+            min_item.setData(Qt.ItemDataRole.UserRole, label_id)
+            min_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            min_item.setFlags(min_item.flags() | Qt.ItemFlag.ItemIsEditable)
+
+            max_item = QTableWidgetItem(str(int(meta.get('max_limit', 0) or 0)))
+            max_item.setData(Qt.ItemDataRole.UserRole, label_id)
+            max_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            max_item.setFlags(max_item.flags() | Qt.ItemFlag.ItemIsEditable)
+
             graph_item = QTableWidgetItem("")
             graph_item.setData(Qt.ItemDataRole.UserRole, label_id)
             graph_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -2100,7 +2145,9 @@ class SimulationUI(QMainWindow):
 
             table.setItem(row, 0, name_item)
             table.setItem(row, 1, count_item)
-            table.setItem(row, 2, graph_item)
+            table.setItem(row, 2, min_item)
+            table.setItem(row, 3, max_item)
+            table.setItem(row, 4, graph_item)
 
         table.blockSignals(False)
         self._updating_labels_table = False
@@ -2143,7 +2190,16 @@ class SimulationUI(QMainWindow):
                 self._refresh_chart_metric_checkboxes()
             else:
                 item.setText(str(meta.get('name', f'Label {label_id}')))
-        elif item.column() == 2:
+        elif item.column() in (2, 3):
+            try:
+                value = max(0, int(float(item.text().strip() or 0)))
+            except Exception:
+                value = int(meta.get('min_limit' if item.column() == 2 else 'max_limit', 0) or 0)
+            key = 'min_limit' if item.column() == 2 else 'max_limit'
+            meta[key] = value
+            if item.text() != str(value):
+                item.setText(str(value))
+        elif item.column() == 4:
             meta['show_chart'] = item.checkState() == Qt.CheckState.Checked
             self._refresh_chart_metric_checkboxes()
 
@@ -2211,6 +2267,305 @@ class SimulationUI(QMainWindow):
         for agent in self.engine.get_agents_by_label(label_id):
             agent.color = new_color
         self._refresh_labels_list()
+
+    # Nova UI de labels: paineis compactos em vez de tabela.
+    def _build_tab_labels(self):
+        tab = QWidget()
+        self.tabs.addTab(tab, "Labels")
+        root = QVBoxLayout(tab)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(8)
+        self.engine.ensure_default_agent_label()
+        self.labels_table = None  # mantem compatibilidade com chamadas antigas que testam a existencia do atributo
+        self._current_label_panel_id = self._current_label_panel_id if hasattr(self, '_current_label_panel_id') else None
+        info = QLabel("Cada label e uma linhagem/grupo. Os organismos novos sempre recebem uma label; Min e Max controlam a populacao desse grupo.")
+        info.setWordWrap(True)
+        root.addWidget(info)
+
+        self.labels_scroll = QScrollArea()
+        self.labels_scroll.setWidgetResizable(True)
+        self.labels_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.labels_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.labels_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.labels_list_widget = QWidget()
+        self.labels_list_layout = QVBoxLayout(self.labels_list_widget)
+        self.labels_list_layout.setContentsMargins(0, 0, 0, 0)
+        self.labels_list_layout.setSpacing(10)
+        self.labels_scroll.setWidget(self.labels_list_widget)
+        root.addWidget(self.labels_scroll, stretch=1)
+        if not hasattr(self, '_labels_refresh_timer'):
+            self._labels_refresh_timer = QTimer(self)
+            self._labels_refresh_timer.timeout.connect(self._refresh_labels_list_light)
+            self._labels_refresh_timer.start(1000)
+        self._refresh_labels_list()
+
+    def _current_label_id(self):
+        label_id = getattr(self, '_current_label_panel_id', None)
+        if label_id in getattr(self.engine, 'agent_labels', {}):
+            return int(label_id)
+        if getattr(self.engine, 'agent_labels', None):
+            label_id = int(sorted(self.engine.agent_labels.keys())[0])
+            self._current_label_panel_id = label_id
+            return label_id
+        return self.engine.ensure_default_agent_label()
+
+    def _select_label_row(self, label_id: int):
+        if label_id not in getattr(self.engine, 'agent_labels', {}):
+            return False
+        self._current_label_panel_id = int(label_id)
+        self._refresh_label_panel_styles()
+        return True
+
+    def _dark_label_style(self, color: QColor, selected: bool = False) -> str:
+        bg = QColor(max(18, int(color.red() * 0.20)), max(18, int(color.green() * 0.20)), max(22, int(color.blue() * 0.20)))
+        border = QColor(min(255, int(color.red() * 0.80 + 40)), min(255, int(color.green() * 0.80 + 40)), min(255, int(color.blue() * 0.80 + 40)))
+        width = 2 if selected else 1
+        return (
+            f"QFrame {{ background: rgb({bg.red()},{bg.green()},{bg.blue()}); "
+            f"border:{width}px solid rgb({border.red()},{border.green()},{border.blue()}); border-radius:8px; }} "
+            "QLabel { color:#edf4ff; border:none; background:transparent; } "
+            "QLineEdit, QSpinBox { background:#101318; color:#edf4ff; border:1px solid #405060; border-radius:4px; padding:3px; } "
+            "QPushButton { background:#232a32; color:#edf4ff; border:1px solid #4a5664; border-radius:5px; padding:4px 6px; } "
+            "QCheckBox { color:#edf4ff; border:none; background:transparent; }"
+        )
+
+    def _refresh_label_panel_styles(self):
+        for label_id, frame in getattr(self, '_label_panel_frames', {}).items():
+            meta = self.engine.agent_labels.get(label_id, {})
+            color = QColor(*meta.get('color', (220, 220, 220)))
+            frame.setStyleSheet(self._dark_label_style(color, selected=(label_id == self._current_label_id())))
+
+    def _apply_label_name(self, label_id: int, edit: QLineEdit):
+        meta = self.engine.agent_labels.get(label_id)
+        if not meta:
+            return
+        text = edit.text().strip() or f'organismo_{label_id}'
+        meta['name'] = text
+        edit.setText(text)
+        self._refresh_chart_metric_checkboxes()
+
+    def _apply_label_limit(self, label_id: int, key: str, spin: QSpinBox):
+        meta = self.engine.agent_labels.get(label_id)
+        if not meta:
+            return
+        meta[key] = max(0, int(spin.value()))
+        self._refresh_chart_metric_checkboxes()
+
+    def _make_label_panel(self, label_id: int, meta: dict) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName(f"label_panel_{label_id}")
+        def select_panel(event, lid=label_id):
+            self._current_label_panel_id = lid
+            self._refresh_label_panel_styles()
+            event.accept()
+        frame.mousePressEvent = select_panel
+        color = QColor(*meta.get('color', (220, 220, 220)))
+        frame.setStyleSheet(self._dark_label_style(color, selected=(label_id == self._current_label_id())))
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 9, 10, 9)
+        layout.setSpacing(8)
+
+        top = QHBoxLayout()
+        name = QLineEdit(str(meta.get('name', f'organismo_{label_id}')))
+        name.returnPressed.connect(lambda lid=label_id, edit=name: self._apply_label_name(lid, edit))
+        name.installEventFilter(self)
+        top.addWidget(name, stretch=1)
+        count = len(self.engine.get_agents_by_label(label_id))
+        count_label = QLabel(f"{count} individuos")
+        count_label.setMinimumWidth(86)
+        count_label.setObjectName(f"label_count_{label_id}")
+        top.addWidget(count_label)
+        layout.addLayout(top)
+
+        meta_row = QHBoxLayout()
+        graph = QCheckBox("Grafico")
+        graph.setChecked(bool(meta.get('show_chart', True)))
+        graph.toggled.connect(lambda checked, lid=label_id: self._set_label_graph_visible(lid, checked))
+        meta_row.addWidget(graph)
+        meta_row.addWidget(QLabel("Min"))
+        min_spin = _spin_int(0, 100000)
+        min_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        min_spin.setFixedWidth(76)
+        min_spin.setKeyboardTracking(False)
+        min_spin.setValue(int(meta.get('min_limit', 0) or 0))
+        min_spin.lineEdit().returnPressed.connect(lambda lid=label_id, spin=min_spin: self._apply_label_limit(lid, 'min_limit', spin))
+        min_spin.installEventFilter(self)
+        meta_row.addWidget(min_spin)
+        meta_row.addWidget(QLabel("Max"))
+        max_spin = _spin_int(0, 100000)
+        max_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        max_spin.setFixedWidth(76)
+        max_spin.setKeyboardTracking(False)
+        max_spin.setValue(int(meta.get('max_limit', 0) or 0))
+        max_spin.lineEdit().returnPressed.connect(lambda lid=label_id, spin=max_spin: self._apply_label_limit(lid, 'max_limit', spin))
+        max_spin.installEventFilter(self)
+        meta_row.addWidget(max_spin)
+        delete_btn = QPushButton("Excluir")
+        delete_btn.clicked.connect(lambda _checked=False, lid=label_id: self._delete_label(lid))
+        meta_row.addWidget(delete_btn)
+        meta_row.addStretch(1)
+        layout.addLayout(meta_row)
+
+        actions = QGridLayout()
+        actions.setHorizontalSpacing(6)
+        actions.setVerticalSpacing(6)
+        color_btn = QPushButton("Cor")
+        color_btn.clicked.connect(lambda _checked=False, lid=label_id: self._choose_label_color(lid))
+        actions.addWidget(color_btn, 0, 0)
+        select_btn = QPushButton("Selecionar")
+        select_btn.clicked.connect(lambda _checked=False, lid=label_id: self._select_label_group(lid))
+        actions.addWidget(select_btn, 0, 1)
+        add_btn = QPushButton("Atribuir selecionados")
+        add_btn.clicked.connect(lambda _checked=False, lid=label_id: self._assign_selection_to_label(lid))
+        actions.addWidget(add_btn, 1, 0)
+        remove_btn = QPushButton("Remover selecionados")
+        remove_btn.clicked.connect(lambda _checked=False, lid=label_id: self._remove_selection_from_label(lid))
+        actions.addWidget(remove_btn, 1, 1)
+        layout.addLayout(actions)
+        return frame
+
+    def _set_label_graph_visible(self, label_id: int, checked: bool):
+        meta = self.engine.agent_labels.get(label_id)
+        if not meta:
+            return
+        meta['show_chart'] = bool(checked)
+        self._refresh_chart_metric_checkboxes()
+
+    def _select_label_group(self, label_id: int):
+        if label_id not in self.engine.agent_labels:
+            return
+        self._current_label_panel_id = int(label_id)
+        self.engine.select_label(label_id)
+        self._refresh_label_panel_styles()
+
+    def _refresh_labels_list(self):
+        if 'labels_list_layout' not in self.__dict__:
+            return
+        self.engine.ensure_default_agent_label()
+        if self._current_label_id() not in self.engine.agent_labels:
+            self._current_label_panel_id = int(sorted(self.engine.agent_labels.keys())[0])
+        layout = self.labels_list_layout
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._label_panel_frames = {}
+        self._label_count_widgets = {}
+        for label_id, meta in sorted(self.engine.agent_labels.items()):
+            panel = self._make_label_panel(int(label_id), meta)
+            self._label_panel_frames[int(label_id)] = panel
+            count_widget = panel.findChild(QLabel, f"label_count_{int(label_id)}")
+            if count_widget is not None:
+                self._label_count_widgets[int(label_id)] = count_widget
+            layout.addWidget(panel)
+        plus_container = QWidget()
+        plus_row = QHBoxLayout(plus_container)
+        plus_row.setContentsMargins(0, 2, 0, 2)
+        plus_row.addStretch(1)
+        plus_btn = QPushButton("+ Nova label com selecionados")
+        plus_btn.setMinimumWidth(210)
+        plus_btn.clicked.connect(self._create_label_from_selection)
+        plus_row.addWidget(plus_btn)
+        plus_row.addStretch(1)
+        layout.addWidget(plus_container)
+        layout.addStretch(1)
+        self._labels_last_signature = self._labels_panel_signature()
+        self._refresh_chart_metric_checkboxes()
+
+    def _labels_panel_signature(self):
+        return tuple(
+            (
+                int(label_id),
+                str(meta.get('name', '')),
+                tuple(meta.get('color', (220, 220, 220))),
+                bool(meta.get('show_chart', True)),
+                int(meta.get('min_limit', 0) or 0),
+                int(meta.get('max_limit', 0) or 0),
+            )
+            for label_id, meta in sorted(getattr(self.engine, 'agent_labels', {}).items())
+        )
+
+    def _refresh_labels_list_light(self):
+        if 'labels_list_layout' not in self.__dict__:
+            return
+        self.engine.ensure_default_agent_label()
+        signature = self._labels_panel_signature()
+        if signature != getattr(self, '_labels_last_signature', None):
+            self._refresh_labels_list()
+            return
+        for label_id, widget in getattr(self, '_label_count_widgets', {}).items():
+            count = len(self.engine.get_agents_by_label(label_id))
+            widget.setText(f"{count} individuos")
+
+    def _sync_label_editor_from_selection(self):
+        self._refresh_label_panel_styles()
+
+    def _create_label_from_selection(self):
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        label_id = self.engine.create_agent_label()
+        if agents:
+            self.engine.assign_label_to_agents(label_id, agents)
+        self._current_label_panel_id = label_id
+        self._refresh_labels_list()
+
+    def _assign_selection_to_label(self, label_id: int):
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        if agents:
+            self.engine.assign_label_to_agents(label_id, agents)
+        self._current_label_panel_id = label_id
+        self._refresh_labels_list()
+
+    def _remove_selection_from_label(self, label_id: int):
+        agents = list(getattr(self.engine, 'selected_agents', set()) or [])
+        if agents:
+            self.engine.remove_label_from_agents(label_id, agents)
+        self._refresh_labels_list()
+
+    def _delete_label(self, label_id: int):
+        self.engine.delete_agent_label(label_id)
+        self._current_label_panel_id = self.engine.ensure_default_agent_label()
+        self._refresh_labels_list()
+
+    def _assign_selection_to_current_label(self):
+        label_id = self._current_label_id()
+        if label_id is not None:
+            self._assign_selection_to_label(label_id)
+
+    def _remove_selection_from_current_label(self):
+        label_id = self._current_label_id()
+        if label_id is not None:
+            self._remove_selection_from_label(label_id)
+
+    def _select_current_label_group(self):
+        label_id = self._current_label_id()
+        if label_id is not None:
+            self.engine.select_label(label_id)
+            self._refresh_label_panel_styles()
+
+    def _delete_current_label(self):
+        label_id = self._current_label_id()
+        if label_id is not None:
+            self._delete_label(label_id)
+
+    def _choose_label_color(self, label_id: int):
+        meta = self.engine.agent_labels.get(label_id)
+        if not meta:
+            return
+        current = QColor(*meta.get('color', (220, 220, 220)))
+        color = QColorDialog.getColor(current, self, "Cor da label")
+        if not color.isValid():
+            return
+        new_color = (color.red(), color.green(), color.blue())
+        meta['color'] = new_color
+        for agent in self.engine.get_agents_by_label(label_id):
+            agent.color = new_color
+        self._refresh_labels_list()
+
+    def _choose_current_label_color(self):
+        label_id = self._current_label_id()
+        if label_id is not None:
+            self._choose_label_color(label_id)
 
     # ---------------------- Tabs: Simulation -------------------------
     def _build_tab_simulation(self):
@@ -2787,8 +3142,13 @@ class SimulationUI(QMainWindow):
     # ------------------------------------------------------------------
     def _setup_live_param_signals(self):
         for widget in self.widgets.values():
-            if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox)):
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit)):
                 widget.installEventFilter(self)
+                if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                    try:
+                        widget.lineEdit().installEventFilter(self)
+                    except Exception:
+                        pass
         for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
             w = self.widgets.get(name)
             if isinstance(w, (QSpinBox, QDoubleSpinBox)):
@@ -2803,7 +3163,45 @@ class SimulationUI(QMainWindow):
         if event.type() == QEvent.Type.Wheel and isinstance(obj, (QSpinBox, QDoubleSpinBox, QComboBox)):
             event.ignore()
             return True
+        if event.type() == QEvent.Type.KeyPress and event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            name = self._widget_name_for_object(obj)
+            if name:
+                self._apply_widget_enter(name)
+                return False
         return super().eventFilter(obj, event)
+
+    def _widget_name_for_object(self, obj) -> str | None:
+        for name, widget in self.widgets.items():
+            if obj is widget:
+                return name
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                try:
+                    if obj is widget.lineEdit():
+                        return name
+                except Exception:
+                    pass
+        return None
+
+    def _apply_widget_enter(self, name: str):
+        genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
+        environment_names = {'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval', 'world_w', 'world_h', 'substrate_shape', 'substrate_radius'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'allow_reverse_locomotion', 'reproduction_min_age', 'reproduction_cooldown', 'show_selected_details', 'debug_tracebacks'}
+        if name == 'agent_template_name':
+            self.params.set(name, self._get_widget_value(name), validate=False)
+        elif name in genetic_names:
+            self._collect_agent_params_from_widgets('bacteria', [name])
+        elif name in environment_names:
+            self.apply_substrate_params()
+        elif name in simulation_names:
+            self.apply_simulation_params()
+        elif name in {'bacteria_count', 'population_min_rescue_enabled'}:
+            self.apply_population_params()
+        elif name in {'auto_export_substrate', 'auto_export_interval_minutes', 'export_substrate_include_brain_activations', 'export_substrate_pretty_json'}:
+            self.params.set(name, self._get_widget_value(name), validate=False)
+            if name in {'auto_export_substrate', 'auto_export_interval_minutes'} and bool(self.params.get('auto_export_substrate', False)):
+                self._reschedule_auto_export()
+        else:
+            self.params.set(name, self._get_widget_value(name), validate=False)
 
     def _on_toggle_brain_activations(self, checked: bool):
         profiler.enabled = checked
@@ -2883,54 +3281,22 @@ class SimulationUI(QMainWindow):
     def apply_population_params(self):
         for name in [
             'bacteria_count',
-            'bacteria_min_limit',
-            'bacteria_max_limit',
-            'predators_enabled',
-            'predator_count',
-            'predator_min_limit',
-            'predator_max_limit',
             'population_min_rescue_enabled',
         ]:
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
-
-        def _trim(entity_key: str, max_key: str) -> int:
-            agents = list(self.engine.entities.get(entity_key, []))
-            max_count = max(0, int(self.params.get(max_key, len(agents))))
-            overflow = len(agents) - max_count
-            if overflow <= 0:
-                return 0
-            victims = set(sorted(
-                agents,
-                key=lambda a: (float(getattr(a, 'energy', 0.0)), float(getattr(a, 'age', 0.0)))
-            )[:overflow])
-            self.engine.entities[entity_key] = [a for a in agents if a not in victims]
-            self.engine.all_agents = [a for a in self.engine.all_agents if a not in victims]
-            self.engine.selected_agents.difference_update(victims)
-            if self.engine.selected_agent in victims:
-                self.engine.selected_agent = next(iter(self.engine.selected_agents), None)
-            if self.engine.dragged_object in victims:
-                self.engine.dragged_object = None
-            return len(victims)
-
-        removed_bacteria = 0
-        removed_predators = 0
-        lock = getattr(self.engine, 'state_lock', None)
-        if lock is not None:
-            with lock:
-                removed_bacteria = _trim('bacteria', 'bacteria_max_limit')
-                removed_predators = _trim('predators', 'predator_max_limit')
-                if removed_bacteria or removed_predators:
-                    self.engine._spatial_hash_dirty = True
-        else:
-            removed_bacteria = _trim('bacteria', 'bacteria_max_limit')
-            removed_predators = _trim('predators', 'predator_max_limit')
-            if removed_bacteria or removed_predators:
-                self.engine._spatial_hash_dirty = True
-        print(
-            "Parametros de populacao aplicados "
-            f"(removidas {removed_bacteria} bacterias e {removed_predators} predadores acima do maximo)"
-        )
+        # Neutraliza os limites antigos por tipo. A partir desta versao os
+        # limites vivos sao por label, para permitir competicao de linhagens.
+        for name, value in {
+            'bacteria_min_limit': 0,
+            'bacteria_max_limit': 0,
+            'predators_enabled': False,
+            'predator_count': 0,
+            'predator_min_limit': 0,
+            'predator_max_limit': 0,
+        }.items():
+            self.params.set(name, value, validate=False)
+        print("Parametros de populacao aplicados; limites vivos ficam na aba Labels")
 
     def apply_simulation_params(self):
         for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
@@ -2971,6 +3337,9 @@ class SimulationUI(QMainWindow):
                 'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
                 'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
                 'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+                'bacteria_retina_channel_r','bacteria_retina_channel_g','bacteria_retina_channel_b','bacteria_retina_channel_d',
+                'bacteria_diet_food','bacteria_diet_agents','bacteria_diet_same_label',
+                'bacteria_diet_food_efficiency','bacteria_diet_agent_efficiency',
                 'bacteria_max_speed','bacteria_hidden_layers','bacteria_mutation_rate',
                 'bacteria_mutation_strength','bacteria_max_turn_deg'
             ]
@@ -2979,6 +3348,9 @@ class SimulationUI(QMainWindow):
             'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
             'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
             'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
+            'predator_retina_channel_r','predator_retina_channel_g','predator_retina_channel_b','predator_retina_channel_d',
+            'predator_diet_food','predator_diet_agents','predator_diet_same_label',
+            'predator_diet_food_efficiency','predator_diet_agent_efficiency',
             'predator_hidden_layers','predator_mutation_rate','predator_mutation_strength','predator_max_turn_deg'
         ]
 
@@ -3001,8 +3373,19 @@ class SimulationUI(QMainWindow):
                 f'{species}_retina_see_food',
                 f'{species}_retina_see_bacteria',
                 f'{species}_retina_see_predators',
+                f'{species}_retina_channel_r',
+                f'{species}_retina_channel_g',
+                f'{species}_retina_channel_b',
+                f'{species}_retina_channel_d',
                 f'{species}_max_speed',
                 f'{species}_max_turn_deg',
+            ],
+            'diet': [
+                f'{species}_diet_food',
+                f'{species}_diet_agents',
+                f'{species}_diet_same_label',
+                f'{species}_diet_food_efficiency',
+                f'{species}_diet_agent_efficiency',
             ],
             'color': [f'{species}_color'],
             'brain': [
@@ -3033,6 +3416,19 @@ class SimulationUI(QMainWindow):
                 continue
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
+        see_org_key = f'{species}_retina_see_bacteria'
+        see_legacy_key = f'{species}_retina_see_predators'
+        if names_set is None or see_org_key in names_set or see_legacy_key in names_set:
+            self.params.set(see_legacy_key, bool(self.params.get(see_org_key, False)), validate=False)
+        channel_keys = [f'{species}_retina_channel_{ch}' for ch in ('r', 'g', 'b', 'd')]
+        if names_set is None or any(key in names_set for key in channel_keys):
+            if not any(bool(self.params.get(key, False)) for key in channel_keys):
+                self.params.set(f'{species}_retina_channel_d', True, validate=False)
+                widget = self.widgets.get(f'{species}_retina_channel_d')
+                if widget is not None:
+                    widget.blockSignals(True)
+                    widget.setChecked(True)
+                    widget.blockSignals(False)
 
     def _desired_agent_brain_sizes(self, species: str) -> tuple[int, ...]:
         if species == 'bacteria':
@@ -3042,7 +3438,8 @@ class SimulationUI(QMainWindow):
             default_hidden_layers = 2
             default_neurons = lambda i: 16 if i == 1 else 8
 
-        input_size = int(self.params.get(f'{species}_retina_count', 18))
+        from .sensors import retina_input_size
+        input_size = retina_input_size(self.params, species, int(self.params.get(f'{species}_retina_count', 18)))
         hidden_layers = int(self.params.get(f'{species}_hidden_layers', default_hidden_layers))
         sizes = [input_size]
         for i in range(1, 6):
@@ -3082,6 +3479,24 @@ class SimulationUI(QMainWindow):
         }
 
     def _target_live_agents(self, species: str, mode: str) -> list[Any]:
+        if species == 'bacteria':
+            if mode == 'all_alive':
+                return list(getattr(self.engine, 'all_agents', []))
+            selected_group = [
+                agent for agent in (getattr(self.engine, 'selected_agents', set()) or set())
+                if agent in getattr(self.engine, 'all_agents', [])
+            ]
+            if selected_group:
+                return selected_group
+            selected = getattr(self.engine, 'selected_agent', None)
+            if selected is None or selected not in getattr(self.engine, 'all_agents', []):
+                try:
+                    QMessageBox.information(self, "Aplicar ao selecionado", "Selecione um organismo.")
+                except Exception:
+                    pass
+                return []
+            return [selected]
+
         is_predator = species == 'predator'
         if mode == 'all_alive':
             key = 'predators' if is_predator else 'bacteria'
@@ -3126,7 +3541,7 @@ class SimulationUI(QMainWindow):
         return changed
 
     def _confirm_agent_brain_rebuild(self, species: str, count: int) -> bool:
-        label = "predadores" if species == 'predator' else "bacterias"
+        label = "predadores legados" if species == 'predator' else "organismos"
         msg = (
             f"{count} {label} tem arquitetura neural diferente do template atual.\n\n"
             "Recriar o cerebro apaga os pesos/aprendizado desses agentes. "
@@ -3165,9 +3580,15 @@ class SimulationUI(QMainWindow):
         sensor_names = {
             f'{species}_vision_radius', f'{species}_retina_count', f'{species}_retina_fov_degrees',
             f'{species}_retina_see_food', f'{species}_retina_see_bacteria', f'{species}_retina_see_predators',
+            f'{species}_retina_channel_r', f'{species}_retina_channel_g', f'{species}_retina_channel_b',
+            f'{species}_retina_channel_d',
             f'{species}_show_vision',
         }
         locomotion_names = {f'{species}_max_speed', f'{species}_max_turn_deg'}
+        diet_names = {
+            f'{species}_diet_food', f'{species}_diet_agents', f'{species}_diet_same_label',
+            f'{species}_diet_food_efficiency', f'{species}_diet_agent_efficiency',
+        }
         brain_names = {f'{species}_hidden_layers', f'{species}_mutation_rate', f'{species}_mutation_strength'} | {
             f'{species}_neurons_layer_{i}' for i in range(1, 6)
         }
@@ -3176,6 +3597,7 @@ class SimulationUI(QMainWindow):
         apply_energy = full_apply or bool(names & energy_names)
         apply_sensor = full_apply or bool(names & sensor_names)
         apply_locomotion = full_apply or bool(names & locomotion_names)
+        apply_diet = full_apply or bool(names & diet_names)
         apply_brain = full_apply or bool(names & brain_names)
 
         for agent in agents:
@@ -3206,6 +3628,16 @@ class SimulationUI(QMainWindow):
                 except Exception:
                     pass
 
+            if apply_diet:
+                try:
+                    agent.diet_food = bool(self.params.get(f'{species}_diet_food', getattr(agent, 'diet_food', True)))
+                    agent.diet_agents = bool(self.params.get(f'{species}_diet_agents', getattr(agent, 'diet_agents', False)))
+                    agent.diet_same_label = bool(self.params.get(f'{species}_diet_same_label', getattr(agent, 'diet_same_label', False)))
+                    agent.diet_food_efficiency = float(self.params.get(f'{species}_diet_food_efficiency', getattr(agent, 'diet_food_efficiency', 1.0)))
+                    agent.diet_agent_efficiency = float(self.params.get(f'{species}_diet_agent_efficiency', getattr(agent, 'diet_agent_efficiency', 0.7)))
+                except Exception:
+                    pass
+
             brain = getattr(agent, 'brain', None)
             current_sizes = tuple(getattr(brain, 'sizes', ()) or ())
             if apply_brain and current_sizes != desired_sizes:
@@ -3219,7 +3651,8 @@ class SimulationUI(QMainWindow):
                 else:
                     stats['brains_kept'] += 1
             elif apply_sensor and not apply_brain and brain is not None and hasattr(brain, 'sizes'):
-                desired_input = int(self.params.get(f'{species}_retina_count', current_sizes[0] if current_sizes else 0))
+                from .sensors import retina_input_size
+                desired_input = retina_input_size(self.params, species, current_sizes[0] if current_sizes else 0)
                 if current_sizes and current_sizes[0] != desired_input and hasattr(brain, 'resize_input'):
                     brain.resize_input(desired_input)
                     brain.version = int(getattr(brain, 'version', 0)) + 1
@@ -3249,7 +3682,7 @@ class SimulationUI(QMainWindow):
             mode = 'template'
 
         self._collect_agent_params_from_widgets(species, param_names)
-        label = "predadores" if species == 'predator' else "bacterias"
+        label = "predadores legados" if species == 'predator' else "organismos"
         if mode == 'template':
             print(f"Parametros de {label} aplicados ao template de novos individuos")
             return
@@ -3296,6 +3729,7 @@ class SimulationUI(QMainWindow):
         labels = {
             'energy': 'metabolismo/energia',
             'body_sensor_motion': 'corpo/sensores/movimento',
+            'diet': 'dieta',
             'color': 'cor',
             'brain': 'cerebro/mutacao',
         }
@@ -3308,7 +3742,7 @@ class SimulationUI(QMainWindow):
         )
 
     def apply_all_params(self):
-        self.apply_population_params(); self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params(); self.apply_predator_params()
+        self.apply_population_params(); self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params()
         for name in [
             'auto_export_substrate',
             'export_substrate_include_brain_activations',
@@ -3753,7 +4187,8 @@ class SimulationUI(QMainWindow):
         brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
         rows = []
         def add(k,v): rows.append({'key':k,'value':v})
-        add('type', 'predator' if getattr(agent,'is_predator', False) else 'bacteria')
+        add('agent_name', self.params.get('agent_template_name', 'organismo_1'))
+        add('type', 'predator' if getattr(agent,'is_predator', False) else 'organism')
         for attr in ['x','y','r','angle','vx','vy','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
         for attr in ['food_eaten_count','food_energy_eaten_total','prey_eaten_count','prey_energy_eaten_total']:
@@ -3779,6 +4214,11 @@ class SimulationUI(QMainWindow):
         if sensor is not None:
             for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators']:
                 if hasattr(sensor, attr): add(f'sensor_{attr}', getattr(sensor, attr))
+            if hasattr(sensor, 'channels'):
+                add('sensor_channels', json.dumps(list(getattr(sensor, 'channels', ('d',)))))
+        for attr in ['diet_food', 'diet_agents', 'diet_same_label', 'diet_food_efficiency', 'diet_agent_efficiency']:
+            if hasattr(agent, attr):
+                add(attr, getattr(agent, attr))
         if locomotion is not None:
             for attr in ['max_speed','max_turn']:
                 if hasattr(locomotion, attr): add(f'locomotion_{attr}', getattr(locomotion, attr))
@@ -3796,6 +4236,9 @@ class SimulationUI(QMainWindow):
                 add('energy_loss_idle', getattr(energy_model, 'v0_cost'))
             if 'vmax_cost' in exported_energy_keys:
                 add('energy_loss_move', getattr(energy_model, 'vmax_cost'))
+        for attr in ['mutation_rate', 'mutation_strength']:
+            key = f"bacteria_{attr}"
+            add(key, self.params.get(key, ''))
         # On-demand activations (recalcula se vazio) para export sem poluir memória runtime
         last_out = getattr(agent,'last_brain_output', [])
         if not last_out and getattr(agent,'brain',None) and getattr(agent,'sensor',None):
@@ -3848,7 +4291,103 @@ class SimulationUI(QMainWindow):
     # Mantemos dados originais; conversão será feita no spawn.
         self.engine.loaded_agent_prototypes[name] = data
         self.engine.current_agent_prototype = name
+        self._apply_agent_data_to_genetic_editor(data, name)
         print(f"Protótipo '{name}' carregado. Clique direito no substrato para inserir instâncias.")
+
+    def _apply_agent_data_to_genetic_editor(self, data: dict, fallback_name: str):
+        """Carrega a genetica do agente no editor sem aplicar nos organismos vivos."""
+        def pick(*keys, default=None):
+            for key in keys:
+                if key in data and data.get(key) not in (None, ''):
+                    return data.get(key)
+            return default
+
+        def as_float(value, default=0.0):
+            try:
+                return float(value)
+            except Exception:
+                return default
+
+        def as_bool(value, default=False):
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            return str(value).strip().lower() in {'1', 'true', 'yes', 'y', 'sim'}
+
+        def set_param(name, value):
+            self.params.set(name, value, validate=False)
+            if name in self.widgets:
+                self._set_widget_value(name, value)
+
+        set_param('agent_template_name', str(pick('agent_name', default=fallback_name) or fallback_name))
+        set_param('bacteria_body_size', as_float(pick('r', default=self.params.get('bacteria_body_size', 9.0)), 9.0))
+        set_param('bacteria_initial_energy', as_float(pick('energy', default=self.params.get('bacteria_initial_energy', 100.0)), 100.0))
+        set_param('bacteria_death_energy', as_float(pick('energy_death_energy', 'death_energy', default=self.params.get('bacteria_death_energy', 50.0)), 50.0))
+        set_param('bacteria_split_energy', as_float(pick('energy_split_energy', 'split_energy', default=self.params.get('bacteria_split_energy', 150.0)), 150.0))
+        set_param('bacteria_metab_v0_cost', as_float(pick('energy_v0_cost', 'metab_v0_cost', 'energy_loss_idle', default=self.params.get('bacteria_metab_v0_cost', 0.5)), 0.5))
+        set_param('bacteria_metab_vmax_cost', as_float(pick('energy_vmax_cost', 'metab_vmax_cost', 'energy_loss_move', default=self.params.get('bacteria_metab_vmax_cost', 8.0)), 8.0))
+        set_param('bacteria_energy_cap', as_float(pick('energy_energy_cap', 'energy_cap', default=self.params.get('bacteria_energy_cap', 400.0)), 400.0))
+        set_param('bacteria_vision_radius', as_float(pick('sensor_vision_radius', default=self.params.get('bacteria_vision_radius', 120.0)), 120.0))
+        set_param('bacteria_retina_count', int(as_float(pick('sensor_retina_count', default=self.params.get('bacteria_retina_count', 18)), 18)))
+        set_param('bacteria_retina_fov_degrees', as_float(pick('sensor_fov_degrees', default=self.params.get('bacteria_retina_fov_degrees', 180.0)), 180.0))
+        set_param('bacteria_retina_see_food', as_bool(pick('sensor_see_food', default=True), True))
+        set_param('bacteria_retina_see_bacteria', as_bool(pick('sensor_see_bacteria', default=False), False))
+        set_param('bacteria_retina_see_predators', as_bool(pick('sensor_see_predators', default=False), False))
+
+        channels = pick('sensor_channels', default='["d"]')
+        if isinstance(channels, str):
+            try:
+                channels = json.loads(channels)
+            except Exception:
+                channels = [channels]
+        channels = {str(ch).lower() for ch in (channels or ['d'])}
+        if not channels:
+            channels = {'d'}
+        for ch in ('r', 'g', 'b', 'd'):
+            set_param(f'bacteria_retina_channel_{ch}', ch in channels)
+
+        set_param('bacteria_max_speed', as_float(pick('locomotion_max_speed', default=self.params.get('bacteria_max_speed', 300.0)), 300.0))
+        max_turn = as_float(pick('locomotion_max_turn', default=self.params.get('bacteria_max_turn', math.pi)), math.pi)
+        self.params.set('bacteria_max_turn', max_turn, validate=False)
+        if 'bacteria_max_turn_deg' in self.widgets:
+            self._set_widget_value('bacteria_max_turn_deg', math.degrees(max_turn))
+
+        set_param('bacteria_diet_food', as_bool(pick('diet_food', default=True), True))
+        set_param('bacteria_diet_agents', as_bool(pick('diet_agents', default=False), False))
+        set_param('bacteria_diet_same_label', as_bool(pick('diet_same_label', default=False), False))
+        set_param('bacteria_diet_food_efficiency', as_float(pick('diet_food_efficiency', default=1.0), 1.0))
+        set_param('bacteria_diet_agent_efficiency', as_float(pick('diet_agent_efficiency', default=0.7), 0.7))
+
+        for key in ('bacteria_mutation_rate', 'bacteria_mutation_strength'):
+            value = pick(key, default=None)
+            if value is not None:
+                set_param(key, as_float(value, self.params.get(key, 0.0)))
+
+        try:
+            color = json.loads(data.get('color', 'null'))
+            if isinstance(color, (list, tuple)) and len(color) >= 3:
+                rgb = (int(color[0]), int(color[1]), int(color[2]))
+                set_param('bacteria_color', rgb)
+                swatch = getattr(self, '_swatch_bacteria', None)
+                if swatch is not None:
+                    swatch.setStyleSheet(f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]}); border:1px solid #333; border-radius:4px;")
+        except Exception:
+            pass
+
+        try:
+            sizes = json.loads(data.get('brain_sizes', '[]'))
+        except Exception:
+            sizes = []
+        if isinstance(sizes, list) and len(sizes) >= 2:
+            hidden = max(1, min(5, len(sizes) - 2))
+            set_param('bacteria_hidden_layers', hidden)
+            for idx in range(1, 6):
+                neurons = int(sizes[idx]) if idx <= hidden and idx < len(sizes) - 1 else 0
+                set_param(f'bacteria_neurons_layer_{idx}', neurons)
+            if hasattr(self, '_bacteria_neuron_widgets'):
+                for idx, spin in enumerate(self._bacteria_neuron_widgets):
+                    spin.setEnabled(idx < hidden)
 
     # ------------------------------------------------------------------
     # Substrate export/import
@@ -3969,7 +4508,7 @@ class SimulationUI(QMainWindow):
             for agent in engine.all_agents:
                 brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
                 ad = {
-                    'type': 'predator' if getattr(agent,'is_predator', False) else 'bacteria',
+                    'type': 'predator' if getattr(agent,'is_predator', False) else 'organism',
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
                     'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0),
                     'last_reproduction_age': getattr(agent, 'last_reproduction_age', None),
@@ -3993,6 +4532,11 @@ class SimulationUI(QMainWindow):
                 if sensor:
                     for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators']:
                         if hasattr(sensor, attr): ad[f'sensor_{attr}'] = getattr(sensor, attr)
+                    if hasattr(sensor, 'channels'):
+                        ad['sensor_channels'] = list(getattr(sensor, 'channels', ('d',)))
+                for attr in ['diet_food', 'diet_agents', 'diet_same_label', 'diet_food_efficiency', 'diet_agent_efficiency']:
+                    if hasattr(agent, attr):
+                        ad[attr] = getattr(agent, attr)
                 if locomotion:
                     for attr in ['max_speed','max_turn']:
                         if hasattr(locomotion, attr): ad[f'locomotion_{attr}'] = getattr(locomotion, attr)
@@ -4092,6 +4636,14 @@ class SimulationUI(QMainWindow):
 
     def _import_substrate(self, path: str):
         import math as _m
+        def _as_bool(value, default=False):
+            if isinstance(value, bool):
+                return value
+            if value is None:
+                return default
+            if isinstance(value, str):
+                return value.strip().lower() in {'1', 'true', 'yes', 'y', 'sim'}
+            return bool(value)
         prev_paused = bool(self._get_widget_value('paused')) if 'paused' in self.widgets else bool(self.params.get('paused', False))
         self._set_paused_state(True)
         state_lock = None
@@ -4131,11 +4683,14 @@ class SimulationUI(QMainWindow):
                     'name': meta.get('name', f'Label {label_id}'),
                     'color': tuple(int(c) for c in color[:3]),
                     'show_chart': bool(meta.get('show_chart', True)),
+                    'min_limit': int(meta.get('min_limit', 0) or 0),
+                    'max_limit': int(meta.get('max_limit', 0) or 0),
                 }
             self.engine._next_agent_label_id = max(
                 int(data.get('next_agent_label_id', 1) or 1),
                 (max(self.engine.agent_labels.keys()) + 1) if self.engine.agent_labels else 1,
             )
+            fallback_label_id = self.engine.ensure_default_agent_label()
             tool_state = data.get('tool_state', {})
             if tool_state:
                 if hasattr(self.pygame_view, 'active_tool'):
@@ -4196,10 +4751,17 @@ class SimulationUI(QMainWindow):
                             brain.weights = bw; brain.biases = bb
                         brain.version = int(ad.get('brain_version', getattr(brain, 'version', 0)))
                     except Exception: pass
+                raw_channels = ad.get('sensor_channels', ('d',))
+                if isinstance(raw_channels, str):
+                    try:
+                        raw_channels = json.loads(raw_channels)
+                    except Exception:
+                        raw_channels = [raw_channels]
                 sensor = RetinaSensor(
                     retina_count=ad.get('sensor_retina_count',18), vision_radius=ad.get('sensor_vision_radius',120.0),
                     fov_degrees=ad.get('sensor_fov_degrees',180.0), skip=ad.get('sensor_skip',0), see_food=ad.get('sensor_see_food',True),
-                    see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False))
+                    see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False),
+                    channels=raw_channels)
                 locomotion = Locomotion(max_speed=ad.get('locomotion_max_speed',300.0), max_turn=ad.get('locomotion_max_turn', _m.pi))
                 # Normalização de chaves de energia (v1 legacy e v2+ dinâmica)
                 def _pick(*names, default=None):
@@ -4223,6 +4785,11 @@ class SimulationUI(QMainWindow):
                 agent.food_energy_eaten_total = float(ad.get('food_energy_eaten_total', 0.0) or 0.0)
                 agent.prey_eaten_count = int(ad.get('prey_eaten_count', 0) or 0)
                 agent.prey_energy_eaten_total = float(ad.get('prey_energy_eaten_total', 0.0) or 0.0)
+                agent.diet_food = _as_bool(ad.get('diet_food', None), getattr(agent, 'diet_food', not getattr(agent, 'is_predator', False)))
+                agent.diet_agents = _as_bool(ad.get('diet_agents', None), getattr(agent, 'diet_agents', getattr(agent, 'is_predator', False)))
+                agent.diet_same_label = _as_bool(ad.get('diet_same_label', None), getattr(agent, 'diet_same_label', False))
+                agent.diet_food_efficiency = float(ad.get('diet_food_efficiency', getattr(agent, 'diet_food_efficiency', 1.0)) or 1.0)
+                agent.diet_agent_efficiency = float(ad.get('diet_agent_efficiency', getattr(agent, 'diet_agent_efficiency', 0.7)) or 0.7)
                 agent.label_ids = set()
                 for value in (ad.get('label_ids', []) or []):
                     try:
@@ -4231,6 +4798,10 @@ class SimulationUI(QMainWindow):
                         continue
                     if label_id in self.engine.agent_labels:
                         agent.label_ids.add(label_id)
+                if not agent.label_ids:
+                    agent.label_ids = {fallback_label_id}
+                    fallback_color = self.engine.agent_labels[fallback_label_id].get('color', agent.color)
+                    agent.color = tuple(fallback_color)
                 agent.last_brain_output = ad.get('last_brain_output', []); agent.last_brain_activations = ad.get('last_brain_activations', [])
                 try:
                     color = ad.get('color')
@@ -4238,6 +4809,10 @@ class SimulationUI(QMainWindow):
                         agent.color = (int(color[0]), int(color[1]), int(color[2]))
                 except Exception:
                     pass
+                if agent.label_ids:
+                    primary_label = next(iter(agent.label_ids))
+                    if primary_label in self.engine.agent_labels:
+                        agent.color = tuple(self.engine.agent_labels[primary_label].get('color', agent.color))
                 if agent.is_predator: self.engine.entities['predators'].append(agent)
                 else: self.engine.entities['bacteria'].append(agent)
                 self.engine.all_agents.append(agent)
