@@ -1309,6 +1309,7 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(view_menu, "Grafico de metricas", 'show_metrics_chart', callback=self._set_metrics_chart_visible)
         self._add_bool_menu_action(view_menu, "Mostrar visao dos organismos", 'bacteria_show_vision')
         self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
+        self._add_bool_menu_action(view_menu, "Ver spatial hash", 'show_spatial_hash')
 
         pref_menu = bar.addMenu("Preferencias")
         self._add_bool_menu_action(pref_menu, "Renderizar", 'render_enabled')
@@ -1754,6 +1755,7 @@ class SimulationUI(QMainWindow):
             'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
             'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
+            'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
             'use_numba_kernels': 'Ativa kernels numericos por arrays/Numba quando disponiveis. Mantem fallback seguro para o caminho antigo.',
             'use_numba_batch_retina': 'Experimental: processa varios agentes no mesmo kernel Numba de retina. Desligado por padrao porque ainda nao ganhou benchmark.',
             'use_numba_locomotion_energy': 'Experimental: aplica Numba tambem na locomocao e energia. Desligado por padrao porque pode ser mais lento em alguns perfis.',
@@ -3447,7 +3449,7 @@ class SimulationUI(QMainWindow):
             'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina',
             'use_numba_locomotion_energy', 'bacteria_show_vision',
             'predator_show_vision', 'show_selected_details',
-            'retina_vision_mode',
+            'show_spatial_hash', 'retina_vision_mode',
         }
 
     def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
@@ -3500,7 +3502,7 @@ class SimulationUI(QMainWindow):
     def _apply_widget_enter(self, name: str):
         genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
         environment_names = {'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval', 'world_w', 'world_h', 'substrate_shape', 'substrate_radius'}
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3618,7 +3620,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -4386,7 +4388,7 @@ class SimulationUI(QMainWindow):
                 }
                 for param_name, default in bool_params.items():
                     rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
-                for menu_param in ['render_enabled', 'simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, True if menu_param == 'render_enabled' else False)}
                 rows_by_name['render_resolution_scale'] = {
                     'name': 'render_resolution_scale',
@@ -4589,7 +4591,7 @@ class SimulationUI(QMainWindow):
                                     cam.zoom = max(0.01, float(value))
                             except Exception:
                                 pass
-                        if name in ['render_enabled', 'simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                        if name in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                             checked = value in ('1', 'True', 'true', 'yes', 'YES')
                             self.params.set(name, checked, validate=False)
                             if name == 'show_metrics_chart':

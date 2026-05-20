@@ -1,10 +1,13 @@
+import math
+
 import pytest
 
 from sim.actuators import EnergyModel, Locomotion
 from sim.brain import NeuralNet
 from sim.controllers import Params
 from sim.entities import Bacteria, Food, _create_bacteria_brain
-from sim.sensors import RetinaSensor, SceneQuery, active_retina_channels, retina_input_size
+from sim.sensors import RetinaSensor, SceneQuery, active_retina_channels, batch_retina_sense, retina_input_size
+from sim.spatial import SpatialHash
 
 
 def test_retina_input_size_follows_enabled_channels():
@@ -122,3 +125,54 @@ def test_retina_input_size_multiplies_by_eye_count():
 
     assert active_retina_channels(params, "bacteria") == ("rd",)
     assert retina_input_size(params, "bacteria") == 12
+
+
+def test_batch_retina_preserves_two_eye_output_order_with_spatial_hash():
+    params = Params()
+    params.set("use_spatial", True, validate=False)
+    params.set("use_numba_kernels", True, validate=False)
+    params.set("retina_vision_mode", "single", validate=False)
+
+    agents = []
+    foods = []
+    for idx in range(4):
+        sensor = RetinaSensor(
+            retina_count=1,
+            vision_radius=80.0,
+            fov_degrees=20.0,
+            channels=("d",),
+            eye_count=2,
+            eye_angle_degrees=60.0,
+            eye_separation_degrees=60.0,
+        )
+        agent = Bacteria(
+            40.0 + idx * 100.0,
+            50.0,
+            4.0,
+            NeuralNet([2, 2]),
+            sensor,
+            Locomotion(),
+            EnergyModel(),
+            angle=0.0,
+        )
+        agents.append(agent)
+        for ray_idx in range(sensor.total_ray_count()):
+            ex, ey, ray_angle = sensor._ray_pose(agent, ray_idx)
+            food = Food(ex + 24.0 * math.cos(ray_angle), ey + 24.0 * math.sin(ray_angle), 2.0)
+            food.type_code = 0
+            foods.append(food)
+
+    spatial = SpatialHash(20.0, 500.0, 120.0)
+    for food in foods:
+        spatial.insert(food, food.x, food.y, food.r)
+    for agent in agents:
+        spatial.insert(agent, agent.x, agent.y, agent.r)
+    scene = SceneQuery(spatial, {"foods": foods, "bacteria": agents, "predators": []}, params)
+
+    values = batch_retina_sense(agents, scene, params)
+
+    assert len(values) == 4
+    for row in values:
+        assert len(row) == 2
+        assert row[0] > 0.0
+        assert row[1] > 0.0

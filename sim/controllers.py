@@ -47,6 +47,7 @@ class Params:
             'retina_vision_mode': 'single',
             'render_enabled': True,
             'simple_render': False,
+            'show_spatial_hash': False,
             'render_resolution_scale': 1.0,
             'use_numba_kernels': True,
             'use_numba_batch_retina': False,

@@ -91,6 +91,7 @@ class Engine:
             self.renderer = None
         else:
             self.renderer = renderer or SimpleRenderer()
+        self._spatial_debug_font = None
 
         # Controle de execução
         self.running = False
@@ -335,6 +336,8 @@ class Engine:
         self._draw_scene_background(surface)
         visible_bounds = self._visible_world_bounds(surface)
         
+        if bool(self.params.get('show_spatial_hash', False)):
+            self._draw_spatial_hash_grid(surface, visible_bounds)
         # Desenha limites do mundo
         if show_world_bounds:
             self._draw_world_bounds(surface)
@@ -1664,6 +1667,80 @@ class Engine:
             rect_h = int(bottom_right[1] - top_left[1])
             if rect_w >= 2 and rect_h >= 2:
                 pygame.draw.rect(surface, border_color, pygame.Rect(rect_x, rect_y, rect_w, rect_h), width=1)
+
+    def _draw_spatial_hash_grid(self, surface, visible_bounds):
+        """Desenha a grade do SpatialHash apenas quando solicitado pela UI."""
+        spatial = self.spatial_hash
+        if spatial is None:
+            return
+        import pygame
+
+        zoom = max(1e-6, float(getattr(self.camera, 'zoom', 1.0)))
+        cell_size = max(1.0, float(getattr(spatial, 'cell_size', 1.0)))
+        spacing_px = cell_size * zoom
+        if spacing_px < 2.0:
+            return
+
+        min_x = float(getattr(spatial, 'min_x', 0.0))
+        min_y = float(getattr(spatial, 'min_y', 0.0))
+        width = float(getattr(spatial, 'width', self.world.width))
+        height = float(getattr(spatial, 'height', self.world.height))
+        cols = max(1, int(getattr(spatial, 'cols', math.ceil(width / cell_size))))
+        rows = max(1, int(getattr(spatial, 'rows', math.ceil(height / cell_size))))
+        max_x = min_x + width
+        max_y = min_y + height
+        view_min_x, view_min_y, view_max_x, view_max_y = visible_bounds
+        if max_x < view_min_x or min_x > view_max_x or max_y < view_min_y or min_y > view_max_y:
+            return
+
+        color = (90, 140, 180)
+        major_color = (120, 175, 220)
+        alpha = 80
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
+
+        first_col = max(0, int(math.floor((view_min_x - min_x) / cell_size)))
+        last_col = min(cols, int(math.ceil((view_max_x - min_x) / cell_size)))
+        first_row = max(0, int(math.floor((view_min_y - min_y) / cell_size)))
+        last_row = min(rows, int(math.ceil((view_max_y - min_y) / cell_size)))
+
+        top_screen = int((max(min_y, view_min_y) - self.camera.y) * zoom)
+        bottom_screen = int((min(max_y, view_max_y) - self.camera.y) * zoom)
+        left_screen = int((max(min_x, view_min_x) - self.camera.x) * zoom)
+        right_screen = int((min(max_x, view_max_x) - self.camera.x) * zoom)
+        top_screen = max(-1, min(surface.get_height() + 1, top_screen))
+        bottom_screen = max(-1, min(surface.get_height() + 1, bottom_screen))
+        left_screen = max(-1, min(surface.get_width() + 1, left_screen))
+        right_screen = max(-1, min(surface.get_width() + 1, right_screen))
+
+        for col in range(first_col, last_col + 1):
+            x = min_x + col * cell_size
+            sx = int((x - self.camera.x) * zoom)
+            c = major_color if col % 5 == 0 else color
+            pygame.draw.line(overlay, (*c, alpha), (sx, top_screen), (sx, bottom_screen), 1)
+        for row in range(first_row, last_row + 1):
+            y = min_y + row * cell_size
+            sy = int((y - self.camera.y) * zoom)
+            c = major_color if row % 5 == 0 else color
+            pygame.draw.line(overlay, (*c, alpha), (left_screen, sy), (right_screen, sy), 1)
+
+        surface.blit(overlay, (0, 0))
+
+        if self._spatial_debug_font is None:
+            try:
+                self._spatial_debug_font = pygame.font.SysFont("Consolas", 13)
+            except Exception:
+                self._spatial_debug_font = False
+        if self._spatial_debug_font:
+            stats = spatial.get_stats() if hasattr(spatial, 'get_stats') else {}
+            text = (
+                f"SpatialHash celula={cell_size:.1f}u ({spacing_px:.1f}px) "
+                f"grid={cols}x{rows} ocupadas={stats.get('occupied_cells', 0)}"
+            )
+            label = self._spatial_debug_font.render(text, True, (210, 235, 255))
+            bg = pygame.Surface((label.get_width() + 10, label.get_height() + 6), pygame.SRCALPHA)
+            bg.fill((6, 18, 26, 170))
+            bg.blit(label, (5, 3))
+            surface.blit(bg, (8, surface.get_height() - bg.get_height() - 8))
     
     def _gather_render_info(self) -> Dict[str, Any]:
         """Coleta informações para renderização."""
