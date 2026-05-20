@@ -152,7 +152,7 @@ class PygameView:
                     self.engine.step(real_dt)
             
             # Renderiza
-            if self.screen:
+            if self.screen and bool(self.engine.params.get('render_enabled', True)):
                 if state_lock is None:
                     self._render_frame()
                 else:

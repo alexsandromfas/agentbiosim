@@ -1264,6 +1264,8 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
 
         pref_menu = bar.addMenu("Preferencias")
+        self._add_bool_menu_action(pref_menu, "Renderizar", 'render_enabled')
+        pref_menu.addSeparator()
         act_sim_options = QAction("Opcoes de simulacao", self)
         act_sim_options.triggered.connect(self.open_simulation_options_window)
         pref_menu.addAction(act_sim_options)
@@ -1505,6 +1507,7 @@ class SimulationUI(QMainWindow):
         g_perf.setStyleSheet(card_style)
         grid = QGridLayout(g_perf)
         row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('render_enabled', True)); row = self._add_grid_param(grid, row, "Renderizar:", 'render_enabled', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
         w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
         w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
@@ -1696,6 +1699,7 @@ class SimulationUI(QMainWindow):
             'retina_skip': 'Quantidade de frames que cada retina pode reutilizar a leitura anterior. Aumentar melhora desempenho, mas reduz precisao temporal da percepcao.',
             'random_seed': 'Seed do gerador aleatorio. Use -1 para aleatorio; use um numero fixo para repetir experimentos com o mesmo ponto de partida.',
             'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
+            'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'use_numba_kernels': 'Ativa kernels numericos por arrays/Numba quando disponiveis. Mantem fallback seguro para o caminho antigo.',
             'use_numba_batch_retina': 'Experimental: processa varios agentes no mesmo kernel Numba de retina. Desligado por padrao porque ainda nao ganhou benchmark.',
@@ -2734,6 +2738,10 @@ class SimulationUI(QMainWindow):
         add_perf("Visão retinas:", 'retina_vision_mode', mode_cb)
 
         cb = QCheckBox()
+        cb.setChecked(self.params.get('render_enabled', True))
+        add_perf("Renderizar:", 'render_enabled', cb)
+
+        cb = QCheckBox()
         cb.setChecked(self.params.get('simple_render', False))
         add_perf("Renderização simples:", 'simple_render', cb)
 
@@ -3257,7 +3265,7 @@ class SimulationUI(QMainWindow):
         return {
             'time_scale', 'fps', 'paused', 'physics_steps_per_second',
             'max_physics_steps_per_frame', 'max_physics_backlog_seconds',
-            'simple_render', 'use_numba_kernels', 'use_numba_batch_retina',
+            'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina',
             'use_numba_locomotion_energy', 'bacteria_show_vision',
             'predator_show_vision', 'show_selected_details',
             'retina_vision_mode',
@@ -3313,7 +3321,7 @@ class SimulationUI(QMainWindow):
     def _apply_widget_enter(self, name: str):
         genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
         environment_names = {'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval', 'world_w', 'world_h', 'substrate_shape', 'substrate_radius'}
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'allow_reverse_locomotion', 'reproduction_min_age', 'reproduction_cooldown', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'allow_reverse_locomotion', 'reproduction_min_age', 'reproduction_cooldown', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3431,7 +3439,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -4151,8 +4159,8 @@ class SimulationUI(QMainWindow):
                 }
                 for param_name, default in bool_params.items():
                     rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
-                for menu_param in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
-                    rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, False)}
+                for menu_param in ['render_enabled', 'simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                    rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, True if menu_param == 'render_enabled' else False)}
                 rows_by_name['render_resolution_scale'] = {
                     'name': 'render_resolution_scale',
                     'value': self.params.get('render_resolution_scale', 1.0),
@@ -4357,7 +4365,7 @@ class SimulationUI(QMainWindow):
                                     cam.zoom = max(0.01, float(value))
                             except Exception:
                                 pass
-                        if name in ['simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                        if name in ['render_enabled', 'simple_render', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                             checked = value in ('1', 'True', 'true', 'yes', 'YES')
                             self.params.set(name, checked, validate=False)
                             if name == 'show_metrics_chart':

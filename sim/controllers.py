@@ -45,6 +45,7 @@ class Params:
             # 'single' = fast centroid approximation, kept as compatibility default.
             # 'fullbody' = geometric ray/body intersection for stricter experiments.
             'retina_vision_mode': 'single',
+            'render_enabled': True,
             'simple_render': False,
             'render_resolution_scale': 1.0,
             'use_numba_kernels': True,
