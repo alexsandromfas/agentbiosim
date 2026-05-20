@@ -73,3 +73,20 @@ def test_biosim_snapshot_roundtrip_preserves_core_state(tmp_path: Path):
     assert len(target.obstacles) == len(source.obstacles)
     assert target.current_agent_prototype == "demo"
     assert target.selected_agent is target.all_agents[0]
+
+
+def test_autosave_writes_full_biosim_snapshot(tmp_path: Path):
+    source = _engine()
+    ui = _ui(source)
+    ui._get_substrate_dirs = lambda: (str(tmp_path / "manual"), str(tmp_path / "autosaves"))
+
+    path = ui._export_substrate(manual=False, file_type="biosim", apply_current_params=False)
+
+    assert path.endswith(".biosim")
+    assert (tmp_path / "autosaves").exists()
+    assert Path(path).exists()
+    import json
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    assert data["file_type"] == "biosim"
+    assert len(data["agents"]) == len(source.all_agents)
+    assert "loaded_agent_prototypes" in data

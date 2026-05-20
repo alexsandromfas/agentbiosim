@@ -396,6 +396,14 @@ class Agent(Entity):
                 setattr(child, attr, getattr(self, attr))
             except Exception:
                 pass
+        parent_energy = getattr(self, 'energy_model', None)
+        child_energy_model = getattr(child, 'energy_model', None)
+        if parent_energy is not None and child_energy_model is not None:
+            for attr in ("age_death_enabled", "death_age", "corpse_to_food"):
+                try:
+                    setattr(child_energy_model, attr, getattr(parent_energy, attr))
+                except Exception:
+                    pass
         child.label_ids = set(getattr(self, 'label_ids', set()) or set())
         if params.get('debug_reproduction_color', False):
             print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
@@ -482,7 +490,10 @@ class Bacteria(Agent):
             v0_cost=params.get('bacteria_metab_v0_cost', 0.5),
             vmax_cost=params.get('bacteria_metab_vmax_cost', 8.0),
             vmax_ref=params.get('bacteria_max_speed',300.0),
-            energy_cap=params.get('bacteria_energy_cap', 400.0)
+            energy_cap=params.get('bacteria_energy_cap', 400.0),
+            age_death_enabled=params.get('bacteria_age_death_enabled', False),
+            death_age=params.get('bacteria_death_age', 3600.0),
+            corpse_to_food=params.get('bacteria_corpse_to_food', False),
         )
 
 
@@ -537,7 +548,10 @@ class Predator(Agent):
             v0_cost=params.get('predator_metab_v0_cost', 1.0),
             vmax_cost=params.get('predator_metab_vmax_cost', 15.0),
             vmax_ref=params.get('predator_max_speed',300.0),
-            energy_cap=params.get('predator_energy_cap', 600.0)
+            energy_cap=params.get('predator_energy_cap', 600.0),
+            age_death_enabled=params.get('predator_age_death_enabled', False),
+            death_age=params.get('predator_death_age', 3600.0),
+            corpse_to_food=params.get('predator_corpse_to_food', False),
         )
 
 
@@ -784,7 +798,10 @@ def _create_bacteria_energy_model(params: 'Params'):
     v0_cost=params.get('bacteria_metab_v0_cost', 0.5),
     vmax_cost=params.get('bacteria_metab_vmax_cost', 8.0),
     vmax_ref=params.get('bacteria_max_speed',300.0),
-    energy_cap=params.get('bacteria_energy_cap', 400.0)
+    energy_cap=params.get('bacteria_energy_cap', 400.0),
+    age_death_enabled=params.get('bacteria_age_death_enabled', False),
+    death_age=params.get('bacteria_death_age', 3600.0),
+    corpse_to_food=params.get('bacteria_corpse_to_food', False),
     )
 
 
@@ -844,5 +861,8 @@ def _create_predator_energy_model(params: 'Params'):
     v0_cost=params.get('predator_metab_v0_cost', 1.0),
     vmax_cost=params.get('predator_metab_vmax_cost', 15.0),
     vmax_ref=params.get('predator_max_speed',300.0),
-    energy_cap=params.get('predator_energy_cap', 600.0)
+    energy_cap=params.get('predator_energy_cap', 600.0),
+    age_death_enabled=params.get('predator_age_death_enabled', False),
+    death_age=params.get('predator_death_age', 3600.0),
+    corpse_to_food=params.get('predator_corpse_to_food', False),
     )

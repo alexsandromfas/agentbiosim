@@ -128,7 +128,7 @@ class PygameView:
             self.engine.renderer = SimpleRenderer()
         else:
             self.engine.renderer = EllipseRenderer()
-    
+
     def run(self):
         """Loop principal da view."""
         self.running = True
@@ -178,7 +178,7 @@ class PygameView:
                 for x, y in (self.engine.camera.world_to_screen(px, py) for px, py in self.selection_lasso_points)
             ]
             pygame.draw.lines(self.screen, color, False, points, width=2)
-    
+
     def stop(self):
         """Para a view."""
         self.running = False
@@ -248,6 +248,8 @@ class PygameView:
                 self.engine.send_command('add_food', world_x=world_x, world_y=world_y)
             elif self.active_tool == 'agent':
                 self.engine.send_command('spawn_loaded_agent', world_x=world_x, world_y=world_y)
+            elif self.active_tool == 'pipette':
+                self.engine.send_command('pipette_agent', world_x=world_x, world_y=world_y)
             elif self.active_tool == 'draw':
                 self.drawing_obstacle = True
                 self.last_brush_world_pos = (world_x, world_y)

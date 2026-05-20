@@ -268,7 +268,8 @@ class SimulationUI(QMainWindow):
         self._ui_params_csv = os.path.join(root_dir, 'config', 'user_params.csv')
         self._legacy_ui_params_csv = os.path.join(os.path.dirname(__file__), 'ui_params.csv')
 
-        self.setWindowTitle("AgentBioSim V1.0.0")
+        self._app_title = "AgentBioSim V1.0.0"
+        self.setWindowTitle(f"{self._app_title} - Sem salvar")
         # Define icon from project assets (only for main UI window)
         try:
             icon_path = os.path.join(os.path.dirname(__file__), '..', 'assets', 'icon.png')
@@ -281,6 +282,7 @@ class SimulationUI(QMainWindow):
         self.resize(1400, 860)
 
         self.widgets: Dict[str, QWidget] = {}
+        self._live_param_signals_ready = False
         self._auto_export_timer: QTimer | None = None
         self._diagnostic_timer: QTimer | None = None
         self._recovery_snapshot_saved = False
@@ -293,8 +295,13 @@ class SimulationUI(QMainWindow):
         self._chart_metric_checkboxes: dict[str, QCheckBox] = {}
         self._chart_intake_cache: dict[int, dict[Any, dict[str, float]]] = {}
         self._chart_group_smart_ema: dict[int, float] = {}
+        self._ui_params_autosave_ready = False
+        self._ui_params_save_timer = QTimer(self)
+        self._ui_params_save_timer.setSingleShot(True)
+        self._ui_params_save_timer.timeout.connect(lambda: self.save_ui_params(silent=True))
 
         self._build_layout()
+        self._update_window_title()
         self._build_tabs()
         self._load_ui_params_csv()  # load after widget creation so we can set values
         if 'obstacle_brush_width' in self.widgets:
@@ -304,7 +311,10 @@ class SimulationUI(QMainWindow):
         self._build_menu_bar()
         self._setup_keyboard_shortcuts()
         self._setup_live_param_signals()
+        self._live_param_signals_ready = True
+        self._ui_params_autosave_ready = True
         self._start_diagnostic_heartbeat()
+        self._start_prototype_sync_timer()
         log_event("UI_CREATED")
 
         # Embed pygame view (defer until shown)
@@ -624,6 +634,7 @@ class SimulationUI(QMainWindow):
             spin.blockSignals(True)
             spin.setValue(value)
             spin.blockSignals(False)
+        self._schedule_ui_params_save()
 
     def _on_time_scale_slider_changed(self, raw_value: int):
         self._set_time_scale_value(float(raw_value) / 100.0)
@@ -715,10 +726,12 @@ class SimulationUI(QMainWindow):
             action.blockSignals(True)
             action.setChecked(int(action_seconds) == seconds)
             action.blockSignals(False)
+        self._schedule_ui_params_save()
 
     def _on_chart_window_changed(self):
         value = self._chart_window_combo.currentData()
         self.metrics_chart.set_time_window_seconds(None if int(value) < 0 else int(value))
+        self._schedule_ui_params_save()
 
     def _build_selected_agent_panel(self) -> QWidget:
         panel = QWidget()
@@ -974,6 +987,7 @@ class SimulationUI(QMainWindow):
                 chart = state.get('metrics_chart')
                 if chart is not None:
                     chart.set_history(state.setdefault('_metrics_history', []))
+        self._schedule_ui_params_save()
 
     def _update_selected_agent_panel(self):
         panel = getattr(self, 'agent_details_panel', None)
@@ -1105,6 +1119,7 @@ class SimulationUI(QMainWindow):
         layout.addWidget(QLabel("Ferramentas"))
         add_tool('food', 'F', 'Comida: clique esquerdo adiciona comida.')
         add_tool('agent', 'A', 'Agente importado: clique esquerdo insere o agente carregado.')
+        add_tool('pipette', '', 'Pipeta: clique em um organismo para copiar todo o agente para o editor genetico.', os.path.join(asset_dir, 'pipette.png'))
         icon_path = os.path.join(asset_dir, 'draw_icon.png')
         add_tool('draw', 'P', 'Pincel: desenha barreiras solidas no substrato.', icon_path=icon_path)
         add_tool('move', 'M', 'Mover: clique e arraste comida ou organismos.')
@@ -1150,13 +1165,47 @@ class SimulationUI(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
+    def _update_window_title(self):
+        state = object.__getattribute__(self, '__dict__')
+        path = state.get('_current_biosim_path')
+        save_name = os.path.basename(path) if path else "Sem salvar"
+        title = f"{state.get('_app_title', 'AgentBioSim')} - {save_name}"
+        try:
+            self.setWindowTitle(title)
+        except RuntimeError:
+            return
+        try:
+            import pygame
+            if pygame.display.get_init():
+                pygame.display.set_caption(title)
+        except Exception:
+            pass
+
+    def _start_prototype_sync_timer(self):
+        self._last_applied_prototype_revision = int(getattr(self.engine, '_prototype_revision', 0) or 0)
+        self._prototype_sync_timer = QTimer(self)
+        self._prototype_sync_timer.timeout.connect(self._sync_editor_from_current_prototype)
+        self._prototype_sync_timer.start(500)
+
+    def _sync_editor_from_current_prototype(self):
+        revision = int(getattr(self.engine, '_prototype_revision', 0) or 0)
+        if revision == getattr(self, '_last_applied_prototype_revision', None):
+            return
+        name = getattr(self.engine, 'current_agent_prototype', None)
+        data = getattr(self.engine, 'loaded_agent_prototypes', {}).get(name)
+        if data:
+            self._apply_agent_data_to_genetic_editor(data, str(name))
+            self._last_applied_prototype_revision = revision
+
     def _update_brush_width(self, value: float):
         if hasattr(self.pygame_view, 'brush_width'):
             self.pygame_view.brush_width = float(value)
+        self._schedule_ui_params_save()
 
     def _update_brush_erase(self):
         if hasattr(self.pygame_view, 'brush_erase'):
             self.pygame_view.brush_erase = bool(self.widgets['obstacle_brush_erase'].isChecked())
+        self._schedule_ui_params_save()
 
     def _pick_brush_color(self):
         current = getattr(self.pygame_view, 'brush_color', (95, 95, 105))
@@ -1164,6 +1213,7 @@ class SimulationUI(QMainWindow):
         if col.isValid():
             self.pygame_view.brush_color = (col.red(), col.green(), col.blue())
             self._refresh_brush_color_swatch()
+            self._schedule_ui_params_save()
 
     def _refresh_brush_color_swatch(self):
         color = getattr(self.pygame_view, 'brush_color', (95, 95, 105))
@@ -1175,7 +1225,6 @@ class SimulationUI(QMainWindow):
         """Construct all tabs in a fixed order."""
         self._build_tab_genetic_editor()
         self._build_tab_environment()
-        self._build_tab_experiment()
         self._build_tab_labels()
 
     def _build_menu_bar(self):
@@ -1201,10 +1250,6 @@ class SimulationUI(QMainWindow):
         act_import_sub = QAction("Importar substrato JSON", self)
         act_import_sub.triggered.connect(self.open_import_substrate_window)
         file_menu.addAction(act_import_sub)
-        file_menu.addSeparator()
-        act_save_params = QAction("Salvar preferencias da UI", self)
-        act_save_params.triggered.connect(self.save_ui_params)
-        file_menu.addAction(act_save_params)
 
         view_menu = bar.addMenu("View")
         self._add_bool_menu_action(view_menu, "Renderizacao simples", 'simple_render')
@@ -1219,10 +1264,13 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
 
         pref_menu = bar.addMenu("Preferencias")
-        self._add_bool_menu_action(pref_menu, "Auto exportar substrato", 'auto_export_substrate', callback=self._on_auto_export_menu_toggled)
-        self._add_bool_menu_action(pref_menu, "Exportar ativacoes neurais nos snapshots", 'export_substrate_include_brain_activations')
-        self._add_bool_menu_action(pref_menu, "JSON manual legivel", 'export_substrate_pretty_json')
-        self._add_bool_menu_action(pref_menu, "Tracebacks no debug", 'debug_tracebacks')
+        act_sim_options = QAction("Opcoes de simulacao", self)
+        act_sim_options.triggered.connect(self.open_simulation_options_window)
+        pref_menu.addAction(act_sim_options)
+        act_autosave = QAction("Autosave", self)
+        act_autosave.triggered.connect(self.open_autosave_window)
+        pref_menu.addAction(act_autosave)
+        pref_menu.addSeparator()
         act_appearance = QAction("Aparencia do ambiente", self)
         act_appearance.triggered.connect(self.open_environment_appearance_window)
         pref_menu.addAction(act_appearance)
@@ -1230,9 +1278,6 @@ class SimulationUI(QMainWindow):
         self._build_chart_sampling_menu(chart_menu)
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
         self._build_render_resolution_menu(render_menu)
-        act_pref_tab = QAction("Abrir aba Experimento", self)
-        act_pref_tab.triggered.connect(lambda: self.tabs.setCurrentIndex(2))
-        pref_menu.addAction(act_pref_tab)
 
         agent_menu = bar.addMenu("Agente")
         act_export_agent = QAction("Exportar agente selecionado", self)
@@ -1299,6 +1344,7 @@ class SimulationUI(QMainWindow):
             action.blockSignals(True)
             action.setChecked(abs(float(action_scale) - scale) < 1e-6)
             action.blockSignals(False)
+        self._schedule_ui_params_save()
 
     def _color_from_param(self, name: str, fallback=(10, 10, 20)) -> QColor:
         value = self.params.get(name, fallback)
@@ -1334,6 +1380,7 @@ class SimulationUI(QMainWindow):
             if param_name == 'background_color_top':
                 self.params.set('substrate_bg_color', value, validate=False)
             self._set_color_swatch(swatch, chosen)
+            self._schedule_ui_params_save()
 
         btn.clicked.connect(pick)
         row.addWidget(swatch)
@@ -1367,7 +1414,7 @@ class SimulationUI(QMainWindow):
         bg_layout = QVBoxLayout(bg_box)
         cb_bg_grad = QCheckBox("Usar gradiente vertical")
         cb_bg_grad.setChecked(bool(self.params.get('background_gradient_enabled', False)))
-        cb_bg_grad.toggled.connect(lambda checked: self.params.set('background_gradient_enabled', bool(checked), validate=False))
+        cb_bg_grad.toggled.connect(lambda checked: self._set_param_and_schedule('background_gradient_enabled', bool(checked), validate=False))
         bg_layout.addWidget(cb_bg_grad)
         bg_layout.addLayout(self._make_color_picker_row("Cor superior / solida:", 'background_color_top', (10, 10, 20)))
         bg_layout.addLayout(self._make_color_picker_row("Cor inferior:", 'background_color_bottom', (10, 10, 20)))
@@ -1377,7 +1424,7 @@ class SimulationUI(QMainWindow):
         sub_layout = QVBoxLayout(sub_box)
         cb_sub_grad = QCheckBox("Usar gradiente vertical")
         cb_sub_grad.setChecked(bool(self.params.get('substrate_gradient_enabled', False)))
-        cb_sub_grad.toggled.connect(lambda checked: self.params.set('substrate_gradient_enabled', bool(checked), validate=False))
+        cb_sub_grad.toggled.connect(lambda checked: self._set_param_and_schedule('substrate_gradient_enabled', bool(checked), validate=False))
         sub_layout.addWidget(cb_sub_grad)
         sub_layout.addLayout(self._make_color_picker_row("Cor superior / solida:", 'substrate_color_top', (10, 10, 20)))
         sub_layout.addLayout(self._make_color_picker_row("Cor inferior:", 'substrate_color_bottom', (10, 10, 20)))
@@ -1387,7 +1434,7 @@ class SimulationUI(QMainWindow):
         border_layout = QVBoxLayout(border_box)
         cb_border = QCheckBox("Mostrar borda")
         cb_border.setChecked(bool(self.params.get('substrate_border_enabled', True)))
-        cb_border.toggled.connect(lambda checked: self.params.set('substrate_border_enabled', bool(checked), validate=False))
+        cb_border.toggled.connect(lambda checked: self._set_param_and_schedule('substrate_border_enabled', bool(checked), validate=False))
         border_layout.addWidget(cb_border)
         border_layout.addLayout(self._make_color_picker_row("Cor da borda:", 'substrate_border_color', (40, 200, 40)))
         layout.addWidget(border_box)
@@ -1400,6 +1447,127 @@ class SimulationUI(QMainWindow):
         close_btn = QPushButton("Fechar")
         close_btn.clicked.connect(dlg.close)
         layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
+        dlg.show()
+
+    def _preferences_dialog_style(self) -> str:
+        return (
+            "QDialog { background:#171a1f; color:#dce7f3; } "
+            "QGroupBox { border:1px solid #4a4f58; border-radius:8px; margin-top:24px; padding:8px; } "
+            "QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; "
+            "margin-left:10px; padding:2px 8px; background:#262b31; color:#cfe1f5; } "
+            "QLabel, QCheckBox { color:#dce7f3; }"
+        )
+
+    def _make_preferences_dialog(self, attr_name: str, title: str, minimum_width: int = 520) -> tuple[QDialog, QVBoxLayout] | None:
+        existing = getattr(self, attr_name, None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            return None
+
+        dlg = QDialog(self)
+        setattr(self, attr_name, dlg)
+        dlg.setWindowTitle(title)
+        dlg.setMinimumWidth(minimum_width)
+        dlg.setStyleSheet(self._preferences_dialog_style())
+
+        root = QVBoxLayout(dlg)
+        root.setContentsMargins(10, 10, 10, 10)
+        root.setSpacing(8)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        root.addWidget(scroll)
+        content = QWidget()
+        scroll.setWidget(content)
+        layout = QVBoxLayout(content)
+        layout.setContentsMargins(2, 2, 2, 12)
+        layout.setSpacing(14)
+        return dlg, layout
+
+    def open_simulation_options_window(self):
+        created = self._make_preferences_dialog('_simulation_options_dialog', "Opcoes de simulacao", 560)
+        if created is None:
+            return
+        dlg, layout = created
+        card_style = self._card_style()
+
+        g_time = QGroupBox("Tempo & Execucao")
+        g_time.setStyleSheet(card_style)
+        grid = QGridLayout(g_time)
+        row = 0
+        w = _spin_int(1, 240); w.setValue(self.params.get('fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
+        w = _spin_int(5, 1000); w.setValue(self.params.get('physics_steps_per_second', 30)); row = self._add_grid_param(grid, row, "Fisica fixa (Hz):", 'physics_steps_per_second', w)
+        w = _spin_int(1, 1000); w.setValue(self.params.get('max_physics_steps_per_frame', 8)); row = self._add_grid_param(grid, row, "Substeps max/frame:", 'max_physics_steps_per_frame', w)
+        w = _spin_double(0.0, 60.0, 0.25, 2); w.setValue(self.params.get('max_physics_backlog_seconds', 0.25)); row = self._add_grid_param(grid, row, "Atraso max fisico (s):", 'max_physics_backlog_seconds', w)
+        layout.addWidget(g_time)
+
+        g_perf = QGroupBox("Performance & Determinismo")
+        g_perf.setStyleSheet(card_style)
+        grid = QGridLayout(g_perf)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
+        w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
+        w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
+        mode = QComboBox(); mode.addItems(['single', 'fullbody']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
+        cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
+        w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get('allow_reverse_locomotion', False)); row = self._add_grid_param(grid, row, "Permitir marcha re:", 'allow_reverse_locomotion', cb)
+        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_min_age', 0.0)); row = self._add_grid_param(grid, row, "Idade min. reproducao:", 'reproduction_min_age', w)
+        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_cooldown', 0.0)); row = self._add_grid_param(grid, row, "Cooldown reproducao:", 'reproduction_cooldown', w)
+        layout.addWidget(g_perf)
+
+        g_actions = QGroupBox("Acoes")
+        g_actions.setStyleSheet(card_style)
+        actions = QHBoxLayout(g_actions)
+        btn_apply = QPushButton("Aplicar opcoes")
+        btn_apply.clicked.connect(self.apply_simulation_params)
+        actions.addWidget(btn_apply)
+        layout.addWidget(g_actions)
+        layout.addStretch(1)
+
+        dlg.show()
+
+    def open_autosave_window(self):
+        created = self._make_preferences_dialog('_autosave_dialog', "Autosave", 520)
+        if created is None:
+            return
+        dlg, layout = created
+        card_style = self._card_style()
+
+        g_auto = QGroupBox("Autosave de simulacao")
+        g_auto.setStyleSheet(card_style)
+        grid = QGridLayout(g_auto)
+        row = 0
+        cb = QCheckBox()
+        cb.setChecked(bool(self.params.get('auto_export_substrate', False)))
+        cb.toggled.connect(self._on_toggle_auto_export)
+        row = self._add_grid_param(grid, row, "Ativar autosave:", 'auto_export_substrate', cb)
+        w = _spin_double(0.1, 1440.0, 0.5, 2)
+        w.setValue(self.params.get('auto_export_interval_minutes', 10.0))
+        row = self._add_grid_param(grid, row, "Intervalo autosave (min):", 'auto_export_interval_minutes', w)
+        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations', False)); row = self._add_grid_param(grid, row, "Salvar ativacoes neurais:", 'export_substrate_include_brain_activations', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_pretty_json', False)); row = self._add_grid_param(grid, row, "JSON legivel manual:", 'export_substrate_pretty_json', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks', False)); row = self._add_grid_param(grid, row, "Tracebacks no debug:", 'debug_tracebacks', cb)
+        def _on_interval_changed(_):
+            self.params.set('auto_export_interval_minutes', self._get_widget_value('auto_export_interval_minutes'), validate=False)
+            self._schedule_ui_params_save()
+            if self._is_autosave_enabled():
+                self._reschedule_auto_export()
+        w.valueChanged.connect(_on_interval_changed)
+        layout.addWidget(g_auto)
+
+        hint = QLabel("O autosave salva um projeto .biosim completo: agentes, comidas, obstaculos, camera, parametros e estado da simulacao.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#9fb1c4;")
+        layout.addWidget(hint)
+
+        actions = QHBoxLayout()
+        btn_apply = QPushButton("Aplicar autosave")
+        btn_apply.clicked.connect(self.apply_autosave_params)
+        actions.addWidget(btn_apply)
+        layout.addLayout(actions)
+        layout.addStretch(1)
+
         dlg.show()
 
     def _add_bool_menu_action(self, menu, text: str, param_name: str, callback=None):
@@ -1420,6 +1588,7 @@ class SimulationUI(QMainWindow):
         self.params.set(name, bool(checked), validate=False)
         if name == 'simple_render':
             self.engine.send_command('change_renderer', simple=bool(checked))
+        self._schedule_ui_params_save()
 
     def _on_auto_export_menu_toggled(self, checked: bool):
         widget = self.widgets.get('auto_export_substrate')
@@ -1432,6 +1601,7 @@ class SimulationUI(QMainWindow):
         elif self._auto_export_timer:
             self._auto_export_timer.stop()
             self._auto_export_timer = None
+        self._schedule_ui_params_save()
 
     # ---------------------- Widget value helpers ----------------------
     def _set_widget_value(self, name: str, value: Any):
@@ -1538,10 +1708,10 @@ class SimulationUI(QMainWindow):
             'show_selected_details': 'Mostra o painel lateral do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
             'enable_brain_activations': 'Habilita calculo e exibicao das ativacoes neurais do agente selecionado. E util para diagnostico, mas tem custo extra.',
             'debug_tracebacks': 'Mostra tracebacks completos em erros da UI. Use para depurar; desligado deixa mensagens mais curtas.',
-            'auto_export_substrate': 'Ativa salvamento automatico de snapshots do substrato em intervalos regulares.',
-            'auto_export_interval_minutes': 'Intervalo, em minutos, entre exports automaticos do substrato.',
-            'export_substrate_include_brain_activations': 'Inclui ativacoes neurais no snapshot exportado. Aumenta o arquivo e o custo de exportacao.',
-            'export_substrate_pretty_json': 'Exporta JSON manual com indentacao legivel. Facilita inspecao humana, mas gera arquivos maiores.',
+            'auto_export_substrate': 'Ativa autosave de projeto .biosim completo em intervalos regulares.',
+            'auto_export_interval_minutes': 'Intervalo, em minutos, entre autosaves da simulacao completa.',
+            'export_substrate_include_brain_activations': 'Inclui ativacoes neurais no save. Aumenta o arquivo e o custo de salvamento.',
+            'export_substrate_pretty_json': 'Salva JSON com indentacao legivel. Facilita inspecao humana, mas gera arquivos maiores.',
             'food_target': 'Quantidade alvo de comida. O controlador tenta repor comida ate aproximar esse valor.',
             'food_min_r': 'Raio minimo da comida nova. Afeta tamanho visual e energia disponivel por item.',
             'food_max_r': 'Raio maximo da comida nova. Tambem influencia energia e espaco ocupado.',
@@ -1555,6 +1725,9 @@ class SimulationUI(QMainWindow):
             'bacteria_max_limit': 'Limite legado por tipo. Agora o maximo vivo deve ser definido por label.',
             'bacteria_initial_energy': 'Energia inicial de organismos novos criados por reset ou spawn padrao.',
             'bacteria_death_energy': 'Energia abaixo da qual o organismo vira candidato a morrer.',
+            'bacteria_age_death_enabled': 'Quando ativo, o organismo morre ao atingir a idade configurada. Essa regra faz parte do genoma/metabolismo.',
+            'bacteria_death_age': 'Idade maxima em segundos simulados para morte por idade, quando a opcao esta habilitada.',
+            'bacteria_corpse_to_food': 'Quando ativo, um organismo morto por idade ou energia deixa um ponto de comida no substrato.',
             'bacteria_split_energy': 'Energia minima para o organismo poder se dividir.',
             'bacteria_metab_v0_cost': 'Custo energetico por segundo quando o organismo esta parado.',
             'bacteria_metab_vmax_cost': 'Custo energetico por segundo quando o organismo se move perto da velocidade maxima.',
@@ -1587,6 +1760,9 @@ class SimulationUI(QMainWindow):
             'predator_max_limit': 'Limite maximo de predadores vivos permitido pela reproducao.',
             'predator_initial_energy': 'Energia inicial de predadores novos criados por reset ou spawn padrao.',
             'predator_death_energy': 'Energia abaixo da qual o predador vira candidato a morrer.',
+            'predator_age_death_enabled': 'Quando ativo, o organismo legado morre ao atingir a idade configurada.',
+            'predator_death_age': 'Idade maxima em segundos simulados para morte por idade de organismos legados.',
+            'predator_corpse_to_food': 'Quando ativo, um organismo legado morto deixa comida no substrato.',
             'predator_split_energy': 'Energia minima para o predador poder se dividir.',
             'predator_metab_v0_cost': 'Custo energetico por segundo quando o predador esta parado.',
             'predator_metab_vmax_cost': 'Custo energetico por segundo quando o predador se move perto da velocidade maxima.',
@@ -1629,6 +1805,8 @@ class SimulationUI(QMainWindow):
 
     def _add_grid_param(self, grid: QGridLayout, row: int, label: str, name: str, widget: QWidget):
         self.widgets[name] = widget
+        if getattr(self, '_live_param_signals_ready', False):
+            self._prepare_param_widget_runtime(name, widget)
         grid.addWidget(self._help_label(label, name), row, 0)
         grid.addWidget(widget, row, 1)
         return row + 1
@@ -1708,6 +1886,9 @@ class SimulationUI(QMainWindow):
         w = _spin_double(0.0, 200000.0, 1.0, 1); w.setValue(self.params.get(f'{species}_initial_energy', defaults['initial_energy'])); row = self._add_grid_param(grid, row, "Energia inicial:", f'{species}_initial_energy', w)
         w = _spin_double(0.0, 10000.0, 1.0, 1); w.setValue(self.params.get(f'{species}_death_energy', defaults['death_energy'])); row = self._add_grid_param(grid, row, "Energia morte:", f'{species}_death_energy', w)
         w = _spin_double(0.0, 400000.0, 5.0, 1); w.setValue(self.params.get(f'{species}_split_energy', defaults['split_energy'])); row = self._add_grid_param(grid, row, "Energia dividir:", f'{species}_split_energy', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get(f'{species}_age_death_enabled', False))); row = self._add_grid_param(grid, row, "Morte por idade:", f'{species}_age_death_enabled', cb)
+        w = _spin_double(0.0, 1_000_000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_death_age', 3600.0)); row = self._add_grid_param(grid, row, "Idade da morte (s):", f'{species}_death_age', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get(f'{species}_corpse_to_food', False))); row = self._add_grid_param(grid, row, "Virar comida ao morrer:", f'{species}_corpse_to_food', cb)
         w = _spin_double(0.0, 5000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_v0_cost', defaults['metab_v0_cost'])); row = self._add_grid_param(grid, row, "Custo v=0 (s):", f'{species}_metab_v0_cost', w)
         w = _spin_double(0.0, 20000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_vmax_cost', defaults['metab_vmax_cost'])); row = self._add_grid_param(grid, row, "Custo v=vmax (s):", f'{species}_metab_vmax_cost', w)
         w = _spin_double(10.0, 1000000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_energy_cap', defaults['energy_cap'])); row = self._add_grid_param(grid, row, "Cap energia:", f'{species}_energy_cap', w)
@@ -1814,6 +1995,7 @@ class SimulationUI(QMainWindow):
             rgb = (col.red(), col.green(), col.blue())
             swatch.setStyleSheet(f"background: rgb({rgb[0]},{rgb[1]},{rgb[2]}); border:1px solid #333; border-radius:4px;")
             self.params.set(key, rgb, validate=False)
+            self._schedule_ui_params_save()
         button.clicked.connect(_pick)
         row.addWidget(swatch)
         row.addWidget(button)
@@ -1937,6 +2119,7 @@ class SimulationUI(QMainWindow):
                 self.params.set(key, rgb, validate=False)
                 if apply_existing:
                     apply_existing(rgb)
+                self._schedule_ui_params_save()
             button.clicked.connect(_pick)
             row.addWidget(swatch)
             row.addWidget(button)
@@ -1945,75 +2128,6 @@ class SimulationUI(QMainWindow):
         add_picker("Cor da comida", 'food_color', (220, 30, 30),
                    lambda rgb: [setattr(food, 'color', rgb) for food in self.engine.entities.get('foods', [])])
         # Cores de fundo/substrato ficam na janela Preferencias > Aparencia do ambiente.
-
-    def _build_tab_experiment(self):
-        tab = QWidget()
-        self.tabs.addTab(tab, "Experimento")
-        outer = QVBoxLayout(tab)
-        outer.setContentsMargins(4, 4, 4, 4)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        outer.addWidget(scroll)
-        content = QWidget()
-        scroll.setWidget(content)
-        v = QVBoxLayout(content)
-        v.setContentsMargins(2, 2, 2, 20)
-        v.setSpacing(18)
-        card_style = self._card_style()
-
-        g_time = QGroupBox("Tempo & Execucao")
-        g_time.setStyleSheet(card_style)
-        grid = QGridLayout(g_time)
-        row = 0
-        w = _spin_int(1, 240); w.setValue(self.params.get('fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
-        w = _spin_int(5, 1000); w.setValue(self.params.get('physics_steps_per_second', 30)); row = self._add_grid_param(grid, row, "Fisica fixa (Hz):", 'physics_steps_per_second', w)
-        w = _spin_int(1, 1000); w.setValue(self.params.get('max_physics_steps_per_frame', 8)); row = self._add_grid_param(grid, row, "Substeps max/frame:", 'max_physics_steps_per_frame', w)
-        w = _spin_double(0.0, 60.0, 0.25, 2); w.setValue(self.params.get('max_physics_backlog_seconds', 0.25)); row = self._add_grid_param(grid, row, "Atraso max fisico (s):", 'max_physics_backlog_seconds', w)
-        v.addWidget(g_time)
-
-        g_perf = QGroupBox("Performance & Determinismo")
-        g_perf.setStyleSheet(card_style)
-        grid = QGridLayout(g_perf)
-        row = 0
-        cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
-        w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
-        w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
-        mode = QComboBox(); mode.addItems(['single', 'fullbody']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
-        cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
-        w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
-        cb = QCheckBox(); cb.setChecked(self.params.get('allow_reverse_locomotion', False)); row = self._add_grid_param(grid, row, "Permitir marcha re:", 'allow_reverse_locomotion', cb)
-        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_min_age', 0.0)); row = self._add_grid_param(grid, row, "Idade min. reproducao:", 'reproduction_min_age', w)
-        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_cooldown', 0.0)); row = self._add_grid_param(grid, row, "Cooldown reproducao:", 'reproduction_cooldown', w)
-        v.addWidget(g_perf)
-
-        g_auto = QGroupBox("Preferencias & Auto Export")
-        g_auto.setStyleSheet(card_style)
-        grid = QGridLayout(g_auto)
-        row = 0
-        cb = QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate', False)); cb.toggled.connect(self._on_toggle_auto_export); row = self._add_grid_param(grid, row, "Auto Export Substrato:", 'auto_export_substrate', cb)
-        w = _spin_double(0.1, 1440.0, 0.5, 2); w.setValue(self.params.get('auto_export_interval_minutes', 10.0)); row = self._add_grid_param(grid, row, "Intervalo export (min):", 'auto_export_interval_minutes', w)
-        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations', False)); row = self._add_grid_param(grid, row, "Exportar ativacoes neurais:", 'export_substrate_include_brain_activations', cb)
-        cb = QCheckBox(); cb.setChecked(self.params.get('export_substrate_pretty_json', False)); row = self._add_grid_param(grid, row, "JSON legivel manual:", 'export_substrate_pretty_json', cb)
-        cb = QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks', False)); row = self._add_grid_param(grid, row, "Tracebacks no debug:", 'debug_tracebacks', cb)
-        def _on_interval_changed(_):
-            if bool(self._get_widget_value('auto_export_substrate')):
-                self._reschedule_auto_export()
-        w.valueChanged.connect(_on_interval_changed)
-        v.addWidget(g_auto)
-
-        g_act = QGroupBox("Acoes")
-        g_act.setStyleSheet(card_style)
-        la = QVBoxLayout(g_act)
-        buttons = [
-            ("Aplicar TODOS", self.apply_all_params),
-            ("Salvar preferencias UI", self.save_ui_params),
-        ]
-        for text, slot in buttons:
-            b = QPushButton(text)
-            b.clicked.connect(slot)
-            la.addWidget(b)
-        v.addWidget(g_act)
-        v.addStretch(1)
 
     def _build_tab_labels(self):
         tab = QWidget()
@@ -2665,13 +2779,13 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(not self.params.get('disable_brain_activations',False)); cb.toggled.connect(self._on_toggle_brain_activations); add_vis("Mostrar ativações neurais:",'enable_brain_activations',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('debug_tracebacks',False)); add_vis("Tracebacks no debug:",'debug_tracebacks',cb)
         v.addWidget(g_vis)
-        # Grupo: Auto Export
-        g_auto = QGroupBox("Auto Export"); g_auto.setStyleSheet(card_style); grid4=QGridLayout(g_auto); r_auto=0
+        # Grupo: Autosave
+        g_auto = QGroupBox("Autosave"); g_auto.setStyleSheet(card_style); grid4=QGridLayout(g_auto); r_auto=0
         def add_auto(label,name,w):
             nonlocal r_auto
             self.widgets[name]=w; grid4.addWidget(self._help_label(label, name), r_auto,0); grid4.addWidget(w,r_auto,1); r_auto+=1
-        cb=QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate',False)); cb.toggled.connect(self._on_toggle_auto_export); add_auto("Auto Export Substrato:",'auto_export_substrate',cb)
-        w=_spin_double(0.1,1440.0,0.5,2); w.setValue(self.params.get('auto_export_interval_minutes',10.0)); add_auto("Intervalo export (min):",'auto_export_interval_minutes',w)
+        cb=QCheckBox(); cb.setChecked(self.params.get('auto_export_substrate',False)); cb.toggled.connect(self._on_toggle_auto_export); add_auto("Ativar autosave:",'auto_export_substrate',cb)
+        w=_spin_double(0.1,1440.0,0.5,2); w.setValue(self.params.get('auto_export_interval_minutes',10.0)); add_auto("Intervalo autosave (min):",'auto_export_interval_minutes',w)
         cb=QCheckBox(); cb.setChecked(self.params.get('export_substrate_include_brain_activations',False)); add_auto("Exportar ativacoes neurais:",'export_substrate_include_brain_activations',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('export_substrate_pretty_json',False)); add_auto("JSON legivel manual:",'export_substrate_pretty_json',cb)
         # Quando o intervalo muda e o auto-export estiver ativo, reagenda imediatamente
@@ -2687,7 +2801,6 @@ class SimulationUI(QMainWindow):
             ("Aplicar TODOS", self.apply_all_params),
             ("Iniciar", self.start_simulation),
             ("Resetar População", self.reset_population),
-            ("Salvar Params", self.save_ui_params),
             ("Exportar Agente", self.open_export_agent_window),
             ("Carregar Agente", self.open_load_agent_window),
         ]
@@ -3140,23 +3253,38 @@ class SimulationUI(QMainWindow):
     # ------------------------------------------------------------------
     # Live callbacks & embedding
     # ------------------------------------------------------------------
+    def _live_param_names(self) -> set[str]:
+        return {
+            'time_scale', 'fps', 'paused', 'physics_steps_per_second',
+            'max_physics_steps_per_frame', 'max_physics_backlog_seconds',
+            'simple_render', 'use_numba_kernels', 'use_numba_batch_retina',
+            'use_numba_locomotion_energy', 'bacteria_show_vision',
+            'predator_show_vision', 'show_selected_details',
+            'retina_vision_mode',
+        }
+
+    def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
+        if getattr(widget, '_agentbiosim_runtime_prepared', False):
+            return
+        if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit)):
+            widget.installEventFilter(self)
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                try:
+                    widget.lineEdit().installEventFilter(self)
+                except Exception:
+                    pass
+        if name in self._live_param_names():
+            if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
+                widget.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
+            elif isinstance(widget, QCheckBox):
+                widget.toggled.connect(lambda _v, n=name: self._update_param_real_time(n))
+            elif isinstance(widget, QComboBox):
+                widget.currentTextChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
+        widget._agentbiosim_runtime_prepared = True
+
     def _setup_live_param_signals(self):
-        for widget in self.widgets.values():
-            if isinstance(widget, (QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit)):
-                widget.installEventFilter(self)
-                if isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                    try:
-                        widget.lineEdit().installEventFilter(self)
-                    except Exception:
-                        pass
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','bacteria_show_vision','predator_show_vision','show_selected_details','retina_vision_mode']:
-            w = self.widgets.get(name)
-            if isinstance(w, (QSpinBox, QDoubleSpinBox)):
-                w.valueChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
-            elif isinstance(w, QCheckBox):
-                w.toggled.connect(lambda _v, n=name: self._update_param_real_time(n))
-            elif isinstance(w, QComboBox):
-                w.currentTextChanged.connect(lambda _v, n=name: self._update_param_real_time(n))
+        for name, widget in list(self.widgets.items()):
+            self._prepare_param_widget_runtime(name, widget)
         # brain activation toggle handled separately
 
     def eventFilter(self, obj, event):
@@ -3202,10 +3330,12 @@ class SimulationUI(QMainWindow):
                 self._reschedule_auto_export()
         else:
             self.params.set(name, self._get_widget_value(name), validate=False)
+        self._schedule_ui_params_save()
 
     def _on_toggle_brain_activations(self, checked: bool):
         profiler.enabled = checked
         self.params.set('disable_brain_activations', not checked)
+        self._schedule_ui_params_save()
 
     def _start_diagnostic_heartbeat(self):
         minutes = float(self.params.get('diagnostic_heartbeat_minutes', 1.0) or 1.0)
@@ -3250,6 +3380,7 @@ class SimulationUI(QMainWindow):
                 self.params.set(name, value)
             if name == 'simple_render':
                 self.engine.send_command('change_renderer', simple=bool(value))
+            self._schedule_ui_params_save()
         except Exception as e:
             self._log_exception(f"Erro callback {name}", e)
 
@@ -3297,6 +3428,7 @@ class SimulationUI(QMainWindow):
         }.items():
             self.params.set(name, value, validate=False)
         print("Parametros de populacao aplicados; limites vivos ficam na aba Labels")
+        self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
         for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
@@ -3310,6 +3442,7 @@ class SimulationUI(QMainWindow):
             profiler.enabled = enabled
             self.params.set('disable_brain_activations', not enabled)
         print("Parâmetros de simulação aplicados")
+        self._schedule_ui_params_save()
 
     def apply_substrate_params(self):
         for name in ['food_target','food_min_r','food_max_r','food_replenish_interval','world_w','world_h','substrate_shape','substrate_radius']:
@@ -3329,11 +3462,13 @@ class SimulationUI(QMainWindow):
         self.engine._spatial_hash_dirty = True
         # color pickers already update params and propagate; nothing else to do here
         print("Parâmetros de substrato aplicados")
+        self._schedule_ui_params_save()
 
     def _agent_param_names(self, species: str) -> list[str]:
         if species == 'bacteria':
             return [
                 'bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
+                'bacteria_age_death_enabled','bacteria_death_age','bacteria_corpse_to_food',
                 'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
                 'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
                 'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
@@ -3345,6 +3480,7 @@ class SimulationUI(QMainWindow):
             ]
         return [
             'predator_initial_energy','predator_death_energy','predator_split_energy',
+            'predator_age_death_enabled','predator_death_age','predator_corpse_to_food',
             'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
             'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
             'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
@@ -3360,6 +3496,9 @@ class SimulationUI(QMainWindow):
                 f'{species}_initial_energy',
                 f'{species}_death_energy',
                 f'{species}_split_energy',
+                f'{species}_age_death_enabled',
+                f'{species}_death_age',
+                f'{species}_corpse_to_food',
                 f'{species}_metab_v0_cost',
                 f'{species}_metab_vmax_cost',
                 f'{species}_energy_cap',
@@ -3575,6 +3714,7 @@ class SimulationUI(QMainWindow):
         full_apply = names is None
         energy_names = {
             f'{species}_initial_energy', f'{species}_death_energy', f'{species}_split_energy',
+            f'{species}_age_death_enabled', f'{species}_death_age', f'{species}_corpse_to_food',
             f'{species}_metab_v0_cost', f'{species}_metab_vmax_cost', f'{species}_energy_cap',
         }
         sensor_names = {
@@ -3685,6 +3825,7 @@ class SimulationUI(QMainWindow):
         label = "predadores legados" if species == 'predator' else "organismos"
         if mode == 'template':
             print(f"Parametros de {label} aplicados ao template de novos individuos")
+            self._schedule_ui_params_save()
             return
 
         lock = getattr(self.engine, 'state_lock', None)
@@ -3698,6 +3839,7 @@ class SimulationUI(QMainWindow):
 
         if not agents:
             print(f"Nenhum agente vivo de {label} recebeu parametros")
+            self._schedule_ui_params_save()
             return
 
         rebuild_brain = False
@@ -3717,6 +3859,7 @@ class SimulationUI(QMainWindow):
             f"{stats['agents']} agentes, {stats['brains_rebuilt']} cerebros recriados, "
             f"{stats['brains_resized']} entradas redimensionadas, {stats['brains_kept']} cerebros preservados"
         )
+        self._schedule_ui_params_save()
 
     def apply_bacteria_params(self, mode: str = 'template', confirm_structural: bool = True):
         self._apply_agent_params('bacteria', mode, confirm_structural)
@@ -3743,6 +3886,7 @@ class SimulationUI(QMainWindow):
 
     def apply_all_params(self):
         self.apply_population_params(); self.apply_simulation_params(); self.apply_substrate_params(); self.apply_bacteria_params()
+        self.apply_autosave_params(silent=True)
         for name in [
             'auto_export_substrate',
             'export_substrate_include_brain_activations',
@@ -3753,6 +3897,26 @@ class SimulationUI(QMainWindow):
         if 'auto_export_interval_minutes' in self.widgets:
             self.params.set('auto_export_interval_minutes', self._get_widget_value('auto_export_interval_minutes'), validate=False)
         print("Todos os parâmetros aplicados")
+
+    def apply_autosave_params(self, silent: bool = False):
+        for name in [
+            'auto_export_substrate',
+            'export_substrate_include_brain_activations',
+            'export_substrate_pretty_json',
+            'debug_tracebacks',
+        ]:
+            if name in self.widgets:
+                self.params.set(name, bool(self._get_widget_value(name)), validate=False)
+        if 'auto_export_interval_minutes' in self.widgets:
+            self.params.set('auto_export_interval_minutes', self._get_widget_value('auto_export_interval_minutes'), validate=False)
+        if self._is_autosave_enabled():
+            self._reschedule_auto_export()
+        elif self._auto_export_timer:
+            self._auto_export_timer.stop()
+            self._auto_export_timer = None
+        self._schedule_ui_params_save()
+        if not silent:
+            print("Autosave aplicado")
 
     # ------------------------------------------------------------------
     # Engine actions
@@ -3830,6 +3994,7 @@ class SimulationUI(QMainWindow):
             return
         try:
             self._export_substrate(path_override=self._current_biosim_path, file_type='biosim')
+            self._update_window_title()
             QMessageBox.information(self, "Salvar Simulacao", f"Projeto salvo em {self._current_biosim_path}")
         except Exception as e:
             self._warn_exception("Erro ao salvar simulacao", e)
@@ -3846,6 +4011,7 @@ class SimulationUI(QMainWindow):
         try:
             self._export_substrate(path_override=path, file_type='biosim')
             self._current_biosim_path = path
+            self._update_window_title()
             QMessageBox.information(self, "Salvar Simulacao", f"Projeto salvo em {path}")
         except Exception as e:
             self._warn_exception("Erro ao salvar simulacao", e)
@@ -3860,6 +4026,9 @@ class SimulationUI(QMainWindow):
             self._import_substrate(path)
             if path.lower().endswith('.biosim'):
                 self._current_biosim_path = path
+            else:
+                self._current_biosim_path = None
+            self._update_window_title()
             QMessageBox.information(self, "Abrir Simulacao", "Projeto carregado.")
         except Exception as e:
             self._warn_exception("Erro ao abrir simulacao", e)
@@ -3885,12 +4054,17 @@ class SimulationUI(QMainWindow):
                 self.engine.loaded_agent_prototypes.clear()
                 self.engine.current_agent_prototype = None
                 self.engine.selected_agent = None
+                if hasattr(self.engine, 'selected_agents'):
+                    self.engine.selected_agents.clear()
+                self.engine.agent_labels.clear()
+                self.engine._next_agent_label_id = 1
                 self.engine.dragged_object = None
                 self.engine.total_simulation_time = 0.0
                 self.engine.frame_count = 0
                 self.engine._initialize_population()
                 self._reset_metrics_history()
                 self._current_biosim_path = None
+                self._update_window_title()
                 self.engine.camera.fit_world(self.engine.world, self.pygame_view.screen_width, self.pygame_view.screen_height)
             finally:
                 if state_lock is not None:
@@ -3919,13 +4093,30 @@ class SimulationUI(QMainWindow):
             self,
             "Ajuda",
             "Mouse: botao direito move a camera. Na barra inferior use Play/Pause/Stop, selecao unitaria/quadrada/lasso, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
-            "Menus superiores: Arquivo salva/abre projetos .biosim; View controla visualizacao; Preferencias controla export/debug; Agente exporta, carrega e cria linhagens."
+            "Menus superiores: Arquivo salva/abre projetos .biosim; View controla visualizacao; Preferencias abre opcoes de simulacao, autosave e aparencia; Agente exporta, carrega e cria linhagens."
         )
 
     # ------------------------------------------------------------------
     # Persistence CSV
     # ------------------------------------------------------------------
-    def save_ui_params(self):
+    def _schedule_ui_params_save(self, delay_ms: int = 900):
+        try:
+            state = object.__getattribute__(self, '__dict__')
+        except Exception:
+            return
+        if not bool(state.get('_ui_params_autosave_ready', False)):
+            return
+        timer = state.get('_ui_params_save_timer')
+        if timer is not None:
+            timer.start(max(50, int(delay_ms)))
+            return
+        self.save_ui_params(silent=True)
+
+    def _set_param_and_schedule(self, name: str, value: Any, validate: bool = False):
+        self.params.set(name, value, validate=validate)
+        self._schedule_ui_params_save()
+
+    def save_ui_params(self, silent: bool = False):
         try:
             rows_by_name = {}
             for name in sorted(self.widgets.keys()):
@@ -3966,6 +4157,30 @@ class SimulationUI(QMainWindow):
                     'name': 'render_resolution_scale',
                     'value': self.params.get('render_resolution_scale', 1.0),
                 }
+                for param_name, default in {
+                    'auto_export_substrate': False,
+                    'auto_export_interval_minutes': 10.0,
+                    'export_substrate_include_brain_activations': False,
+                    'export_substrate_pretty_json': False,
+                    'debug_tracebacks': False,
+                    'fps': 60,
+                    'physics_steps_per_second': 30,
+                    'max_physics_steps_per_frame': 8,
+                    'max_physics_backlog_seconds': 0.25,
+                    'use_spatial': True,
+                    'retina_skip': 0,
+                    'random_seed': -1,
+                    'retina_vision_mode': 'single',
+                    'reuse_spatial_grid': True,
+                    'agents_inertia': 1.0,
+                    'allow_reverse_locomotion': False,
+                    'reproduction_min_age': 0.0,
+                    'reproduction_cooldown': 0.0,
+                }.items():
+                    rows_by_name[param_name] = {
+                        'name': param_name,
+                        'value': self.params.get(param_name, default),
+                    }
                 rows_by_name['enable_brain_activations'] = {
                     'name': 'enable_brain_activations',
                     'value': not self.params.get('disable_brain_activations', False),
@@ -3985,6 +4200,8 @@ class SimulationUI(QMainWindow):
             os.makedirs(os.path.dirname(self._ui_params_csv), exist_ok=True)
             with open(self._ui_params_csv,'w', newline='', encoding='utf-8') as f:
                 writer = csv.DictWriter(f, fieldnames=['name','value']); writer.writeheader(); writer.writerows(rows)
+            if silent:
+                return
             print(f"Parâmetros UI salvos em {self._ui_params_csv}")
         except Exception as e:
             self._log_exception("Erro ao salvar parâmetros UI", e)
@@ -4016,6 +4233,23 @@ class SimulationUI(QMainWindow):
                                 self._set_widget_value(name, value)
                             elif isinstance(w, QLineEdit):
                                 self._set_widget_value(name, value)
+                        except Exception:
+                            pass
+                    if hasattr(self.params, '_data') and name in self.params._data:
+                        try:
+                            current = self.params.get(name)
+                            if isinstance(current, bool):
+                                parsed = value in ('1', 'True', 'true', 'yes', 'YES')
+                            elif isinstance(current, int) and not isinstance(current, bool):
+                                parsed = int(float(value))
+                            elif isinstance(current, float):
+                                parsed = float(value)
+                            elif isinstance(current, str):
+                                parsed = str(value)
+                            else:
+                                parsed = current
+                            if isinstance(current, (bool, int, float, str)):
+                                self.params.set(name, parsed, validate=False)
                         except Exception:
                             pass
                     # Additional: load saved color params or substrate shape even if not in widgets
@@ -4141,8 +4375,8 @@ class SimulationUI(QMainWindow):
                             self.params.set('disable_brain_activations', not enabled, validate=False)
                     except Exception:
                         pass
-            # schedule auto export if active
-            if self._get_widget_value('auto_export_substrate'):
+            # schedule autosave if active
+            if self._is_autosave_enabled():
                 self._schedule_next_auto_export(initial=True)
             print(f"Parâmetros UI carregados de {load_path}")
         except Exception as e:
@@ -4291,8 +4525,10 @@ class SimulationUI(QMainWindow):
     # Mantemos dados originais; conversão será feita no spawn.
         self.engine.loaded_agent_prototypes[name] = data
         self.engine.current_agent_prototype = name
+        self.engine._prototype_revision = int(getattr(self.engine, '_prototype_revision', 0) or 0) + 1
         self._apply_agent_data_to_genetic_editor(data, name)
-        print(f"Protótipo '{name}' carregado. Clique direito no substrato para inserir instâncias.")
+        self._last_applied_prototype_revision = int(getattr(self.engine, '_prototype_revision', 0) or 0)
+        print(f"Prototipo '{name}' carregado. Clique no icone A para inserir instancias.")
 
     def _apply_agent_data_to_genetic_editor(self, data: dict, fallback_name: str):
         """Carrega a genetica do agente no editor sem aplicar nos organismos vivos."""
@@ -4325,6 +4561,9 @@ class SimulationUI(QMainWindow):
         set_param('bacteria_initial_energy', as_float(pick('energy', default=self.params.get('bacteria_initial_energy', 100.0)), 100.0))
         set_param('bacteria_death_energy', as_float(pick('energy_death_energy', 'death_energy', default=self.params.get('bacteria_death_energy', 50.0)), 50.0))
         set_param('bacteria_split_energy', as_float(pick('energy_split_energy', 'split_energy', default=self.params.get('bacteria_split_energy', 150.0)), 150.0))
+        set_param('bacteria_age_death_enabled', as_bool(pick('energy_age_death_enabled', 'age_death_enabled', default=self.params.get('bacteria_age_death_enabled', False)), False))
+        set_param('bacteria_death_age', as_float(pick('energy_death_age', 'death_age', default=self.params.get('bacteria_death_age', 3600.0)), 3600.0))
+        set_param('bacteria_corpse_to_food', as_bool(pick('energy_corpse_to_food', 'corpse_to_food', default=self.params.get('bacteria_corpse_to_food', False)), False))
         set_param('bacteria_metab_v0_cost', as_float(pick('energy_v0_cost', 'metab_v0_cost', 'energy_loss_idle', default=self.params.get('bacteria_metab_v0_cost', 0.5)), 0.5))
         set_param('bacteria_metab_vmax_cost', as_float(pick('energy_vmax_cost', 'metab_vmax_cost', 'energy_loss_move', default=self.params.get('bacteria_metab_vmax_cost', 8.0)), 8.0))
         set_param('bacteria_energy_cap', as_float(pick('energy_energy_cap', 'energy_cap', default=self.params.get('bacteria_energy_cap', 400.0)), 400.0))
@@ -4396,7 +4635,7 @@ class SimulationUI(QMainWindow):
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
             base = os.path.join(root_dir, 'substrates')
             manual = os.path.join(base, 'manual_exports')
-            auto_root = os.path.join(base, 'auto_exports')
+            auto_root = os.path.join(base, 'autosaves')
             # cria pastas raiz
             os.makedirs(base, exist_ok=True)
             os.makedirs(manual, exist_ok=True)
@@ -4449,22 +4688,25 @@ class SimulationUI(QMainWindow):
                 path = os.path.abspath(path_override)
                 os.makedirs(os.path.dirname(path), exist_ok=True)
             elif manual:
-                filename = f"{prefix}_{ts_full}.json"
+                ext = '.biosim' if file_type == 'biosim' else '.json'
+                filename = f"{prefix}_{ts_full}{ext}"
                 out_dir = manual_dir
             else:
                 date_br = time.strftime('%d.%m.%Y')  # formato para nome da subpasta
                 # garante subpasta da data
                 auto_dir = os.path.join(auto_root, date_br)
                 os.makedirs(auto_dir, exist_ok=True)
-                base_pref = f"autosave_substrate_{date_br}_"
+                ext = '.biosim' if file_type == 'biosim' else '.json'
+                kind = 'simulacao' if file_type == 'biosim' else 'substrato'
+                base_pref = f"autosave_{kind}_{date_br}_"
                 try:
-                    existing = [f for f in os.listdir(auto_dir) if f.startswith(base_pref) and f.endswith('.json')]
+                    existing = [f for f in os.listdir(auto_dir) if f.startswith(base_pref) and f.endswith(ext)]
                 except Exception:
                     existing = []
                 seq = 1
                 if existing:
                     import re
-                    pat = re.compile(rf"^autosave_substrate_{date_br}_(\d+)\.json$")
+                    pat = re.compile(rf"^autosave_{kind}_{date_br}_(\d+){re.escape(ext)}$")
                     nums = []
                     for fname in existing:
                         m = pat.match(fname)
@@ -4473,7 +4715,7 @@ class SimulationUI(QMainWindow):
                             except: pass
                     if nums:
                         seq = max(nums) + 1
-                filename = f"{base_pref}{seq:02d}.json"
+                filename = f"{base_pref}{seq:02d}{ext}"
                 out_dir = auto_dir
             if not path_override:
                 path = os.path.join(out_dir, filename)
@@ -4482,7 +4724,7 @@ class SimulationUI(QMainWindow):
             from .random_utils import capture_rng_state
             rng_state = capture_rng_state()
             include_brain_activations = bool(self.params.get('export_substrate_include_brain_activations', False))
-            pretty_json = manual and bool(self.params.get('export_substrate_pretty_json', False))
+            pretty_json = bool(self.params.get('export_substrate_pretty_json', False))
             brain_outputs_recomputed = 0
             brain_activations_recomputed = 0
             if include_brain_activations and getattr(engine, 'scene_query', None) is None and hasattr(engine, '_update_spatial_hash'):
@@ -4775,7 +5017,10 @@ class SimulationUI(QMainWindow):
                     v0_cost=_pick('energy_v0_cost','metab_v0_cost','energy_loss_idle', default=0.5),
                     vmax_cost=_pick('energy_vmax_cost','metab_vmax_cost','energy_loss_move', default=8.0),
                     vmax_ref=_pick('energy_vmax_ref','locomotion_max_speed', default=300.0),
-                    energy_cap=_pick('energy_energy_cap','energy_cap', default=(600.0 if ad.get('type')=='predator' else 400.0))
+                    energy_cap=_pick('energy_energy_cap','energy_cap', default=(600.0 if ad.get('type')=='predator' else 400.0)),
+                    age_death_enabled=_as_bool(_pick('energy_age_death_enabled','age_death_enabled', default=False), False),
+                    death_age=_pick('energy_death_age','death_age', default=3600.0),
+                    corpse_to_food=_as_bool(_pick('energy_corpse_to_food','corpse_to_food', default=False), False),
                 )
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
@@ -4857,6 +5102,7 @@ class SimulationUI(QMainWindow):
                 self._current_biosim_path = path
             else:
                 self._current_biosim_path = None
+            self._update_window_title()
             self._reset_metrics_history()
             if 'labels_table' in self.__dict__:
                 self._refresh_labels_list()
@@ -4902,6 +5148,13 @@ class SimulationUI(QMainWindow):
             foods=len(self.engine.entities.get('foods', [])),
             all_agents=len(getattr(self.engine, 'all_agents', [])),
         )
+        try:
+            timer = getattr(self, '_ui_params_save_timer', None)
+            if timer is not None:
+                timer.stop()
+            self.save_ui_params(silent=True)
+        except Exception as exc:
+            self._log_exception("UI_PREFS_SAVE_ON_CLOSE_ERROR", exc)
         self._save_recovery_snapshot('normal_close')
         try:
             if self._auto_export_timer:
@@ -4927,10 +5180,20 @@ class SimulationUI(QMainWindow):
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
-    # Auto export scheduling
+    # Autosave scheduling
     # ------------------------------------------------------------------
+    def _is_autosave_enabled(self) -> bool:
+        if 'auto_export_substrate' in self.widgets:
+            return bool(self._get_widget_value('auto_export_substrate'))
+        return bool(self.params.get('auto_export_substrate', False))
+
+    def _autosave_interval_minutes(self) -> float:
+        if 'auto_export_interval_minutes' in self.widgets:
+            return float(self._get_widget_value('auto_export_interval_minutes') or 10.0)
+        return float(self.params.get('auto_export_interval_minutes', 10.0) or 10.0)
+
     def _on_toggle_auto_export(self):
-        active = bool(self._get_widget_value('auto_export_substrate'))
+        active = self._is_autosave_enabled()
         self.params.set('auto_export_substrate', active, validate=False)
         if active:
             self._reschedule_auto_export()
@@ -4939,16 +5202,16 @@ class SimulationUI(QMainWindow):
                 self._auto_export_timer.stop(); self._auto_export_timer = None
 
     def _reschedule_auto_export(self):
-        if not bool(self._get_widget_value('auto_export_substrate')):
+        if not self._is_autosave_enabled():
             return
         if self._auto_export_timer:
             self._auto_export_timer.stop()
         self._schedule_next_auto_export()
 
     def _schedule_next_auto_export(self, initial: bool=False):
-        if not bool(self._get_widget_value('auto_export_substrate')):
+        if not self._is_autosave_enabled():
             return
-        minutes = float(self._get_widget_value('auto_export_interval_minutes') or 10.0)
+        minutes = self._autosave_interval_minutes()
         delay_ms = max(1, int(minutes * 60_000))
         if self._auto_export_timer is None:
             self._auto_export_timer = QTimer(self)
@@ -4956,17 +5219,17 @@ class SimulationUI(QMainWindow):
         self._auto_export_timer.start(delay_ms)
         import datetime as _dt
         next_at = _dt.datetime.now() + _dt.timedelta(milliseconds=delay_ms)
-        print(f"[AUTO-EXPORT] Agendado em {minutes} min (por volta de {next_at.strftime('%H:%M:%S')}).")
+        print(f"[AUTOSAVE] Agendado em {minutes} min (por volta de {next_at.strftime('%H:%M:%S')}).")
 
     def _perform_auto_export(self):
-        if not bool(self._get_widget_value('auto_export_substrate')):
+        if not self._is_autosave_enabled():
             return
         try:
-            print("[AUTO-EXPORT] Iniciando export...")
-            path = self._export_substrate(manual=False, apply_current_params=False)
-            print(f"[AUTO-EXPORT] Concluído: {path}")
+            print("[AUTOSAVE] Iniciando save...")
+            path = self._export_substrate(manual=False, file_type='biosim', apply_current_params=False)
+            print(f"[AUTOSAVE] Salvo: {path}")
         except Exception as e:
-            self._log_exception("[AUTO-EXPORT] Erro", e)
+            self._log_exception("[AUTOSAVE] Erro", e)
         finally:
             self._schedule_next_auto_export()
 

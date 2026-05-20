@@ -147,6 +147,7 @@ class Engine:
         # Protótipos de agentes carregados via UI (dict name->data dict)
         self.loaded_agent_prototypes = {}
         self.current_agent_prototype = None  # nome da chave ativa
+        self._prototype_revision = 0
         self.dragged_object = None
     
     def start(self, initialize: Optional[bool] = None):
@@ -1000,6 +1001,9 @@ class Engine:
             after_death_count = len(self.all_agents)
             if after_death_count != before_death_count:
                 topology_changed = True
+                corpse_foods = self._create_food_from_dead_agents(getattr(self.death_system, 'last_deaths', []) or [], step_params)
+                if corpse_foods:
+                    self.entities['foods'].extend(corpse_foods)
                 live_set = set(self.all_agents)
                 self.selected_agents.intersection_update(live_set)
                 if self.selected_agent not in live_set:
@@ -1020,6 +1024,30 @@ class Engine:
             # estanques.
             if self._resolve_obstacle_collisions(frozen_agents=frozen_agents):
                 self._spatial_hash_dirty = True
+
+    def _create_food_from_dead_agents(self, dead_agents, params) -> list:
+        foods = []
+        if not dead_agents:
+            return foods
+        for agent in dead_agents:
+            energy_model = getattr(agent, 'energy_model', None)
+            if not bool(getattr(energy_model, 'corpse_to_food', False)):
+                continue
+            min_r = max(0.1, float(params.get('food_min_r', 4.5)))
+            max_r = max(min_r, float(params.get('food_max_r', 5.0)))
+            radius = max(min_r, min(max_r, float(getattr(agent, 'r', max_r)) * 0.5))
+            if not self.can_place_circle(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius):
+                continue
+            food = Food(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius)
+            try:
+                food.color = tuple(params.get('food_color', food.color))
+            except Exception:
+                pass
+            base_energy = getattr(food, 'energy', radius * radius)
+            corpse_energy = max(0.0, float(getattr(agent, 'energy', 0.0))) * 0.5
+            food.energy = max(base_energy, corpse_energy)
+            foods.append(food)
+        return foods
     
     def _params_snapshot(self):
         data = getattr(self.params, '_data', None)
@@ -1176,15 +1204,26 @@ class Engine:
             world_x = kwargs.get('world_x', 0)
             world_y = kwargs.get('world_y', 0)
             if name and name in self.loaded_agent_prototypes:
-                self._spawn_agent_from_prototype(self.loaded_agent_prototypes[name], world_x, world_y)
+                self._spawn_agent_from_prototype(
+                    self.loaded_agent_prototypes[name],
+                    world_x,
+                    world_y,
+                    preserve_prototype_color=True,
+                )
             else:
                 print("Protótipo não encontrado para spawn.")
         
+        elif command == 'pipette_agent':
+            world_x = kwargs.get('world_x', 0)
+            world_y = kwargs.get('world_y', 0)
+            self.sample_agent_as_prototype(world_x, world_y)
+
         else:
             print(f"Comando desconhecido: {command}")
 
     def _spawn_agent_from_prototype(self, data: dict, world_x: float, world_y: float,
-                                    label_id: Optional[int] = None, select: bool = True):
+                                    label_id: Optional[int] = None, select: bool = True,
+                                    preserve_prototype_color: bool = False):
         """Cria e insere um agente a partir de um dicionário de dados carregados."""
         try:
             agent_type = data.get('type','bacteria')
@@ -1245,7 +1284,10 @@ class Engine:
                 v0_cost=_pick_num('energy_v0_cost','metab_v0_cost','energy_loss_idle', default=0.5),
                 vmax_cost=_pick_num('energy_vmax_cost','metab_vmax_cost','energy_loss_move', default=8.0),
                 vmax_ref=_pick_num('energy_vmax_ref','locomotion_max_speed', default=300.0),
-                energy_cap=_pick_num('energy_energy_cap','energy_cap', default=(600.0 if agent_type=='predator' else 400.0))
+                energy_cap=_pick_num('energy_energy_cap','energy_cap', default=(600.0 if agent_type=='predator' else 400.0)),
+                age_death_enabled=_b('energy_age_death_enabled', _b('age_death_enabled', False)),
+                death_age=_pick_num('energy_death_age','death_age', default=3600.0),
+                corpse_to_food=_b('energy_corpse_to_food', _b('corpse_to_food', False)),
             )
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)
@@ -1296,7 +1338,8 @@ class Engine:
             if label_id not in self.agent_labels:
                 label_id = self.ensure_default_agent_label()
             agent.label_ids = {label_id}
-            agent.color = tuple(self.agent_labels[label_id].get('color', getattr(agent, 'color', (220, 220, 220))))
+            if not preserve_prototype_color:
+                agent.color = tuple(self.agent_labels[label_id].get('color', getattr(agent, 'color', (220, 220, 220))))
             if agent.is_predator:
                 self.entities['predators'].append(agent)
             else:
@@ -1315,6 +1358,81 @@ class Engine:
             print(f"Falha ao spawnar protótipo: {e}")
             return None
     
+    def _agent_to_prototype_data(self, agent, name: str | None = None) -> dict:
+        """Serializa um agente vivo para o formato usado por spawn_loaded_agent."""
+        data = {}
+
+        def add(key, value):
+            data[key] = str(value)
+
+        add('agent_name', name or self.params.get('agent_template_name', 'organismo_pipeta'))
+        add('type', 'predator' if getattr(agent, 'is_predator', False) else 'organism')
+        for attr in ['x', 'y', 'r', 'angle', 'vx', 'vy', 'energy', 'age']:
+            add(attr, getattr(agent, attr, 0.0))
+        for attr in ['food_eaten_count', 'food_energy_eaten_total', 'prey_eaten_count', 'prey_energy_eaten_total']:
+            add(attr, getattr(agent, attr, 0.0))
+        data['label_ids'] = json.dumps(sorted(int(v) for v in (getattr(agent, 'label_ids', set()) or set())))
+        add('last_reproduction_age', getattr(agent, 'last_reproduction_age', ''))
+        try:
+            data['color'] = json.dumps(list(getattr(agent, 'color', (220, 220, 220))))
+        except Exception:
+            pass
+
+        brain = getattr(agent, 'brain', None)
+        if brain is not None and hasattr(brain, 'sizes'):
+            data['brain_sizes'] = json.dumps(list(getattr(brain, 'sizes', [])))
+            add('brain_version', getattr(brain, 'version', 0))
+            for idx, (weights, biases) in enumerate(zip(getattr(brain, 'weights', []), getattr(brain, 'biases', []))):
+                data[f'brain_weight_{idx}'] = json.dumps(weights.tolist() if hasattr(weights, 'tolist') else list(weights))
+                data[f'brain_bias_{idx}'] = json.dumps(biases.tolist() if hasattr(biases, 'tolist') else list(biases))
+
+        sensor = getattr(agent, 'sensor', None)
+        if sensor is not None:
+            for attr in ['retina_count', 'vision_radius', 'fov_degrees', 'skip', 'see_food', 'see_bacteria', 'see_predators']:
+                if hasattr(sensor, attr):
+                    add(f'sensor_{attr}', getattr(sensor, attr))
+            if hasattr(sensor, 'channels'):
+                data['sensor_channels'] = json.dumps(list(getattr(sensor, 'channels', ('d',))))
+
+        for attr in ['diet_food', 'diet_agents', 'diet_same_label', 'diet_food_efficiency', 'diet_agent_efficiency']:
+            if hasattr(agent, attr):
+                add(attr, getattr(agent, attr))
+
+        locomotion = getattr(agent, 'locomotion', None)
+        if locomotion is not None:
+            for attr in ['max_speed', 'max_turn']:
+                if hasattr(locomotion, attr):
+                    add(f'locomotion_{attr}', getattr(locomotion, attr))
+
+        energy_model = getattr(agent, 'energy_model', None)
+        if energy_model is not None:
+            for attr in getattr(energy_model, '__slots__', []):
+                if attr.startswith('_'):
+                    continue
+                value = getattr(energy_model, attr, None)
+                if isinstance(value, (int, float, bool)):
+                    add(f'energy_{attr}', value)
+            if hasattr(energy_model, 'v0_cost'):
+                add('energy_loss_idle', getattr(energy_model, 'v0_cost'))
+            if hasattr(energy_model, 'vmax_cost'):
+                add('energy_loss_move', getattr(energy_model, 'vmax_cost'))
+
+        return data
+
+    def sample_agent_as_prototype(self, world_x: float, world_y: float):
+        """Pipeta: copia um agente vivo para o prototipo ativo."""
+        agent = self.get_agent_at_position(world_x, world_y)
+        if agent is None:
+            return None
+        base_name = str(self.params.get('agent_template_name', 'organismo_pipeta') or 'organismo_pipeta')
+        name = f"{base_name}_pipeta"
+        data = self._agent_to_prototype_data(agent, name=name)
+        self.loaded_agent_prototypes[name] = data
+        self.current_agent_prototype = name
+        self._prototype_revision += 1
+        self.set_selected_agents([agent], primary=agent)
+        return data
+
     def _apply_configured_random_seed(self, force: bool = False) -> Optional[int]:
         seed = normalize_seed(self.params.get('random_seed', -1))
         if seed is None:

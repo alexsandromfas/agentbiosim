@@ -72,6 +72,9 @@ class Params:
             'bacteria_initial_energy': 100.0,  # Energia inicial
             'bacteria_death_energy': 50.0,
             'bacteria_split_energy': 150.0,
+            'bacteria_age_death_enabled': False,
+            'bacteria_death_age': 3600.0,
+            'bacteria_corpse_to_food': False,
             # Bactérias - metabolismo avançado
             'bacteria_metab_v0_cost': 0.5,      # custo mínimo por segundo na velocidade 0
             'bacteria_metab_vmax_cost': 8.0,    # custo por segundo na velocidade vmax
@@ -126,6 +129,9 @@ class Params:
             'predator_initial_energy': 100.0,  # Energia inicial
             'predator_death_energy': 50.0,
             'predator_split_energy': 150.0,
+            'predator_age_death_enabled': False,
+            'predator_death_age': 3600.0,
+            'predator_corpse_to_food': False,
             # Predadores - metabolismo avançado
             'predator_metab_v0_cost': 1.0,
             'predator_metab_vmax_cost': 15.0,
@@ -181,6 +187,10 @@ class Params:
             'debug_tracebacks': False,
             'diagnostic_heartbeat_minutes': 1.0,
             'save_recovery_on_close': True,
+            # Autosave usa nomes internos antigos para manter compatibilidade
+            # com snapshots/configuracoes criados antes da troca de nome.
+            'auto_export_substrate': False,
+            'auto_export_interval_minutes': 10.0,
             'export_substrate_include_brain_activations': False,
             'export_substrate_pretty_json': False,
             # Debug toggles
@@ -237,7 +247,7 @@ class Params:
                 return int(float(value))
             except (TypeError, ValueError):
                 return -1
-        if key in ['reproduction_min_age', 'reproduction_cooldown']:
+        if key in ['reproduction_min_age', 'reproduction_cooldown'] or key.endswith('_death_age'):
             return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
             return max(0, int(value))

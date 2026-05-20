@@ -125,17 +125,24 @@ class EnergyModel:
     Campos legacy (loss_idle/loss_move) removidos – agora somente curva contínua.
     """
 
-    __slots__ = ("death_energy", "split_energy", "v0_cost", "vmax_cost", "vmax_ref", "energy_cap")
+    __slots__ = (
+        "death_energy", "split_energy", "v0_cost", "vmax_cost", "vmax_ref", "energy_cap",
+        "age_death_enabled", "death_age", "corpse_to_food",
+    )
 
     def __init__(self, *, death_energy: float = 0.0, split_energy: float = 150.0,
                  v0_cost: float = 0.5, vmax_cost: float = 8.0, vmax_ref: float = 300.0,
-                 energy_cap: float = 400.0):
+                 energy_cap: float = 400.0, age_death_enabled: bool = False,
+                 death_age: float = 0.0, corpse_to_food: bool = False):
         self.death_energy = death_energy
         self.split_energy = split_energy
         self.v0_cost = v0_cost
         self.vmax_cost = vmax_cost
         self.vmax_ref = max(1e-6, vmax_ref)
         self.energy_cap = energy_cap
+        self.age_death_enabled = bool(age_death_enabled)
+        self.death_age = max(0.0, float(death_age))
+        self.corpse_to_food = bool(corpse_to_food)
 
     def metabolic_cost_per_sec(self, speed: float) -> float:
         # Linear por enquanto; speed saturado em vmax_ref
@@ -166,6 +173,8 @@ class EnergyModel:
 
     # --- Queries ---
     def should_die(self, agent: 'Agent') -> bool:
+        if self.age_death_enabled and self.death_age > 0.0 and getattr(agent, 'age', 0.0) >= self.death_age:
+            return True
         return agent.energy <= self.death_energy
 
     def can_reproduce(self, agent: 'Agent') -> bool:
