@@ -757,33 +757,45 @@ class SimulationUI(QMainWindow):
         layout.addWidget(self._agent_portrait)
 
         self._agent_detail_labels: Dict[str, QLabel] = {}
-        for key, caption in [
+
+        def add_detail_group(title: str, rows: list[tuple[str, str]]):
+            box = QGroupBox(title)
+            box.setStyleSheet(self._card_style())
+            grid = QGridLayout(box)
+            grid.setContentsMargins(8, 10, 8, 8)
+            grid.setHorizontalSpacing(8)
+            grid.setVerticalSpacing(4)
+            for row_idx, (key, caption) in enumerate(rows):
+                left = QLabel(f"{caption}:")
+                left.setStyleSheet("color:#9fb1c4;")
+                right = QLabel("-")
+                right.setWordWrap(True)
+                grid.addWidget(left, row_idx, 0)
+                grid.addWidget(right, row_idx, 1)
+                self._agent_detail_labels[key] = right
+            layout.addWidget(box)
+
+        add_detail_group("Corpo & Movimento", [
             ('species', 'Tipo'),
             ('selected_count', 'Selecionados'),
-            ('energy', 'Energia'),
-            ('speed', 'Velocidade'),
-            ('age', 'Idade'),
-            ('position', 'Posicao'),
             ('body', 'Corpo'),
-            ('brain', 'Rede neural'),
-            ('sensor', 'Retina'),
-            ('diet', 'Dieta'),
+            ('speed', 'Velocidade'),
+            ('position', 'Posicao'),
+            ('age', 'Idade'),
             ('locomotion', 'Motor'),
+        ])
+        add_detail_group("Visao", [
+            ('sensor', 'Retina'),
+            ('brain', 'Rede neural'),
+            ('output', 'Saida neural'),
+        ])
+        add_detail_group("Energia & Dieta", [
+            ('energy', 'Energia'),
             ('metabolism', 'Metabolismo'),
+            ('diet', 'Dieta'),
             ('smart_local', 'Fator intel. local'),
             ('intake', 'Alimentacao'),
-            ('output', 'Saida neural'),
-        ]:
-            row = QHBoxLayout()
-            left = QLabel(f"{caption}:")
-            left.setFixedWidth(96)
-            left.setStyleSheet("color:#9fb1c4;")
-            right = QLabel("-")
-            right.setWordWrap(True)
-            row.addWidget(left)
-            row.addWidget(right, stretch=1)
-            layout.addLayout(row)
-            self._agent_detail_labels[key] = right
+        ])
 
         layout.addWidget(QLabel("Ativacoes por camada"))
         self._agent_brain_text = QTextEdit()
@@ -844,12 +856,28 @@ class SimulationUI(QMainWindow):
             radius = max(16, min(48, int(float(getattr(agent, 'r', 10.0)) * 2.6)))
             painter.setPen(QPen(QColor(230, 238, 248), 2))
             painter.setBrush(QBrush(qcolor))
-            painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+            if getattr(agent, 'body_shape', getattr(getattr(agent, 'locomotion', None), 'body_shape', 'ellipse')) == 'circle':
+                painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+            else:
+                painter.save()
+                painter.translate(center_x, center_y)
+                painter.rotate(math.degrees(float(getattr(agent, 'angle', 0.0))))
+                painter.drawEllipse(-radius, int(-radius * 0.5), radius * 2, radius)
+                painter.restore()
             angle = float(getattr(agent, 'angle', 0.0))
-            hx = center_x + math.cos(angle) * radius
-            hy = center_y + math.sin(angle) * radius
             painter.setPen(QPen(QColor(255, 255, 255), 3))
-            painter.drawLine(center_x, center_y, int(hx), int(hy))
+            painter.drawLine(center_x, center_y, int(center_x + math.cos(angle) * radius), int(center_y + math.sin(angle) * radius))
+            painter.setBrush(QBrush(QColor(0, 0, 0)))
+            sensor = getattr(agent, 'sensor', None)
+            eyes = 2 if sensor is not None and int(getattr(sensor, 'eye_count', 1) or 1) >= 2 else 1
+            offsets = [0.0]
+            if eyes == 2:
+                sep = math.radians(float(getattr(sensor, 'eye_separation_degrees', 45.0)) * 0.5)
+                offsets = [-sep, sep]
+            for offset in offsets:
+                ex = center_x + math.cos(angle + offset) * radius
+                ey = center_y + math.sin(angle + offset) * radius
+                painter.drawEllipse(int(ex - 4), int(ey - 4), 8, 8)
             painter.setPen(QPen(QColor(93, 174, 255), 1))
             vision = getattr(getattr(agent, 'sensor', None), 'vision_radius', None)
             if vision is not None:
@@ -1014,14 +1042,31 @@ class SimulationUI(QMainWindow):
         labels['speed'].setText(self._short_float(speed, 2))
         labels['age'].setText(self._short_float(getattr(agent, 'age', 0.0), 1))
         labels['position'].setText(f"x {self._short_float(getattr(agent, 'x', 0.0), 1)} / y {self._short_float(getattr(agent, 'y', 0.0), 1)}")
-        labels['body'].setText(f"r {self._short_float(getattr(agent, 'r', 0.0), 1)}")
+        labels['body'].setText(
+            f"r {self._short_float(getattr(agent, 'r', 0.0), 1)}, "
+            f"{getattr(agent, 'body_shape', getattr(locomotion, 'body_shape', 'ellipse'))}"
+        )
         labels['brain'].setText(" -> ".join(str(v) for v in getattr(brain, 'sizes', []) or []))
         if sensor is not None:
+            try:
+                from .sensors import retina_channels_description, retina_input_mode_from_channels, retina_input_mode_label
+                channels = tuple(getattr(sensor, 'channels', ('d',)) or ('d',))
+                vision_type = retina_input_mode_label(retina_input_mode_from_channels(channels))
+                channel_text = retina_channels_description(channels)
+            except Exception:
+                channels = tuple(getattr(sensor, 'channels', ('d',)) or ('d',))
+                vision_type = "-"
+                channel_text = ''.join(str(c).upper() for c in channels)
+            retina_count = int(getattr(sensor, 'retina_count', 0) or 0)
+            eye_count = int(getattr(sensor, 'eye_count', 1) or 1)
+            total_inputs = retina_count * eye_count * max(1, len(channels))
             labels['sensor'].setText(
-                f"{getattr(sensor, 'retina_count', '-')} retinas, "
-                f"canais {''.join(str(c).upper() for c in getattr(sensor, 'channels', ('D',)) or ('D',))}, "
+                f"{vision_type}; canais {channel_text}; "
+                f"{eye_count} olho(s), {retina_count} retinas/olho = {total_inputs} entradas; "
                 f"raio {self._short_float(getattr(sensor, 'vision_radius', 0.0), 0)}, "
-                f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}"
+                f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}, "
+                f"abertura {self._short_float(getattr(sensor, 'eye_angle_degrees', 0.0), 0)}, "
+                f"sep {self._short_float(getattr(sensor, 'eye_separation_degrees', 0.0), 0)}"
             )
         else:
             labels['sensor'].setText("-")
@@ -1038,7 +1083,9 @@ class SimulationUI(QMainWindow):
         if locomotion is not None:
             labels['locomotion'].setText(
                 f"max {self._short_float(getattr(locomotion, 'max_speed', 0.0), 1)}, "
-                f"giro {self._short_float(math.degrees(getattr(locomotion, 'max_turn', 0.0)), 1)} deg/s"
+                f"giro {self._short_float(math.degrees(getattr(locomotion, 'max_turn', 0.0)), 1)} deg/s, "
+                f"{getattr(locomotion, 'movement_mode', 'forward')}, "
+                f"re {'sim' if bool(getattr(locomotion, 'allow_reverse', False)) else 'nao'}"
             )
         else:
             labels['locomotion'].setText("-")
@@ -1514,9 +1561,6 @@ class SimulationUI(QMainWindow):
         mode = QComboBox(); mode.addItems(['single', 'fullbody']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
         cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
         w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
-        cb = QCheckBox(); cb.setChecked(self.params.get('allow_reverse_locomotion', False)); row = self._add_grid_param(grid, row, "Permitir marcha re:", 'allow_reverse_locomotion', cb)
-        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_min_age', 0.0)); row = self._add_grid_param(grid, row, "Idade min. reproducao:", 'reproduction_min_age', w)
-        w = _spin_double(0.0, 3600.0, 0.1, 2); w.setValue(self.params.get('reproduction_cooldown', 0.0)); row = self._add_grid_param(grid, row, "Cooldown reproducao:", 'reproduction_cooldown', w)
         layout.addWidget(g_perf)
 
         g_actions = QGroupBox("Acoes")
@@ -1645,7 +1689,13 @@ class SimulationUI(QMainWindow):
             w.setChecked(bool(value))
             w.blockSignals(False)
         elif isinstance(w, QComboBox):
-            idx = w.findText(str(value))
+            idx = -1
+            for i in range(w.count()):
+                if w.itemData(i) == value:
+                    idx = i
+                    break
+            if idx < 0:
+                idx = w.findText(str(value))
             if idx >= 0:
                 w.blockSignals(True)
                 w.setCurrentIndex(idx)
@@ -1664,6 +1714,9 @@ class SimulationUI(QMainWindow):
         if isinstance(w, QCheckBox):
             return w.isChecked()
         if isinstance(w, QComboBox):
+            data = w.currentData()
+            if data is not None:
+                return data
             return w.currentText()
         if isinstance(w, QLineEdit):
             return w.text()
@@ -1749,10 +1802,11 @@ class SimulationUI(QMainWindow):
             'bacteria_retina_see_food': 'Define se a retina do organismo detecta comida.',
             'bacteria_retina_see_bacteria': 'Define se a retina do organismo detecta outros organismos.',
             'bacteria_retina_see_predators': 'Define se a retina detecta organismos legados criados como predadores.',
-            'bacteria_retina_channel_d': 'Canal de distancia/proximidade historico da retina.',
-            'bacteria_retina_channel_r': 'Canal vermelho: intensidade de vermelho do objeto ponderada pela proximidade.',
-            'bacteria_retina_channel_g': 'Canal verde: intensidade de verde do objeto ponderada pela proximidade.',
-            'bacteria_retina_channel_b': 'Canal azul: intensidade de azul do objeto ponderada pela proximidade.',
+            'bacteria_retina_input_mode': 'Define se a retina usa apenas distancia, cor ponderada pela distancia, cor e distancia separadas, ou apenas cor.',
+            'bacteria_retina_channel_d': 'Canal interno de distancia/proximidade. Agora e controlado pelo tipo de entrada da retina.',
+            'bacteria_retina_channel_r': 'Canal vermelho disponivel para a retina quando o modo de visao usa cor.',
+            'bacteria_retina_channel_g': 'Canal verde disponivel para a retina quando o modo de visao usa cor.',
+            'bacteria_retina_channel_b': 'Canal azul disponivel para a retina quando o modo de visao usa cor.',
             'bacteria_diet_food': 'Permite que o organismo ganhe energia ao tocar comida.',
             'bacteria_diet_agents': 'Permite que o organismo ganhe energia ao tocar e consumir outros organismos.',
             'bacteria_diet_same_label': 'Quando ativo, organismos podem consumir outros da mesma label.',
@@ -1850,6 +1904,112 @@ class SimulationUI(QMainWindow):
         outer.addLayout(name_row)
         outer.addWidget(self._build_genetic_page('bacteria'), stretch=1)
 
+    def _retina_input_mode_options(self):
+        from .sensors import (
+            RETINA_INPUT_MODE_COLOR_DISTANCE,
+            RETINA_INPUT_MODE_COLOR_ONLY,
+            RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+            RETINA_INPUT_MODE_DISTANCE_ONLY,
+        )
+        return [
+            ("Distancia apenas", RETINA_INPUT_MODE_DISTANCE_ONLY),
+            ("Cor ponderada pela distancia", RETINA_INPUT_MODE_COLOR_DISTANCE),
+            ("Cor + distancia separadas", RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE),
+            ("Cor apenas", RETINA_INPUT_MODE_COLOR_ONLY),
+        ]
+
+    @staticmethod
+    def _set_combo_data(combo: QComboBox, value: Any):
+        for index in range(combo.count()):
+            if combo.itemData(index) == value:
+                combo.setCurrentIndex(index)
+                return
+        idx = combo.findText(str(value))
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+    def _make_retina_mode_combo(self, species: str) -> QComboBox:
+        from .sensors import normalize_retina_input_mode
+        combo = QComboBox()
+        for label, value in self._retina_input_mode_options():
+            combo.addItem(label, value)
+        current = normalize_retina_input_mode(self.params.get(f'{species}_retina_input_mode', 'distance_only'))
+        self._set_combo_data(combo, current)
+        combo.currentIndexChanged.connect(lambda _idx, s=species: self._on_retina_channel_ui_changed(s))
+        return combo
+
+    def _make_movement_mode_combo(self, species: str) -> QComboBox:
+        from .actuators import MOVEMENT_MODE_FORWARD, MOVEMENT_MODE_OMNI, normalize_movement_mode
+        combo = QComboBox()
+        combo.addItem("Frente + rotacao", MOVEMENT_MODE_FORWARD)
+        combo.addItem("4 direcoes + rotacao", MOVEMENT_MODE_OMNI)
+        self._set_combo_data(combo, normalize_movement_mode(self.params.get(f'{species}_movement_mode', MOVEMENT_MODE_FORWARD)))
+        return combo
+
+    def _make_body_shape_combo(self, species: str) -> QComboBox:
+        from .actuators import BODY_SHAPE_CIRCLE, BODY_SHAPE_ELLIPSE, normalize_body_shape
+        combo = QComboBox()
+        combo.addItem("Elipse", BODY_SHAPE_ELLIPSE)
+        combo.addItem("Circulo", BODY_SHAPE_CIRCLE)
+        self._set_combo_data(combo, normalize_body_shape(self.params.get(f'{species}_body_shape', BODY_SHAPE_ELLIPSE)))
+        return combo
+
+    def _on_retina_channel_ui_changed(self, species: str):
+        self._normalize_retina_channel_widgets(species)
+        self._update_retina_input_summary(species)
+        self._schedule_ui_params_save()
+
+    def _normalize_retina_channel_widgets(self, species: str):
+        from .sensors import RETINA_INPUT_MODE_DISTANCE_ONLY, normalize_retina_input_mode
+        mode_widget = self.widgets.get(f'{species}_retina_input_mode')
+        mode = normalize_retina_input_mode(
+            self._get_widget_value(f'{species}_retina_input_mode')
+            if mode_widget is not None else self.params.get(f'{species}_retina_input_mode', 'distance_only')
+        )
+        color_widgets = [self.widgets.get(f'{species}_retina_channel_{ch}') for ch in ('r', 'g', 'b')]
+        color_widgets = [w for w in color_widgets if isinstance(w, QCheckBox)]
+        uses_color = mode != RETINA_INPUT_MODE_DISTANCE_ONLY
+        for widget in color_widgets:
+            widget.setEnabled(uses_color)
+        if uses_color and color_widgets and not any(widget.isChecked() for widget in color_widgets):
+            color_widgets[0].blockSignals(True)
+            color_widgets[0].setChecked(True)
+            color_widgets[0].blockSignals(False)
+
+    def _collect_retina_params_from_widgets(self, species: str):
+        from .sensors import active_retina_channels, normalize_retina_input_mode
+        mode_key = f'{species}_retina_input_mode'
+        if mode_key in self.widgets:
+            self.params.set(mode_key, normalize_retina_input_mode(self._get_widget_value(mode_key)), validate=False)
+        for ch in ('r', 'g', 'b'):
+            key = f'{species}_retina_channel_{ch}'
+            if key in self.widgets:
+                self.params.set(key, bool(self._get_widget_value(key)), validate=False)
+        channels = active_retina_channels(self.params, species)
+        self.params.set(f'{species}_retina_channel_d', 'd' in channels, validate=False)
+        if not any(ch in channels for ch in ('r', 'g', 'b', 'rd', 'gd', 'bd')):
+            for ch in ('r', 'g', 'b'):
+                self.params.set(f'{species}_retina_channel_{ch}', False, validate=False)
+
+    def _update_retina_input_summary(self, species: str):
+        label = getattr(self, f'_{species}_retina_summary_label', None)
+        if label is None:
+            return
+        try:
+            from .sensors import active_retina_channels, retina_channels_description, retina_input_size
+            self._collect_retina_params_from_widgets(species)
+            channels = active_retina_channels(self.params, species)
+            retina_count = int(self.params.get(f'{species}_retina_count', 18))
+            eyes = int(self.params.get(f'{species}_eye_count', 1) or 1)
+            per_retina = len(channels)
+            total = retina_input_size(self.params, species, retina_count)
+            label.setText(
+                f"Entradas por retina: {per_retina} ({retina_channels_description(channels)}) | "
+                f"total: {eyes} olho(s) x {retina_count} retinas x {per_retina} = {total}"
+            )
+        except Exception:
+            label.setText("Entradas neurais: -")
+
     def _build_genetic_page(self, species: str) -> QWidget:
         page = QWidget()
         scroll = QScrollArea()
@@ -1872,6 +2032,8 @@ class SimulationUI(QMainWindow):
             'metab_v0_cost': 0.5 if is_bacteria else 1.0,
             'metab_vmax_cost': 8.0 if is_bacteria else 15.0,
             'energy_cap': 400.0 if is_bacteria else 600.0,
+            'reproduction_min_age': 0.0,
+            'reproduction_cooldown': 0.0,
             'body_size': 9.0 if is_bacteria else 14.0,
             'vision_radius': 120.0,
             'retina_count': 18,
@@ -1881,6 +2043,9 @@ class SimulationUI(QMainWindow):
             'hidden_layers': 4 if is_bacteria else 2,
             'mutation_rate': 0.05,
             'mutation_strength': 0.08,
+            'eye_count': 1,
+            'eye_angle_degrees': 60.0,
+            'eye_separation_degrees': 45.0,
         }
 
         g_energy = QGroupBox("Metabolismo & Energia")
@@ -1893,40 +2058,66 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(bool(self.params.get(f'{species}_age_death_enabled', False))); row = self._add_grid_param(grid, row, "Morte por idade:", f'{species}_age_death_enabled', cb)
         w = _spin_double(0.0, 1_000_000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_death_age', 3600.0)); row = self._add_grid_param(grid, row, "Idade da morte (s):", f'{species}_death_age', w)
         cb = QCheckBox(); cb.setChecked(bool(self.params.get(f'{species}_corpse_to_food', False))); row = self._add_grid_param(grid, row, "Virar comida ao morrer:", f'{species}_corpse_to_food', cb)
+        w = _spin_double(0.0, 1_000_000.0, 0.1, 2); w.setValue(self.params.get(f'{species}_reproduction_min_age', defaults['reproduction_min_age'])); row = self._add_grid_param(grid, row, "Idade min. reproducao:", f'{species}_reproduction_min_age', w)
+        w = _spin_double(0.0, 1_000_000.0, 0.1, 2); w.setValue(self.params.get(f'{species}_reproduction_cooldown', defaults['reproduction_cooldown'])); row = self._add_grid_param(grid, row, "Cooldown reproducao:", f'{species}_reproduction_cooldown', w)
         w = _spin_double(0.0, 5000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_v0_cost', defaults['metab_v0_cost'])); row = self._add_grid_param(grid, row, "Custo v=0 (s):", f'{species}_metab_v0_cost', w)
         w = _spin_double(0.0, 20000.0, 0.01, 2); w.setValue(self.params.get(f'{species}_metab_vmax_cost', defaults['metab_vmax_cost'])); row = self._add_grid_param(grid, row, "Custo v=vmax (s):", f'{species}_metab_vmax_cost', w)
         w = _spin_double(10.0, 1000000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_energy_cap', defaults['energy_cap'])); row = self._add_grid_param(grid, row, "Cap energia:", f'{species}_energy_cap', w)
         grid.addWidget(self._agent_group_apply_buttons(species, 'energy'), row, 0, 1, 2)
         v.addWidget(g_energy)
 
-        g_body = QGroupBox("Corpo, Movimento & Sensores")
+        g_body = QGroupBox("Corpo & Movimento")
         g_body.setStyleSheet(card_style)
         grid = QGridLayout(g_body)
         row = 0
         w = _spin_double(1.0, 1000.0, 0.5, 1); w.setValue(self.params.get(f'{species}_body_size', defaults['body_size'])); row = self._add_grid_param(grid, row, "Tamanho corpo (raio):", f'{species}_body_size', w)
-        w = _spin_double(1.0, 5000.0, 5.0, 1); w.setValue(self.params.get(f'{species}_vision_radius', defaults['vision_radius'])); row = self._add_grid_param(grid, row, "Raio visao:", f'{species}_vision_radius', w)
-        w = _spin_int(1, 128); w.setValue(self.params.get(f'{species}_retina_count', defaults['retina_count'])); row = self._add_grid_param(grid, row, "Numero de retinas:", f'{species}_retina_count', w)
-        w = _spin_double(1.0, 360.0, 1.0, 1); w.setValue(self.params.get(f'{species}_retina_fov_degrees', defaults['retina_fov_degrees'])); row = self._add_grid_param(grid, row, "Campo de visao (graus):", f'{species}_retina_fov_degrees', w)
+        row = self._add_grid_param(grid, row, "Formato corpo:", f'{species}_body_shape', self._make_body_shape_combo(species))
+        row = self._add_grid_param(grid, row, "Modo movimento:", f'{species}_movement_mode', self._make_movement_mode_combo(species))
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get(f'{species}_allow_reverse_locomotion', False))); row = self._add_grid_param(grid, row, "Permitir marcha re:", f'{species}_allow_reverse_locomotion', cb)
         w = _spin_double(0.0, 10000.0, 10.0, 1); w.setValue(self.params.get(f'{species}_max_speed', defaults['max_speed'])); row = self._add_grid_param(grid, row, "Velocidade max:", f'{species}_max_speed', w)
         w = _spin_double(1.0, 5000.0, 1.0, 1); w.setValue(math.degrees(self.params.get(f'{species}_max_turn', defaults['max_turn']))); row = self._add_grid_param(grid, row, "Rotacao max (graus/s):", f'{species}_max_turn_deg', w)
+        grid.addWidget(self._agent_group_apply_buttons(species, 'body_motion'), row, 0, 1, 2)
+        v.addWidget(g_body)
+
+        g_vision = QGroupBox("Visao")
+        g_vision.setStyleSheet(card_style)
+        grid = QGridLayout(g_vision)
+        row = 0
+        w = _spin_double(1.0, 5000.0, 5.0, 1); w.setValue(self.params.get(f'{species}_vision_radius', defaults['vision_radius'])); row = self._add_grid_param(grid, row, "Raio visao:", f'{species}_vision_radius', w)
+        w = _spin_int(1, 128); w.setValue(self.params.get(f'{species}_retina_count', defaults['retina_count'])); w.valueChanged.connect(lambda _v, s=species: self._update_retina_input_summary(s)); row = self._add_grid_param(grid, row, "Numero de retinas:", f'{species}_retina_count', w)
+        w = _spin_double(1.0, 360.0, 1.0, 1); w.setValue(self.params.get(f'{species}_retina_fov_degrees', defaults['retina_fov_degrees'])); row = self._add_grid_param(grid, row, "Campo de visao (graus):", f'{species}_retina_fov_degrees', w)
+        w = _spin_int(1, 2); w.setValue(self.params.get(f'{species}_eye_count', defaults['eye_count'])); w.valueChanged.connect(lambda _v, s=species: self._update_retina_input_summary(s)); row = self._add_grid_param(grid, row, "Olhos:", f'{species}_eye_count', w)
+        w = _spin_double(0.0, 360.0, 1.0, 1); w.setValue(self.params.get(f'{species}_eye_angle_degrees', defaults['eye_angle_degrees'])); row = self._add_grid_param(grid, row, "Abertura entre olhos:", f'{species}_eye_angle_degrees', w)
+        w = _spin_double(0.0, 360.0, 1.0, 1); w.setValue(self.params.get(f'{species}_eye_separation_degrees', defaults['eye_separation_degrees'])); row = self._add_grid_param(grid, row, "Separacao no corpo:", f'{species}_eye_separation_degrees', w)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_food', True)); row = self._add_grid_param(grid, row, "Ver comida:", f'{species}_retina_see_food', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver organismos:", f'{species}_retina_see_bacteria', cb)
         self.params.set(f'{species}_retina_see_predators', bool(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)), validate=False)
-        grid.addWidget(QLabel("Canais da retina:"), row, 0)
+        mode_combo = self._make_retina_mode_combo(species)
+        row = self._add_grid_param(grid, row, "Tipo de entrada:", f'{species}_retina_input_mode', mode_combo)
+        grid.addWidget(QLabel("Canais de cor:"), row, 0)
         channel_wrap = QWidget()
         channel_row = QHBoxLayout(channel_wrap)
         channel_row.setContentsMargins(0, 0, 0, 0)
         channel_row.setSpacing(10)
-        for suffix, label in (('d', 'D'), ('r', 'R'), ('g', 'G'), ('b', 'B')):
+        for suffix, label in (('r', 'R'), ('g', 'G'), ('b', 'B')):
             cbox = QCheckBox(label)
-            cbox.setChecked(self.params.get(f'{species}_retina_channel_{suffix}', suffix == 'd'))
+            cbox.setChecked(self.params.get(f'{species}_retina_channel_{suffix}', False))
+            cbox.toggled.connect(lambda _checked=False, s=species: self._on_retina_channel_ui_changed(s))
             self.widgets[f'{species}_retina_channel_{suffix}'] = cbox
             channel_row.addWidget(cbox)
         channel_row.addStretch(1)
         grid.addWidget(channel_wrap, row, 1)
         row += 1
-        grid.addWidget(self._agent_group_apply_buttons(species, 'body_sensor_motion'), row, 0, 1, 2)
-        v.addWidget(g_body)
+        summary = QLabel()
+        summary.setWordWrap(True)
+        summary.setStyleSheet("color:#9fb1c4;")
+        setattr(self, f'_{species}_retina_summary_label', summary)
+        grid.addWidget(summary, row, 0, 1, 2)
+        row += 1
+        grid.addWidget(self._agent_group_apply_buttons(species, 'vision'), row, 0, 1, 2)
+        v.addWidget(g_vision)
+        self._normalize_retina_channel_widgets(species)
+        self._update_retina_input_summary(species)
 
         g_diet = QGroupBox("Dieta")
         g_diet.setStyleSheet(card_style)
@@ -2765,18 +2956,6 @@ class SimulationUI(QMainWindow):
         w2.setValue(self.params.get('agents_inertia', 1.0))
         add_perf("Inércia global:", 'agents_inertia', w2)
 
-        cb = QCheckBox()
-        cb.setChecked(self.params.get('allow_reverse_locomotion', False))
-        add_perf("Permitir marcha re:", 'allow_reverse_locomotion', cb)
-
-        w = _spin_double(0.0, 3600.0, 0.1, 2)
-        w.setValue(self.params.get('reproduction_min_age', 0.0))
-        add_perf("Idade min. reproducao:", 'reproduction_min_age', w)
-
-        w = _spin_double(0.0, 3600.0, 0.1, 2)
-        w.setValue(self.params.get('reproduction_cooldown', 0.0))
-        add_perf("Cooldown reproducao:", 'reproduction_cooldown', w)
-
         v.addWidget(g_perf)
         # Grupo: Visualização / Debug
         g_vis = QGroupBox("Visualização / Debug"); g_vis.setStyleSheet(card_style); grid3=QGridLayout(g_vis); r_vis=0
@@ -3321,7 +3500,7 @@ class SimulationUI(QMainWindow):
     def _apply_widget_enter(self, name: str):
         genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
         environment_names = {'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval', 'world_w', 'world_h', 'substrate_shape', 'substrate_radius'}
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'allow_reverse_locomotion', 'reproduction_min_age', 'reproduction_cooldown', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3439,7 +3618,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','allow_reverse_locomotion','reproduction_min_age','reproduction_cooldown','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -3477,9 +3656,13 @@ class SimulationUI(QMainWindow):
             return [
                 'bacteria_initial_energy','bacteria_death_energy','bacteria_split_energy',
                 'bacteria_age_death_enabled','bacteria_death_age','bacteria_corpse_to_food',
+                'bacteria_reproduction_min_age','bacteria_reproduction_cooldown',
                 'bacteria_metab_v0_cost','bacteria_metab_vmax_cost','bacteria_energy_cap',
                 'bacteria_show_vision','bacteria_body_size','bacteria_vision_radius','bacteria_retina_count',
-                'bacteria_retina_fov_degrees','bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+                'bacteria_body_shape','bacteria_movement_mode','bacteria_allow_reverse_locomotion',
+                'bacteria_retina_fov_degrees','bacteria_eye_count','bacteria_eye_angle_degrees','bacteria_eye_separation_degrees',
+                'bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+                'bacteria_retina_input_mode',
                 'bacteria_retina_channel_r','bacteria_retina_channel_g','bacteria_retina_channel_b','bacteria_retina_channel_d',
                 'bacteria_diet_food','bacteria_diet_agents','bacteria_diet_same_label',
                 'bacteria_diet_food_efficiency','bacteria_diet_agent_efficiency',
@@ -3487,11 +3670,15 @@ class SimulationUI(QMainWindow):
                 'bacteria_mutation_strength','bacteria_max_turn_deg'
             ]
         return [
-            'predator_initial_energy','predator_death_energy','predator_split_energy',
-            'predator_age_death_enabled','predator_death_age','predator_corpse_to_food',
-            'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
-            'predator_body_size','predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
-            'predator_retina_fov_degrees','predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
+                'predator_initial_energy','predator_death_energy','predator_split_energy',
+                'predator_age_death_enabled','predator_death_age','predator_corpse_to_food',
+                'predator_reproduction_min_age','predator_reproduction_cooldown',
+                'predator_metab_v0_cost','predator_metab_vmax_cost','predator_energy_cap',
+                'predator_body_size','predator_body_shape','predator_movement_mode','predator_allow_reverse_locomotion',
+                'predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
+                'predator_retina_fov_degrees','predator_eye_count','predator_eye_angle_degrees','predator_eye_separation_degrees',
+                'predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
+            'predator_retina_input_mode',
             'predator_retina_channel_r','predator_retina_channel_g','predator_retina_channel_b','predator_retina_channel_d',
             'predator_diet_food','predator_diet_agents','predator_diet_same_label',
             'predator_diet_food_efficiency','predator_diet_agent_efficiency',
@@ -3507,6 +3694,8 @@ class SimulationUI(QMainWindow):
                 f'{species}_age_death_enabled',
                 f'{species}_death_age',
                 f'{species}_corpse_to_food',
+                f'{species}_reproduction_min_age',
+                f'{species}_reproduction_cooldown',
                 f'{species}_metab_v0_cost',
                 f'{species}_metab_vmax_cost',
                 f'{species}_energy_cap',
@@ -3514,18 +3703,48 @@ class SimulationUI(QMainWindow):
             'body_sensor_motion': [
                 f'{species}_show_vision',
                 f'{species}_body_size',
+                f'{species}_body_shape',
                 f'{species}_vision_radius',
                 f'{species}_retina_count',
                 f'{species}_retina_fov_degrees',
+                f'{species}_eye_count',
+                f'{species}_eye_angle_degrees',
+                f'{species}_eye_separation_degrees',
                 f'{species}_retina_see_food',
                 f'{species}_retina_see_bacteria',
                 f'{species}_retina_see_predators',
+                f'{species}_retina_input_mode',
                 f'{species}_retina_channel_r',
                 f'{species}_retina_channel_g',
                 f'{species}_retina_channel_b',
                 f'{species}_retina_channel_d',
                 f'{species}_max_speed',
                 f'{species}_max_turn_deg',
+            ],
+            'body_motion': [
+                f'{species}_body_size',
+                f'{species}_body_shape',
+                f'{species}_movement_mode',
+                f'{species}_allow_reverse_locomotion',
+                f'{species}_max_speed',
+                f'{species}_max_turn_deg',
+            ],
+            'vision': [
+                f'{species}_show_vision',
+                f'{species}_vision_radius',
+                f'{species}_retina_count',
+                f'{species}_retina_fov_degrees',
+                f'{species}_eye_count',
+                f'{species}_eye_angle_degrees',
+                f'{species}_eye_separation_degrees',
+                f'{species}_retina_see_food',
+                f'{species}_retina_see_bacteria',
+                f'{species}_retina_see_predators',
+                f'{species}_retina_input_mode',
+                f'{species}_retina_channel_r',
+                f'{species}_retina_channel_g',
+                f'{species}_retina_channel_b',
+                f'{species}_retina_channel_d',
             ],
             'diet': [
                 f'{species}_diet_food',
@@ -3567,15 +3786,10 @@ class SimulationUI(QMainWindow):
         see_legacy_key = f'{species}_retina_see_predators'
         if names_set is None or see_org_key in names_set or see_legacy_key in names_set:
             self.params.set(see_legacy_key, bool(self.params.get(see_org_key, False)), validate=False)
-        channel_keys = [f'{species}_retina_channel_{ch}' for ch in ('r', 'g', 'b', 'd')]
+        channel_keys = [f'{species}_retina_channel_{ch}' for ch in ('r', 'g', 'b', 'd')] + [f'{species}_retina_input_mode']
         if names_set is None or any(key in names_set for key in channel_keys):
-            if not any(bool(self.params.get(key, False)) for key in channel_keys):
-                self.params.set(f'{species}_retina_channel_d', True, validate=False)
-                widget = self.widgets.get(f'{species}_retina_channel_d')
-                if widget is not None:
-                    widget.blockSignals(True)
-                    widget.setChecked(True)
-                    widget.blockSignals(False)
+            self._normalize_retina_channel_widgets(species)
+            self._collect_retina_params_from_widgets(species)
 
     def _desired_agent_brain_sizes(self, species: str) -> tuple[int, ...]:
         if species == 'bacteria':
@@ -3595,7 +3809,8 @@ class SimulationUI(QMainWindow):
             neurons = int(self.params.get(f'{species}_neurons_layer_{i}', default_neurons(i)))
             if neurons > 0:
                 sizes.append(neurons)
-        sizes.append(2)
+        from .actuators import locomotion_output_size
+        sizes.append(locomotion_output_size(self.params.get(f'{species}_movement_mode', 'forward')))
         return tuple(sizes)
 
     def _agent_factory_helpers(self, species: str) -> dict[str, Any]:
@@ -3669,7 +3884,7 @@ class SimulationUI(QMainWindow):
 
     def _agents_requiring_brain_rebuild(self, species: str, agents: list[Any], param_names: list[str] | None = None) -> list[Any]:
         if param_names is not None:
-            structural_names = {f'{species}_hidden_layers'} | {f'{species}_neurons_layer_{i}' for i in range(1, 6)}
+            structural_names = {f'{species}_hidden_layers', f'{species}_movement_mode'} | {f'{species}_neurons_layer_{i}' for i in range(1, 6)}
             if not (set(param_names) & structural_names):
                 return []
         desired = self._desired_agent_brain_sizes(species)
@@ -3723,16 +3938,22 @@ class SimulationUI(QMainWindow):
         energy_names = {
             f'{species}_initial_energy', f'{species}_death_energy', f'{species}_split_energy',
             f'{species}_age_death_enabled', f'{species}_death_age', f'{species}_corpse_to_food',
+            f'{species}_reproduction_min_age', f'{species}_reproduction_cooldown',
             f'{species}_metab_v0_cost', f'{species}_metab_vmax_cost', f'{species}_energy_cap',
         }
         sensor_names = {
             f'{species}_vision_radius', f'{species}_retina_count', f'{species}_retina_fov_degrees',
+            f'{species}_eye_count', f'{species}_eye_angle_degrees', f'{species}_eye_separation_degrees',
             f'{species}_retina_see_food', f'{species}_retina_see_bacteria', f'{species}_retina_see_predators',
+            f'{species}_retina_input_mode',
             f'{species}_retina_channel_r', f'{species}_retina_channel_g', f'{species}_retina_channel_b',
             f'{species}_retina_channel_d',
             f'{species}_show_vision',
         }
-        locomotion_names = {f'{species}_max_speed', f'{species}_max_turn_deg'}
+        locomotion_names = {
+            f'{species}_max_speed', f'{species}_max_turn_deg',
+            f'{species}_movement_mode', f'{species}_allow_reverse_locomotion', f'{species}_body_shape',
+        }
         diet_names = {
             f'{species}_diet_food', f'{species}_diet_agents', f'{species}_diet_same_label',
             f'{species}_diet_food_efficiency', f'{species}_diet_agent_efficiency',
@@ -3740,7 +3961,7 @@ class SimulationUI(QMainWindow):
         brain_names = {f'{species}_hidden_layers', f'{species}_mutation_rate', f'{species}_mutation_strength'} | {
             f'{species}_neurons_layer_{i}' for i in range(1, 6)
         }
-        apply_body = full_apply or body_key in names
+        apply_body = full_apply or body_key in names or f'{species}_body_shape' in names
         apply_color = full_apply or color_key in names
         apply_energy = full_apply or bool(names & energy_names)
         apply_sensor = full_apply or bool(names & sensor_names)
@@ -3762,6 +3983,10 @@ class SimulationUI(QMainWindow):
                 agent.sensor = helpers['sensor'](self.params)
             if apply_locomotion:
                 agent.locomotion = helpers['locomotion'](self.params)
+                try:
+                    agent.body_shape = getattr(agent.locomotion, 'body_shape', self.params.get(f'{species}_body_shape', getattr(agent, 'body_shape', 'ellipse')))
+                except Exception:
+                    pass
             if apply_energy:
                 agent.energy_model = helpers['energy'](self.params)
                 cap = getattr(agent.energy_model, 'energy_cap', None)
@@ -3880,6 +4105,8 @@ class SimulationUI(QMainWindow):
         labels = {
             'energy': 'metabolismo/energia',
             'body_sensor_motion': 'corpo/sensores/movimento',
+            'body_motion': 'corpo/movimento',
+            'vision': 'visao',
             'diet': 'dieta',
             'color': 'cor',
             'brain': 'cerebro/mutacao',
@@ -4181,9 +4408,6 @@ class SimulationUI(QMainWindow):
                     'retina_vision_mode': 'single',
                     'reuse_spatial_grid': True,
                     'agents_inertia': 1.0,
-                    'allow_reverse_locomotion': False,
-                    'reproduction_min_age': 0.0,
-                    'reproduction_cooldown': 0.0,
                 }.items():
                     rows_by_name[param_name] = {
                         'name': param_name,
@@ -4429,7 +4653,7 @@ class SimulationUI(QMainWindow):
         brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
         rows = []
         def add(k,v): rows.append({'key':k,'value':v})
-        add('agent_name', self.params.get('agent_template_name', 'organismo_1'))
+        add('agent_name', getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'))
         add('type', 'predator' if getattr(agent,'is_predator', False) else 'organism')
         for attr in ['x','y','r','angle','vx','vy','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
@@ -4454,16 +4678,26 @@ class SimulationUI(QMainWindow):
                     w_list = list(W); b_list = list(B)
                 add(f'brain_weight_{idx}', json.dumps(w_list)); add(f'brain_bias_{idx}', json.dumps(b_list))
         if sensor is not None:
-            for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators']:
+            for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','eye_count','eye_angle_degrees','eye_separation_degrees']:
                 if hasattr(sensor, attr): add(f'sensor_{attr}', getattr(sensor, attr))
             if hasattr(sensor, 'channels'):
-                add('sensor_channels', json.dumps(list(getattr(sensor, 'channels', ('d',)))))
+                channels = tuple(getattr(sensor, 'channels', ('d',)))
+                add('sensor_channels', json.dumps(list(channels)))
+                try:
+                    from .sensors import retina_input_mode_from_channels
+                    add('sensor_input_mode', retina_input_mode_from_channels(channels))
+                    color_channels = sorted({ch[0] if len(ch) == 2 and ch.endswith('d') else ch for ch in channels if ch in ('r', 'g', 'b') or (len(ch) == 2 and ch.endswith('d'))})
+                    add('sensor_color_channels', json.dumps(color_channels))
+                except Exception:
+                    pass
         for attr in ['diet_food', 'diet_agents', 'diet_same_label', 'diet_food_efficiency', 'diet_agent_efficiency']:
             if hasattr(agent, attr):
                 add(attr, getattr(agent, attr))
         if locomotion is not None:
-            for attr in ['max_speed','max_turn']:
+            for attr in ['max_speed','max_turn','allow_reverse','movement_mode','body_shape']:
                 if hasattr(locomotion, attr): add(f'locomotion_{attr}', getattr(locomotion, attr))
+        if hasattr(agent, 'body_shape'):
+            add('body_shape', getattr(agent, 'body_shape'))
         if energy_model is not None:
             # Exporta dinamicamente todos os atributos simples do modelo de energia
             exported_energy_keys = set()
@@ -4572,12 +4806,17 @@ class SimulationUI(QMainWindow):
         set_param('bacteria_age_death_enabled', as_bool(pick('energy_age_death_enabled', 'age_death_enabled', default=self.params.get('bacteria_age_death_enabled', False)), False))
         set_param('bacteria_death_age', as_float(pick('energy_death_age', 'death_age', default=self.params.get('bacteria_death_age', 3600.0)), 3600.0))
         set_param('bacteria_corpse_to_food', as_bool(pick('energy_corpse_to_food', 'corpse_to_food', default=self.params.get('bacteria_corpse_to_food', False)), False))
+        set_param('bacteria_reproduction_min_age', as_float(pick('energy_reproduction_min_age', 'reproduction_min_age', default=self.params.get('bacteria_reproduction_min_age', 0.0)), 0.0))
+        set_param('bacteria_reproduction_cooldown', as_float(pick('energy_reproduction_cooldown', 'reproduction_cooldown', default=self.params.get('bacteria_reproduction_cooldown', 0.0)), 0.0))
         set_param('bacteria_metab_v0_cost', as_float(pick('energy_v0_cost', 'metab_v0_cost', 'energy_loss_idle', default=self.params.get('bacteria_metab_v0_cost', 0.5)), 0.5))
         set_param('bacteria_metab_vmax_cost', as_float(pick('energy_vmax_cost', 'metab_vmax_cost', 'energy_loss_move', default=self.params.get('bacteria_metab_vmax_cost', 8.0)), 8.0))
         set_param('bacteria_energy_cap', as_float(pick('energy_energy_cap', 'energy_cap', default=self.params.get('bacteria_energy_cap', 400.0)), 400.0))
         set_param('bacteria_vision_radius', as_float(pick('sensor_vision_radius', default=self.params.get('bacteria_vision_radius', 120.0)), 120.0))
         set_param('bacteria_retina_count', int(as_float(pick('sensor_retina_count', default=self.params.get('bacteria_retina_count', 18)), 18)))
         set_param('bacteria_retina_fov_degrees', as_float(pick('sensor_fov_degrees', default=self.params.get('bacteria_retina_fov_degrees', 180.0)), 180.0))
+        set_param('bacteria_eye_count', int(as_float(pick('sensor_eye_count', default=self.params.get('bacteria_eye_count', 1)), 1)))
+        set_param('bacteria_eye_angle_degrees', as_float(pick('sensor_eye_angle_degrees', default=self.params.get('bacteria_eye_angle_degrees', 60.0)), 60.0))
+        set_param('bacteria_eye_separation_degrees', as_float(pick('sensor_eye_separation_degrees', default=self.params.get('bacteria_eye_separation_degrees', 45.0)), 45.0))
         set_param('bacteria_retina_see_food', as_bool(pick('sensor_see_food', default=True), True))
         set_param('bacteria_retina_see_bacteria', as_bool(pick('sensor_see_bacteria', default=False), False))
         set_param('bacteria_retina_see_predators', as_bool(pick('sensor_see_predators', default=False), False))
@@ -4591,10 +4830,34 @@ class SimulationUI(QMainWindow):
         channels = {str(ch).lower() for ch in (channels or ['d'])}
         if not channels:
             channels = {'d'}
-        for ch in ('r', 'g', 'b', 'd'):
-            set_param(f'bacteria_retina_channel_{ch}', ch in channels)
+        try:
+            from .sensors import retina_input_mode_from_channels, normalize_retina_input_mode
+            input_mode = normalize_retina_input_mode(pick('sensor_input_mode', default=''))
+            if not input_mode or input_mode == 'distance_only' and channels != {'d'}:
+                input_mode = retina_input_mode_from_channels(tuple(channels))
+            set_param('bacteria_retina_input_mode', input_mode)
+        except Exception:
+            set_param('bacteria_retina_input_mode', 'distance_only')
+        color_channels = {
+            ch[0] if len(ch) == 2 and ch.endswith('d') else ch
+            for ch in channels
+            if ch in {'r', 'g', 'b'} or (len(ch) == 2 and ch.endswith('d'))
+        }
+        try:
+            raw_color_channels = pick('sensor_color_channels', default=None)
+            if raw_color_channels:
+                color_channels = {str(ch).lower() for ch in json.loads(raw_color_channels)}
+        except Exception:
+            pass
+        for ch in ('r', 'g', 'b'):
+            set_param(f'bacteria_retina_channel_{ch}', ch in color_channels)
+        self._collect_retina_params_from_widgets('bacteria')
+        self._update_retina_input_summary('bacteria')
 
         set_param('bacteria_max_speed', as_float(pick('locomotion_max_speed', default=self.params.get('bacteria_max_speed', 300.0)), 300.0))
+        set_param('bacteria_body_shape', str(pick('locomotion_body_shape', 'body_shape', default=self.params.get('bacteria_body_shape', 'ellipse')) or 'ellipse'))
+        set_param('bacteria_movement_mode', str(pick('locomotion_movement_mode', default=self.params.get('bacteria_movement_mode', 'forward')) or 'forward'))
+        set_param('bacteria_allow_reverse_locomotion', as_bool(pick('locomotion_allow_reverse', 'locomotion_allow_reverse_locomotion', default=self.params.get('bacteria_allow_reverse_locomotion', False)), False))
         max_turn = as_float(pick('locomotion_max_turn', default=self.params.get('bacteria_max_turn', math.pi)), math.pi)
         self.params.set('bacteria_max_turn', max_turn, validate=False)
         if 'bacteria_max_turn_deg' in self.widgets:
@@ -4759,6 +5022,7 @@ class SimulationUI(QMainWindow):
                 brain = getattr(agent,'brain',None); sensor = getattr(agent,'sensor',None); locomotion = getattr(agent,'locomotion',None); energy_model = getattr(agent,'energy_model',None)
                 ad = {
                     'type': 'predator' if getattr(agent,'is_predator', False) else 'organism',
+                    'agent_name': getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'),
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
                     'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0),
                     'last_reproduction_age': getattr(agent, 'last_reproduction_age', None),
@@ -4780,7 +5044,7 @@ class SimulationUI(QMainWindow):
                     except Exception:
                         ad['brain_weights'] = [list(w) for w in brain.weights]; ad['brain_biases'] = [list(b) for b in brain.biases]
                 if sensor:
-                    for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators']:
+                    for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','eye_count','eye_angle_degrees','eye_separation_degrees']:
                         if hasattr(sensor, attr): ad[f'sensor_{attr}'] = getattr(sensor, attr)
                     if hasattr(sensor, 'channels'):
                         ad['sensor_channels'] = list(getattr(sensor, 'channels', ('d',)))
@@ -4788,8 +5052,10 @@ class SimulationUI(QMainWindow):
                     if hasattr(agent, attr):
                         ad[attr] = getattr(agent, attr)
                 if locomotion:
-                    for attr in ['max_speed','max_turn']:
+                    for attr in ['max_speed','max_turn','allow_reverse','movement_mode','body_shape']:
                         if hasattr(locomotion, attr): ad[f'locomotion_{attr}'] = getattr(locomotion, attr)
+                if hasattr(agent, 'body_shape'):
+                    ad['body_shape'] = getattr(agent, 'body_shape')
                 if energy_model:
                     exported_energy_keys = set()
                     for attr in getattr(energy_model,'__slots__', []):
@@ -5011,8 +5277,17 @@ class SimulationUI(QMainWindow):
                     retina_count=ad.get('sensor_retina_count',18), vision_radius=ad.get('sensor_vision_radius',120.0),
                     fov_degrees=ad.get('sensor_fov_degrees',180.0), skip=ad.get('sensor_skip',0), see_food=ad.get('sensor_see_food',True),
                     see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False),
-                    channels=raw_channels)
-                locomotion = Locomotion(max_speed=ad.get('locomotion_max_speed',300.0), max_turn=ad.get('locomotion_max_turn', _m.pi))
+                    channels=raw_channels,
+                    eye_count=ad.get('sensor_eye_count', 1),
+                    eye_angle_degrees=ad.get('sensor_eye_angle_degrees', 60.0),
+                    eye_separation_degrees=ad.get('sensor_eye_separation_degrees', 45.0))
+                locomotion = Locomotion(
+                    max_speed=ad.get('locomotion_max_speed',300.0),
+                    max_turn=ad.get('locomotion_max_turn', _m.pi),
+                    allow_reverse=_as_bool(ad.get('locomotion_allow_reverse', ad.get('locomotion_allow_reverse_locomotion', False)), False),
+                    movement_mode=ad.get('locomotion_movement_mode', 'forward'),
+                    body_shape=ad.get('locomotion_body_shape', ad.get('body_shape', 'ellipse')),
+                )
                 # Normalização de chaves de energia (v1 legacy e v2+ dinâmica)
                 def _pick(*names, default=None):
                     for nm in names:
@@ -5029,6 +5304,8 @@ class SimulationUI(QMainWindow):
                     age_death_enabled=_as_bool(_pick('energy_age_death_enabled','age_death_enabled', default=False), False),
                     death_age=_pick('energy_death_age','death_age', default=3600.0),
                     corpse_to_food=_as_bool(_pick('energy_corpse_to_food','corpse_to_food', default=False), False),
+                    reproduction_min_age=_pick('energy_reproduction_min_age','reproduction_min_age', default=0.0),
+                    reproduction_cooldown=_pick('energy_reproduction_cooldown','reproduction_cooldown', default=0.0),
                 )
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
@@ -5043,6 +5320,8 @@ class SimulationUI(QMainWindow):
                 agent.diet_same_label = _as_bool(ad.get('diet_same_label', None), getattr(agent, 'diet_same_label', False))
                 agent.diet_food_efficiency = float(ad.get('diet_food_efficiency', getattr(agent, 'diet_food_efficiency', 1.0)) or 1.0)
                 agent.diet_agent_efficiency = float(ad.get('diet_agent_efficiency', getattr(agent, 'diet_agent_efficiency', 0.7)) or 0.7)
+                agent.body_shape = getattr(locomotion, 'body_shape', ad.get('body_shape', 'ellipse'))
+                agent.agent_name = str(ad.get('agent_name') or self.params.get('agent_template_name', 'organismo_1') or 'organismo_1')
                 agent.label_ids = set()
                 for value in (ad.get('label_ids', []) or []):
                     try:

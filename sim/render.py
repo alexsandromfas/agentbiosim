@@ -66,18 +66,31 @@ class SimpleRenderer(RendererStrategy):
             color = (100, 220, 100)  # Verde quando selecionado
         else:
             color = agent.color
-        
         # Desenha corpo
         pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), screen_radius)
         
         # Desenha "cabeça" (ponto na frente)
         if show_head:
-            head_offset = agent.r
-            head_world_x = agent.x + math.cos(agent.angle) * head_offset
-            head_world_y = agent.y + math.sin(agent.angle) * head_offset
-            head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
             head_radius = max(1, int(agent.r * 0.25 * camera.zoom))
-            pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
+            sensor = getattr(agent, 'sensor', None)
+            eye_count = 1
+            if sensor is not None:
+                try:
+                    eye_count = 2 if int(getattr(sensor, 'eye_count', 1)) >= 2 else 1
+                except Exception:
+                    eye_count = 1
+            if eye_count == 2 and sensor is not None and hasattr(sensor, '_eye_specs'):
+                for pos_offset, _gaze_offset in sensor._eye_specs():
+                    eye_angle = agent.angle + pos_offset
+                    head_world_x = agent.x + math.cos(eye_angle) * agent.r
+                    head_world_y = agent.y + math.sin(eye_angle) * agent.r
+                    head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
+                    pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
+            else:
+                head_world_x = agent.x + math.cos(agent.angle) * agent.r
+                head_world_y = agent.y + math.sin(agent.angle) * agent.r
+                head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
+                pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
         
         # Desenha raios de visão se solicitado OU se o agente estiver selecionado
         if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
@@ -163,7 +176,8 @@ class SimpleRenderer(RendererStrategy):
             return
         
         sensor = agent.sensor
-        for i in range(len(sensor.last_inputs)):
+        ray_count = sensor.total_ray_count() if hasattr(sensor, 'total_ray_count') else int(getattr(sensor, 'retina_count', len(sensor.last_inputs)))
+        for i in range(int(ray_count)):
             ray_info = sensor.get_ray_info(agent, i)
             if ray_info is None:
                 continue
@@ -260,6 +274,10 @@ class EllipseRenderer(RendererStrategy):
             color = agent.color
         
         # Cria superfície para elipse rotacionada
+        if getattr(agent, 'body_shape', getattr(getattr(agent, 'locomotion', None), 'body_shape', 'ellipse')) == 'circle':
+            self._simple_renderer.draw_agent(agent, surface, camera, show_head=show_head, show_vision=show_vision, selected=selected)
+            return
+
         ellipse_surf = pygame.Surface((body_length, body_width), pygame.SRCALPHA)
         pygame.draw.ellipse(ellipse_surf, color, pygame.Rect(0, 0, body_length, body_width))
         
@@ -279,7 +297,17 @@ class EllipseRenderer(RendererStrategy):
             head_world_y = agent.y + math.sin(agent.angle) * head_offset
             head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
             head_radius = max(1, int(agent.r * 0.25 * camera.zoom))
-            pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
+            sensor = getattr(agent, 'sensor', None)
+            eye_count = int(getattr(sensor, 'eye_count', 1) or 1) if sensor is not None else 1
+            if eye_count >= 2 and sensor is not None and hasattr(sensor, '_eye_specs'):
+                for pos_offset, _gaze_offset in sensor._eye_specs():
+                    eye_angle = agent.angle + pos_offset
+                    ex = agent.x + math.cos(eye_angle) * agent.r
+                    ey = agent.y + math.sin(eye_angle) * agent.r
+                    sx, sy = camera.world_to_screen(ex, ey)
+                    pygame.draw.circle(surface, (0, 0, 0), (int(sx), int(sy)), head_radius)
+            else:
+                pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
         
         # Desenha visão se solicitado OU se o agente estiver selecionado
         if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:

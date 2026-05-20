@@ -76,6 +76,8 @@ class Params:
             'bacteria_age_death_enabled': False,
             'bacteria_death_age': 3600.0,
             'bacteria_corpse_to_food': False,
+            'bacteria_reproduction_min_age': 0.0,
+            'bacteria_reproduction_cooldown': 0.0,
             # Bactérias - metabolismo avançado
             'bacteria_metab_v0_cost': 0.5,      # custo mínimo por segundo na velocidade 0
             'bacteria_metab_vmax_cost': 8.0,    # custo por segundo na velocidade vmax
@@ -83,20 +85,27 @@ class Params:
 
             # Bactérias - tamanho fixo
             'bacteria_body_size': 9.0,  # Raio fixo (antes variava com "massa")
+            'bacteria_body_shape': 'ellipse',
             
             # Bactérias - movimento
             'bacteria_max_speed': 300.0,
             'bacteria_max_turn': math.pi,
+            'bacteria_allow_reverse_locomotion': False,
+            'bacteria_movement_mode': 'forward',
             
             # Bactérias - visão
             'bacteria_vision_radius': 120.0,
             'bacteria_vision_mode': 'frontal',
             'bacteria_retina_count': 18,
             'bacteria_retina_fov_degrees': 180.0,  # Campo de visão total em graus
+            'bacteria_eye_count': 1,
+            'bacteria_eye_angle_degrees': 60.0,
+            'bacteria_eye_separation_degrees': 45.0,
             'bacteria_show_vision': False,
             'bacteria_retina_see_food': True,
             'bacteria_retina_see_bacteria': False,
             'bacteria_retina_see_predators': False,
+            'bacteria_retina_input_mode': 'distance_only',
             'bacteria_retina_channel_r': False,
             'bacteria_retina_channel_g': False,
             'bacteria_retina_channel_b': False,
@@ -133,6 +142,8 @@ class Params:
             'predator_age_death_enabled': False,
             'predator_death_age': 3600.0,
             'predator_corpse_to_food': False,
+            'predator_reproduction_min_age': 0.0,
+            'predator_reproduction_cooldown': 0.0,
             # Predadores - metabolismo avançado
             'predator_metab_v0_cost': 1.0,
             'predator_metab_vmax_cost': 15.0,
@@ -140,20 +151,27 @@ class Params:
 
             # Predadores - tamanho fixo
             'predator_body_size': 14.0,
+            'predator_body_shape': 'ellipse',
             
             # Predadores - movimento
             'predator_max_speed': 300.0,
             'predator_max_turn': math.pi,
+            'predator_allow_reverse_locomotion': False,
+            'predator_movement_mode': 'forward',
             
             # Predadores - visão
             'predator_vision_radius': 120.0,
             'predator_vision_mode': 'frontal',
             'predator_retina_count': 18,
             'predator_retina_fov_degrees': 180.0,  # Campo de visão total em graus
+            'predator_eye_count': 1,
+            'predator_eye_angle_degrees': 60.0,
+            'predator_eye_separation_degrees': 45.0,
             'predator_show_vision': False,
             'predator_retina_see_food': True,
             'predator_retina_see_bacteria': True,
             'predator_retina_see_predators': False,
+            'predator_retina_input_mode': 'distance_only',
             'predator_retina_channel_r': False,
             'predator_retina_channel_g': False,
             'predator_retina_channel_b': False,
@@ -248,7 +266,7 @@ class Params:
                 return int(float(value))
             except (TypeError, ValueError):
                 return -1
-        if key in ['reproduction_min_age', 'reproduction_cooldown'] or key.endswith('_death_age'):
+        if key in ['reproduction_min_age', 'reproduction_cooldown'] or key.endswith('_death_age') or key.endswith('_reproduction_min_age') or key.endswith('_reproduction_cooldown'):
             return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
             return max(0, int(value))

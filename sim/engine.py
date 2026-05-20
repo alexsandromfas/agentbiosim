@@ -926,7 +926,47 @@ class Engine:
             for agent in self.all_agents:
                 if agent in frozen_agents:
                     continue
-                key = (type(agent), tuple(agent.brain.sizes) if hasattr(agent.brain, 'sizes') else None)
+                sensor = getattr(agent, 'sensor', None)
+                sensor_key = None
+                if sensor is not None:
+                    sensor_key = (
+                        int(getattr(sensor, 'retina_count', 0) or 0),
+                        round(float(getattr(sensor, 'vision_radius', 0.0) or 0.0), 6),
+                        round(float(getattr(sensor, 'fov_degrees', 0.0) or 0.0), 6),
+                        bool(getattr(sensor, 'see_food', False)),
+                        bool(getattr(sensor, 'see_bacteria', False)),
+                        bool(getattr(sensor, 'see_predators', False)),
+                        tuple(getattr(sensor, 'channels', ('d',)) or ('d',)),
+                        int(getattr(sensor, 'eye_count', 1) or 1),
+                        round(float(getattr(sensor, 'eye_angle_degrees', 60.0) or 0.0), 6),
+                        round(float(getattr(sensor, 'eye_separation_degrees', 45.0) or 0.0), 6),
+                    )
+                locomotion = getattr(agent, 'locomotion', None)
+                locomotion_key = None
+                if locomotion is not None:
+                    locomotion_key = (
+                        round(float(getattr(locomotion, 'max_speed', 0.0) or 0.0), 6),
+                        round(float(getattr(locomotion, 'max_turn', 0.0) or 0.0), 6),
+                        bool(getattr(locomotion, 'allow_reverse', False)),
+                        str(getattr(locomotion, 'movement_mode', 'forward')),
+                        str(getattr(locomotion, 'body_shape', getattr(agent, 'body_shape', 'ellipse'))),
+                    )
+                energy_model = getattr(agent, 'energy_model', None)
+                energy_key = None
+                if energy_model is not None:
+                    energy_key = (
+                        round(float(getattr(energy_model, 'v0_cost', 0.0) or 0.0), 6),
+                        round(float(getattr(energy_model, 'vmax_cost', 0.0) or 0.0), 6),
+                        round(float(getattr(energy_model, 'vmax_ref', 0.0) or 0.0), 6),
+                        round(float(getattr(energy_model, 'energy_cap', 0.0) or 0.0), 6),
+                    )
+                key = (
+                    type(agent),
+                    tuple(agent.brain.sizes) if hasattr(agent.brain, 'sizes') else None,
+                    sensor_key,
+                    locomotion_key,
+                    energy_key,
+                )
                 if key not in agent_groups:
                     agent_groups[key] = []
                 agent_groups[key].append(agent)
@@ -1270,9 +1310,18 @@ class Engine:
                 see_food=_b('sensor_see_food',True),
                 see_bacteria=_b('sensor_see_bacteria',False),
                 see_predators=_b('sensor_see_predators',False),
-                channels=_channels()
+                channels=_channels(),
+                eye_count=_i('sensor_eye_count', 1),
+                eye_angle_degrees=_f('sensor_eye_angle_degrees', 60.0),
+                eye_separation_degrees=_f('sensor_eye_separation_degrees', 45.0),
             )
-            locomotion = Locomotion(max_speed=_f('locomotion_max_speed',300.0), max_turn=_f('locomotion_max_turn', _math.pi))
+            locomotion = Locomotion(
+                max_speed=_f('locomotion_max_speed',300.0),
+                max_turn=_f('locomotion_max_turn', _math.pi),
+                allow_reverse=_b('locomotion_allow_reverse', _b('locomotion_allow_reverse_locomotion', False)),
+                movement_mode=data.get('locomotion_movement_mode', 'forward'),
+                body_shape=data.get('locomotion_body_shape', data.get('body_shape', 'ellipse')),
+            )
             def _pick_num(*names, default=0.0):
                 for nm in names:
                     if nm in data:
@@ -1288,6 +1337,8 @@ class Engine:
                 age_death_enabled=_b('energy_age_death_enabled', _b('age_death_enabled', False)),
                 death_age=_pick_num('energy_death_age','death_age', default=3600.0),
                 corpse_to_food=_b('energy_corpse_to_food', _b('corpse_to_food', False)),
+                reproduction_min_age=_pick_num('energy_reproduction_min_age', 'reproduction_min_age', default=0.0),
+                reproduction_cooldown=_pick_num('energy_reproduction_cooldown', 'reproduction_cooldown', default=0.0),
             )
             r = _f('r', 9.0)
             angle = _f('angle', 0.0)
@@ -1309,6 +1360,8 @@ class Engine:
             agent.diet_same_label = _b('diet_same_label', getattr(agent, 'diet_same_label', False))
             agent.diet_food_efficiency = _f('diet_food_efficiency', getattr(agent, 'diet_food_efficiency', 1.0))
             agent.diet_agent_efficiency = _f('diet_agent_efficiency', getattr(agent, 'diet_agent_efficiency', 0.7))
+            agent.body_shape = getattr(locomotion, 'body_shape', data.get('body_shape', 'ellipse'))
+            agent.agent_name = str(data.get('agent_name') or self.params.get('agent_template_name', 'organismo_1') or 'organismo_1')
             if 'last_reproduction_age' in data:
                 agent.last_reproduction_age = _f('last_reproduction_age', agent.age)
             # Cor importada (suporta JSON array ou legacy tuple string)
@@ -1365,7 +1418,7 @@ class Engine:
         def add(key, value):
             data[key] = str(value)
 
-        add('agent_name', name or self.params.get('agent_template_name', 'organismo_pipeta'))
+        add('agent_name', name or getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'))
         add('type', 'predator' if getattr(agent, 'is_predator', False) else 'organism')
         for attr in ['x', 'y', 'r', 'angle', 'vx', 'vy', 'energy', 'age']:
             add(attr, getattr(agent, attr, 0.0))
@@ -1388,11 +1441,19 @@ class Engine:
 
         sensor = getattr(agent, 'sensor', None)
         if sensor is not None:
-            for attr in ['retina_count', 'vision_radius', 'fov_degrees', 'skip', 'see_food', 'see_bacteria', 'see_predators']:
+            for attr in ['retina_count', 'vision_radius', 'fov_degrees', 'skip', 'see_food', 'see_bacteria', 'see_predators', 'eye_count', 'eye_angle_degrees', 'eye_separation_degrees']:
                 if hasattr(sensor, attr):
                     add(f'sensor_{attr}', getattr(sensor, attr))
             if hasattr(sensor, 'channels'):
-                data['sensor_channels'] = json.dumps(list(getattr(sensor, 'channels', ('d',))))
+                channels = tuple(getattr(sensor, 'channels', ('d',)))
+                data['sensor_channels'] = json.dumps(list(channels))
+                try:
+                    from .sensors import retina_input_mode_from_channels
+                    data['sensor_input_mode'] = retina_input_mode_from_channels(channels)
+                    color_channels = sorted({ch[0] if len(ch) == 2 and ch.endswith('d') else ch for ch in channels if ch in ('r', 'g', 'b') or (len(ch) == 2 and ch.endswith('d'))})
+                    data['sensor_color_channels'] = json.dumps(color_channels)
+                except Exception:
+                    pass
 
         for attr in ['diet_food', 'diet_agents', 'diet_same_label', 'diet_food_efficiency', 'diet_agent_efficiency']:
             if hasattr(agent, attr):
@@ -1400,9 +1461,11 @@ class Engine:
 
         locomotion = getattr(agent, 'locomotion', None)
         if locomotion is not None:
-            for attr in ['max_speed', 'max_turn']:
+            for attr in ['max_speed', 'max_turn', 'allow_reverse', 'movement_mode', 'body_shape']:
                 if hasattr(locomotion, attr):
                     add(f'locomotion_{attr}', getattr(locomotion, attr))
+        if hasattr(agent, 'body_shape'):
+            add('body_shape', getattr(agent, 'body_shape'))
 
         energy_model = getattr(agent, 'energy_model', None)
         if energy_model is not None:
@@ -1424,8 +1487,7 @@ class Engine:
         agent = self.get_agent_at_position(world_x, world_y)
         if agent is None:
             return None
-        base_name = str(self.params.get('agent_template_name', 'organismo_pipeta') or 'organismo_pipeta')
-        name = f"{base_name}_pipeta"
+        name = str(getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1') or 'organismo_1')
         data = self._agent_to_prototype_data(agent, name=name)
         self.loaded_agent_prototypes[name] = data
         self.current_agent_prototype = name

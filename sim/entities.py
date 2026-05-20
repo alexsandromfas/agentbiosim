@@ -98,6 +98,17 @@ def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_pyth
     outputs_arr = np.asarray(outputs, dtype=np.float64)
     if outputs_arr.ndim != 2 or outputs_arr.shape[1] < 2:
         return None
+    first_loc = getattr(agents[0], 'locomotion', None)
+    first_mode = getattr(first_loc, 'movement_mode', 'forward')
+    first_reverse = bool(getattr(first_loc, 'allow_reverse', False))
+    if str(first_mode) != 'forward':
+        return None
+    for ag in agents:
+        loc = getattr(ag, 'locomotion', None)
+        if getattr(loc, 'movement_mode', 'forward') != first_mode:
+            return None
+        if bool(getattr(loc, 'allow_reverse', False)) != first_reverse:
+            return None
 
     n = len(agents)
     x = np.empty(n, dtype=np.float64)
@@ -125,15 +136,15 @@ def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_pyth
     first_energy = getattr(agents[0], 'energy_model', None)
     is_predator = bool(getattr(agents[0], 'is_predator', False))
     if is_predator:
-        v0_cost = float(params.get('predator_metab_v0_cost', getattr(first_energy, 'v0_cost', 1.0)))
-        vmax_cost = float(params.get('predator_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 15.0)))
-        vmax_ref = float(params.get('predator_max_speed', max(float(np.max(max_speed)), 1.0)))
-        energy_cap = float(params.get('predator_energy_cap', getattr(first_energy, 'energy_cap', 600.0)))
+        v0_cost = float(getattr(first_energy, 'v0_cost', 1.0))
+        vmax_cost = float(getattr(first_energy, 'vmax_cost', 15.0))
+        vmax_ref = float(getattr(first_energy, 'vmax_ref', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(getattr(first_energy, 'energy_cap', 600.0))
     else:
-        v0_cost = float(params.get('bacteria_metab_v0_cost', getattr(first_energy, 'v0_cost', 0.5)))
-        vmax_cost = float(params.get('bacteria_metab_vmax_cost', getattr(first_energy, 'vmax_cost', 8.0)))
-        vmax_ref = float(params.get('bacteria_max_speed', max(float(np.max(max_speed)), 1.0)))
-        energy_cap = float(params.get('bacteria_energy_cap', getattr(first_energy, 'energy_cap', 400.0)))
+        v0_cost = float(getattr(first_energy, 'v0_cost', 0.5))
+        vmax_cost = float(getattr(first_energy, 'vmax_cost', 8.0))
+        vmax_ref = float(getattr(first_energy, 'vmax_ref', max(float(np.max(max_speed)), 1.0)))
+        energy_cap = float(getattr(first_energy, 'energy_cap', 400.0))
 
     backend = apply_locomotion_energy_arrays(
         x,
@@ -153,7 +164,7 @@ def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_pyth
         float(getattr(world, 'cx', 0.0)),
         float(getattr(world, 'cy', 0.0)),
         float(getattr(world, 'radius', 1.0)),
-        bool(params.get('allow_reverse_locomotion', False)),
+        first_reverse,
         max(0.0, float(params.get('agents_inertia', 1.0))),
         v0_cost,
         vmax_cost,
@@ -238,6 +249,7 @@ class Agent(Entity):
         "prey_eaten_count", "prey_energy_eaten_total",
         "diet_food", "diet_agents", "diet_same_label", "diet_food_efficiency", "diet_agent_efficiency",
         "label_ids",
+        "body_shape", "agent_name",
     )
 
     def __init__(self, x: float, y: float, r: float, color: tuple,
@@ -276,6 +288,8 @@ class Agent(Entity):
         self.diet_food_efficiency = 1.0
         self.diet_agent_efficiency = 0.7
         self.label_ids = set()
+        self.body_shape = getattr(locomotion, 'body_shape', 'ellipse')
+        self.agent_name = None
     
     def update(self, dt: float, world: 'World', scene: 'SceneQuery', params: 'Params'):
         """
@@ -396,14 +410,44 @@ class Agent(Entity):
                 setattr(child, attr, getattr(self, attr))
             except Exception:
                 pass
+        parent_sensor = getattr(self, 'sensor', None)
+        child_sensor = getattr(child, 'sensor', None)
+        if parent_sensor is not None and child_sensor is not None:
+            for attr in ("retina_count", "vision_radius", "fov_degrees", "skip", "see_food", "see_bacteria", "see_predators", "channels", "eye_count", "eye_angle_degrees", "eye_separation_degrees"):
+                try:
+                    value = getattr(parent_sensor, attr)
+                    if attr == "channels":
+                        value = tuple(value)
+                    setattr(child_sensor, attr, value)
+                except Exception:
+                    pass
+            try:
+                child_sensor.last_inputs = []
+                child_sensor.last_distance_inputs = []
+                child_sensor._countdown = 0
+            except Exception:
+                pass
         parent_energy = getattr(self, 'energy_model', None)
         child_energy_model = getattr(child, 'energy_model', None)
         if parent_energy is not None and child_energy_model is not None:
-            for attr in ("age_death_enabled", "death_age", "corpse_to_food"):
+            for attr in ("age_death_enabled", "death_age", "corpse_to_food", "reproduction_min_age", "reproduction_cooldown"):
                 try:
                     setattr(child_energy_model, attr, getattr(parent_energy, attr))
                 except Exception:
                     pass
+        parent_loc = getattr(self, 'locomotion', None)
+        child_loc = getattr(child, 'locomotion', None)
+        if parent_loc is not None and child_loc is not None:
+            for attr in ("max_speed", "max_turn", "allow_reverse", "movement_mode", "body_shape"):
+                try:
+                    setattr(child_loc, attr, getattr(parent_loc, attr))
+                except Exception:
+                    pass
+            try:
+                child.body_shape = getattr(parent_loc, 'body_shape', getattr(child, 'body_shape', 'ellipse'))
+            except Exception:
+                pass
+        child.agent_name = getattr(self, 'agent_name', None)
         child.label_ids = set(getattr(self, 'label_ids', set()) or set())
         if params.get('debug_reproduction_color', False):
             print(f"[reproduce] parent_type={type(self).__name__} parent_color={getattr(self,'color',None)} -> child_type={type(child).__name__} child_color={getattr(child,'color',None)}")
@@ -472,14 +516,20 @@ class Bacteria(Agent):
             see_food=params.get('bacteria_retina_see_food', True),
             see_bacteria=params.get('bacteria_retina_see_bacteria', False),
             see_predators=params.get('bacteria_retina_see_predators', False),
-            channels=active_retina_channels(params, 'bacteria')
+            channels=active_retina_channels(params, 'bacteria'),
+            eye_count=params.get('bacteria_eye_count', 1),
+            eye_angle_degrees=params.get('bacteria_eye_angle_degrees', 60.0),
+            eye_separation_degrees=params.get('bacteria_eye_separation_degrees', 45.0),
         )
     
     def _create_child_locomotion(self, params: 'Params') -> 'Locomotion':
         from .actuators import Locomotion
         return Locomotion(
             max_speed=params.get('bacteria_max_speed', 300.0),
-            max_turn=params.get('bacteria_max_turn', math.pi)
+            max_turn=params.get('bacteria_max_turn', math.pi),
+            allow_reverse=params.get('bacteria_allow_reverse_locomotion', False),
+            movement_mode=params.get('bacteria_movement_mode', 'forward'),
+            body_shape=params.get('bacteria_body_shape', 'ellipse'),
         )
     
     def _create_child_energy_model(self, params: 'Params') -> 'EnergyModel':
@@ -494,6 +544,8 @@ class Bacteria(Agent):
             age_death_enabled=params.get('bacteria_age_death_enabled', False),
             death_age=params.get('bacteria_death_age', 3600.0),
             corpse_to_food=params.get('bacteria_corpse_to_food', False),
+            reproduction_min_age=params.get('bacteria_reproduction_min_age', params.get('reproduction_min_age', 0.0)),
+            reproduction_cooldown=params.get('bacteria_reproduction_cooldown', params.get('reproduction_cooldown', 0.0)),
         )
 
 
@@ -530,14 +582,20 @@ class Predator(Agent):
             see_food=params.get('predator_retina_see_food', True),
             see_bacteria=params.get('predator_retina_see_bacteria', True),
             see_predators=params.get('predator_retina_see_predators', False),
-            channels=active_retina_channels(params, 'predator')
+            channels=active_retina_channels(params, 'predator'),
+            eye_count=params.get('predator_eye_count', 1),
+            eye_angle_degrees=params.get('predator_eye_angle_degrees', 60.0),
+            eye_separation_degrees=params.get('predator_eye_separation_degrees', 45.0),
         )
     
     def _create_child_locomotion(self, params: 'Params') -> 'Locomotion':
         from .actuators import Locomotion
         return Locomotion(
             max_speed=params.get('predator_max_speed', 300.0),
-            max_turn=params.get('predator_max_turn', math.pi)
+            max_turn=params.get('predator_max_turn', math.pi),
+            allow_reverse=params.get('predator_allow_reverse_locomotion', False),
+            movement_mode=params.get('predator_movement_mode', 'forward'),
+            body_shape=params.get('predator_body_shape', 'ellipse'),
         )
     
     def _create_child_energy_model(self, params: 'Params') -> 'EnergyModel':
@@ -552,6 +610,8 @@ class Predator(Agent):
             age_death_enabled=params.get('predator_age_death_enabled', False),
             death_age=params.get('predator_death_age', 3600.0),
             corpse_to_food=params.get('predator_corpse_to_food', False),
+            reproduction_min_age=params.get('predator_reproduction_min_age', params.get('reproduction_min_age', 0.0)),
+            reproduction_cooldown=params.get('predator_reproduction_cooldown', params.get('reproduction_cooldown', 0.0)),
         )
 
 
@@ -588,6 +648,11 @@ def _apply_diet_from_params(agent: 'Agent', params: 'Params', prefix: str):
     agent.diet_same_label = bool(params.get(f'{prefix}_diet_same_label', False))
     agent.diet_food_efficiency = float(params.get(f'{prefix}_diet_food_efficiency', 1.0))
     agent.diet_agent_efficiency = float(params.get(f'{prefix}_diet_agent_efficiency', 0.7))
+
+
+def _brain_output_size(params: 'Params', prefix: str) -> int:
+    from .actuators import locomotion_output_size
+    return locomotion_output_size(params.get(f'{prefix}_movement_mode', 'forward'))
 
 
 def create_random_bacteria(existing_entities: list, params: 'Params', 
@@ -635,6 +700,8 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
         bacterium.color = tuple(params.get('bacteria_color', bacterium.color))
     except Exception:
         pass
+    bacterium.body_shape = getattr(locomotion, 'body_shape', getattr(bacterium, 'body_shape', 'ellipse'))
+    bacterium.agent_name = str(params.get('agent_template_name', 'organismo_1') or 'organismo_1')
     _apply_diet_from_params(bacterium, params, 'bacteria')
     bacterium.energy = params.get('bacteria_initial_energy', 100.0)
     
@@ -684,6 +751,8 @@ def create_random_predator(existing_entities: list, params: 'Params',
         predator.color = tuple(params.get('predator_color', predator.color))
     except Exception:
         pass
+    predator.body_shape = getattr(locomotion, 'body_shape', getattr(predator, 'body_shape', 'ellipse'))
+    predator.agent_name = str(params.get('agent_template_name', 'organismo_1') or 'organismo_1')
     _apply_diet_from_params(predator, params, 'predator')
     predator.energy = params.get('predator_initial_energy', 100.0)
     
@@ -760,7 +829,7 @@ def _create_bacteria_brain(params: 'Params'):
         else:
             break
     
-    layer_sizes.append(2)  # Saída: [speed, steering]
+    layer_sizes.append(_brain_output_size(params, 'bacteria'))
     
     return NeuralNet(layer_sizes, init_std=1.0)
 
@@ -776,7 +845,10 @@ def _create_bacteria_sensor(params: 'Params'):
         see_food=params.get('bacteria_retina_see_food', True),
         see_bacteria=params.get('bacteria_retina_see_bacteria', False),
         see_predators=params.get('bacteria_retina_see_predators', False),
-        channels=active_retina_channels(params, 'bacteria')
+        channels=active_retina_channels(params, 'bacteria'),
+        eye_count=params.get('bacteria_eye_count', 1),
+        eye_angle_degrees=params.get('bacteria_eye_angle_degrees', 60.0),
+        eye_separation_degrees=params.get('bacteria_eye_separation_degrees', 45.0),
     )
 
 
@@ -785,7 +857,10 @@ def _create_bacteria_locomotion(params: 'Params'):
     from .actuators import Locomotion
     return Locomotion(
         max_speed=params.get('bacteria_max_speed', 300.0),
-        max_turn=params.get('bacteria_max_turn', math.pi)
+        max_turn=params.get('bacteria_max_turn', math.pi),
+        allow_reverse=params.get('bacteria_allow_reverse_locomotion', False),
+        movement_mode=params.get('bacteria_movement_mode', 'forward'),
+        body_shape=params.get('bacteria_body_shape', 'ellipse'),
     )
 
 
@@ -802,6 +877,8 @@ def _create_bacteria_energy_model(params: 'Params'):
     age_death_enabled=params.get('bacteria_age_death_enabled', False),
     death_age=params.get('bacteria_death_age', 3600.0),
     corpse_to_food=params.get('bacteria_corpse_to_food', False),
+    reproduction_min_age=params.get('bacteria_reproduction_min_age', params.get('reproduction_min_age', 0.0)),
+    reproduction_cooldown=params.get('bacteria_reproduction_cooldown', params.get('reproduction_cooldown', 0.0)),
     )
 
 
@@ -823,7 +900,7 @@ def _create_predator_brain(params: 'Params'):
         else:
             break
     
-    layer_sizes.append(2)  # Saída: [speed, steering]
+    layer_sizes.append(_brain_output_size(params, 'predator'))
     
     return NeuralNet(layer_sizes, init_std=1.0)
 
@@ -839,7 +916,10 @@ def _create_predator_sensor(params: 'Params'):
         see_food=params.get('predator_retina_see_food', True),
         see_bacteria=params.get('predator_retina_see_bacteria', True),
         see_predators=params.get('predator_retina_see_predators', False),
-        channels=active_retina_channels(params, 'predator')
+        channels=active_retina_channels(params, 'predator'),
+        eye_count=params.get('predator_eye_count', 1),
+        eye_angle_degrees=params.get('predator_eye_angle_degrees', 60.0),
+        eye_separation_degrees=params.get('predator_eye_separation_degrees', 45.0),
     )
 
 
@@ -848,7 +928,10 @@ def _create_predator_locomotion(params: 'Params'):
     from .actuators import Locomotion
     return Locomotion(
         max_speed=params.get('predator_max_speed', 300.0),
-        max_turn=params.get('predator_max_turn', math.pi)
+        max_turn=params.get('predator_max_turn', math.pi),
+        allow_reverse=params.get('predator_allow_reverse_locomotion', False),
+        movement_mode=params.get('predator_movement_mode', 'forward'),
+        body_shape=params.get('predator_body_shape', 'ellipse'),
     )
 
 
@@ -865,4 +948,6 @@ def _create_predator_energy_model(params: 'Params'):
     age_death_enabled=params.get('predator_age_death_enabled', False),
     death_age=params.get('predator_death_age', 3600.0),
     corpse_to_food=params.get('predator_corpse_to_food', False),
+    reproduction_min_age=params.get('predator_reproduction_min_age', params.get('reproduction_min_age', 0.0)),
+    reproduction_cooldown=params.get('predator_reproduction_cooldown', params.get('reproduction_cooldown', 0.0)),
     )

@@ -304,8 +304,8 @@ class ReproductionSystem:
         self.last_births = []
         self.last_blocked_by_age = 0
         self.last_blocked_by_cooldown = 0
-        min_age = max(0.0, float(params.get('reproduction_min_age', 0.0)))
-        cooldown = max(0.0, float(params.get('reproduction_cooldown', 0.0)))
+        default_min_age = max(0.0, float(params.get('reproduction_min_age', 0.0)))
+        default_cooldown = max(0.0, float(params.get('reproduction_cooldown', 0.0)))
         
         # Determina limites de população por tipo
         bacteria_count = sum(1 for a in agents if not getattr(a, 'is_predator', False))
@@ -320,6 +320,9 @@ class ReproductionSystem:
         label_new_counts: dict[int, int] = {}
         
         for agent in agents:
+            energy_model = getattr(agent, 'energy_model', None)
+            min_age = max(0.0, float(getattr(energy_model, 'reproduction_min_age', default_min_age)))
+            cooldown = max(0.0, float(getattr(energy_model, 'reproduction_cooldown', default_cooldown)))
             if min_age > 0.0 and getattr(agent, 'age', 0.0) < min_age:
                 self.last_blocked_by_age += 1
                 continue

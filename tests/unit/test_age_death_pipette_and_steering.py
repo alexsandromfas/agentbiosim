@@ -44,6 +44,7 @@ def test_pipette_serializes_brain_and_energy_genome_for_spawn():
     agent.energy_model.age_death_enabled = True
     agent.energy_model.death_age = 123.0
     agent.energy_model.corpse_to_food = True
+    agent.agent_name = "linhagem_teste"
     agent.color = (11, 22, 33)
     engine.entities["bacteria"].append(agent)
     engine.all_agents.append(agent)
@@ -52,6 +53,8 @@ def test_pipette_serializes_brain_and_energy_genome_for_spawn():
     spawned = engine._spawn_agent_from_prototype(data, 150, 150, preserve_prototype_color=True)
 
     assert data is not None
+    assert data["agent_name"] == "linhagem_teste"
+    assert engine.current_agent_prototype == "linhagem_teste"
     assert json.loads(data["brain_sizes"]) == agent.brain.sizes
     assert data["energy_age_death_enabled"] == "True"
     assert float(data["energy_death_age"]) == 123.0

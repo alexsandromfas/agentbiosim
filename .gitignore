@@ -17,6 +17,7 @@ config/user_params.csv
 agents/*.agent.csv
 !agents/README.md
 substrates/auto_exports/
+substrates/autosaves/
 substrates/manual_exports/
 substrates/recovery/
 !substrates/README.md
@@ -25,6 +26,11 @@ Saves/
 # Local benchmark/profiling reports
 tests/otimizacoes/*.json
 !tests/otimizacoes/README.md
+tests/substrato_de_teste/resultados_benchmark/
+
+# Local build artifacts
+build/
+dist/
 
 # Coverage and logs
 .coverage

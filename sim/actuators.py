@@ -10,15 +10,48 @@ if TYPE_CHECKING:
     from .controllers import Params
 
 
+MOVEMENT_MODE_FORWARD = "forward"
+MOVEMENT_MODE_OMNI = "omni"
+BODY_SHAPE_ELLIPSE = "ellipse"
+BODY_SHAPE_CIRCLE = "circle"
+
+
+def normalize_movement_mode(value) -> str:
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {MOVEMENT_MODE_FORWARD, "frontal", "frente"}:
+            return MOVEMENT_MODE_FORWARD
+        if text in {MOVEMENT_MODE_OMNI, "4way", "four_way", "quatro_direcoes", "quatro direcoes"}:
+            return MOVEMENT_MODE_OMNI
+    return MOVEMENT_MODE_FORWARD
+
+
+def locomotion_output_size(value) -> int:
+    return 3 if normalize_movement_mode(value) == MOVEMENT_MODE_OMNI else 2
+
+
+def normalize_body_shape(value) -> str:
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in {BODY_SHAPE_CIRCLE, "circular", "circulo", "círculo"}:
+            return BODY_SHAPE_CIRCLE
+    return BODY_SHAPE_ELLIPSE
+
+
 class Locomotion:
     """
     Sistema de locomoção para agentes.
     Interpreta comandos da rede neural e atualiza posição/velocidade.
     """
     
-    def __init__(self, max_speed: float = 300.0, max_turn: float = math.pi):
+    def __init__(self, max_speed: float = 300.0, max_turn: float = math.pi,
+                 allow_reverse: bool = False, movement_mode: str = MOVEMENT_MODE_FORWARD,
+                 body_shape: str = BODY_SHAPE_ELLIPSE):
         self.max_speed = max_speed
         self.max_turn = max_turn  # radianos/segundo
+        self.allow_reverse = bool(allow_reverse)
+        self.movement_mode = normalize_movement_mode(movement_mode)
+        self.body_shape = normalize_body_shape(body_shape)
     
     def step(self, agent: 'Agent', control_output: list, dt: float, world: 'World', params: 'Params'):
         """
@@ -33,6 +66,37 @@ class Locomotion:
         """
         if len(control_output) < 2:
             return
+
+        if normalize_movement_mode(getattr(self, "movement_mode", MOVEMENT_MODE_FORWARD)) == MOVEMENT_MODE_OMNI:
+            if len(control_output) < 3:
+                return
+            forward_cmd = math.tanh(float(control_output[0]))
+            strafe_cmd = math.tanh(float(control_output[1]))
+            steer_cmd = math.tanh(float(control_output[2]))
+            mag = math.hypot(forward_cmd, strafe_cmd)
+            if mag > 1.0:
+                forward_cmd /= mag
+                strafe_cmd /= mag
+
+            agent.angle += steer_cmd * self.max_turn * dt
+            agent.angle = self._normalize_angle(agent.angle)
+            ca = math.cos(agent.angle)
+            sa = math.sin(agent.angle)
+            desired_vx = (ca * forward_cmd - sa * strafe_cmd) * self.max_speed
+            desired_vy = (sa * forward_cmd + ca * strafe_cmd) * self.max_speed
+
+            inertia = max(0.0, float(params.get('agents_inertia', 1.0)))
+            if inertia <= 1.0:
+                agent.vx = desired_vx
+                agent.vy = desired_vy
+            else:
+                alpha = min(1.0, 1.0 / inertia)
+                agent.vx += (desired_vx - agent.vx) * alpha
+                agent.vy += (desired_vy - agent.vy) * alpha
+            agent.x += agent.vx * dt
+            agent.y += agent.vy * dt
+            self._handle_wall_collisions(agent, world)
+            return
         
         # Interpreta comandos
         speed_raw = control_output[0]
@@ -40,7 +104,7 @@ class Locomotion:
         
         # Normaliza comandos. Por padrao preserva o modelo antigo 0..1.
         # Quando habilitado explicitamente, tanh permite velocidade assinada.
-        if params.get('allow_reverse_locomotion', False):
+        if bool(getattr(self, "allow_reverse", False)):
             speed_cmd = math.tanh(speed_raw)   # -1..1
         else:
             speed_cmd = self._sigmoid(speed_raw)  # 0..1
@@ -128,12 +192,14 @@ class EnergyModel:
     __slots__ = (
         "death_energy", "split_energy", "v0_cost", "vmax_cost", "vmax_ref", "energy_cap",
         "age_death_enabled", "death_age", "corpse_to_food",
+        "reproduction_min_age", "reproduction_cooldown",
     )
 
     def __init__(self, *, death_energy: float = 0.0, split_energy: float = 150.0,
                  v0_cost: float = 0.5, vmax_cost: float = 8.0, vmax_ref: float = 300.0,
                  energy_cap: float = 400.0, age_death_enabled: bool = False,
-                 death_age: float = 0.0, corpse_to_food: bool = False):
+                 death_age: float = 0.0, corpse_to_food: bool = False,
+                 reproduction_min_age: float = 0.0, reproduction_cooldown: float = 0.0):
         self.death_energy = death_energy
         self.split_energy = split_energy
         self.v0_cost = v0_cost
@@ -143,6 +209,8 @@ class EnergyModel:
         self.age_death_enabled = bool(age_death_enabled)
         self.death_age = max(0.0, float(death_age))
         self.corpse_to_food = bool(corpse_to_food)
+        self.reproduction_min_age = max(0.0, float(reproduction_min_age))
+        self.reproduction_cooldown = max(0.0, float(reproduction_cooldown))
 
     def metabolic_cost_per_sec(self, speed: float) -> float:
         # Linear por enquanto; speed saturado em vmax_ref
@@ -151,6 +219,8 @@ class EnergyModel:
 
     def apply(self, agent: 'Agent', dt: float, params: 'Params'):
         speed = agent.speed()
+        # Metabolismo agora e regra do organismo/label, aplicado no EnergyModel.
+        params = {}
         # Permitir override per-tipo via params (dinâmico)
         if agent.is_predator:
             v0 = params.get('predator_metab_v0_cost', self.v0_cost)

@@ -9,36 +9,160 @@ from typing import List, Optional, TYPE_CHECKING, Set, Any, Sequence
 RETINA_VISION_MODE_SINGLE = "single"
 RETINA_VISION_MODE_FULLBODY = "fullbody"
 RETINA_VISION_MODES = {RETINA_VISION_MODE_SINGLE, RETINA_VISION_MODE_FULLBODY}
-RETINA_CHANNEL_ORDER = ("r", "g", "b", "d")
+RETINA_INPUT_MODE_DISTANCE_ONLY = "distance_only"
+RETINA_INPUT_MODE_COLOR_DISTANCE = "color_distance"
+RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE = "color_plus_distance"
+RETINA_INPUT_MODE_COLOR_ONLY = "color_only"
+RETINA_INPUT_MODES = {
+    RETINA_INPUT_MODE_DISTANCE_ONLY,
+    RETINA_INPUT_MODE_COLOR_DISTANCE,
+    RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+    RETINA_INPUT_MODE_COLOR_ONLY,
+}
+RETINA_CHANNEL_ORDER = ("r", "g", "b", "rd", "gd", "bd", "d")
+RETINA_COLOR_CHANNELS = ("r", "g", "b")
 _RETINA_RAY_CACHE: dict[tuple[int, float], tuple[np.ndarray, np.ndarray, np.ndarray]] = {}
 
 
-def active_retina_channels(params: Any, prefix: str, fallback: Sequence[str] | None = None) -> tuple[str, ...]:
-    """Return enabled retina channels for an organism template.
+def normalize_retina_input_mode(value: Any) -> str:
+    if isinstance(value, str):
+        value = value.strip().lower()
+        aliases = {
+            "distancia": RETINA_INPUT_MODE_DISTANCE_ONLY,
+            "distancia_apenas": RETINA_INPUT_MODE_DISTANCE_ONLY,
+            "distance": RETINA_INPUT_MODE_DISTANCE_ONLY,
+            "weighted": RETINA_INPUT_MODE_COLOR_DISTANCE,
+            "color_weighted": RETINA_INPUT_MODE_COLOR_DISTANCE,
+            "cor_distancia": RETINA_INPUT_MODE_COLOR_DISTANCE,
+            "color_distance": RETINA_INPUT_MODE_COLOR_DISTANCE,
+            "separate": RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+            "separadas": RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+            "color_plus_distance": RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+            "cor_distancia_separadas": RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE,
+            "color_only": RETINA_INPUT_MODE_COLOR_ONLY,
+            "cor_apenas": RETINA_INPUT_MODE_COLOR_ONLY,
+        }
+        value = aliases.get(value, value)
+        if value in RETINA_INPUT_MODES:
+            return value
+    return RETINA_INPUT_MODE_DISTANCE_ONLY
 
-    ``d`` is the current proximity/intensity channel. RGB channels carry object
-    color multiplied by proximity. At least one channel is always returned.
-    """
+
+def normalize_retina_channels(channels: Sequence[str] | None) -> tuple[str, ...]:
+    normalized = []
+    for channel in channels or ("d",):
+        ch = str(channel).strip().lower().replace("*", "")
+        if ch in {"dr"}:
+            ch = "rd"
+        elif ch in {"dg"}:
+            ch = "gd"
+        elif ch in {"db"}:
+            ch = "bd"
+        if ch in RETINA_CHANNEL_ORDER and ch not in normalized:
+            normalized.append(ch)
+    if not normalized:
+        normalized.append("d")
+    order = {channel: index for index, channel in enumerate(RETINA_CHANNEL_ORDER)}
+    return tuple(sorted(normalized, key=lambda ch: order.get(ch, 999)))
+
+
+def retina_input_mode_from_channels(channels: Sequence[str] | None) -> str:
+    channels = normalize_retina_channels(channels)
+    has_d = "d" in channels
+    has_weighted = any(ch in channels for ch in ("rd", "gd", "bd"))
+    has_pure = any(ch in channels for ch in RETINA_COLOR_CHANNELS)
+    if has_weighted:
+        return RETINA_INPUT_MODE_COLOR_DISTANCE
+    if has_pure and has_d:
+        return RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE
+    if has_pure:
+        return RETINA_INPUT_MODE_COLOR_ONLY
+    return RETINA_INPUT_MODE_DISTANCE_ONLY
+
+
+def retina_input_mode_label(mode: Any) -> str:
+    labels = {
+        RETINA_INPUT_MODE_DISTANCE_ONLY: "Distancia apenas",
+        RETINA_INPUT_MODE_COLOR_DISTANCE: "Cor ponderada pela distancia",
+        RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE: "Cor + distancia separadas",
+        RETINA_INPUT_MODE_COLOR_ONLY: "Cor apenas",
+    }
+    return labels.get(normalize_retina_input_mode(mode), labels[RETINA_INPUT_MODE_DISTANCE_ONLY])
+
+
+def retina_channel_label(channel: str) -> str:
+    channel = str(channel).lower()
+    labels = {
+        "r": "R",
+        "g": "G",
+        "b": "B",
+        "rd": "R*D",
+        "gd": "G*D",
+        "bd": "B*D",
+        "d": "D",
+    }
+    return labels.get(channel, channel.upper())
+
+
+def retina_channels_description(channels: Sequence[str] | None) -> str:
+    return ", ".join(retina_channel_label(ch) for ch in normalize_retina_channels(channels))
+
+
+def active_retina_channels(params: Any, prefix: str, fallback: Sequence[str] | None = None) -> tuple[str, ...]:
+    """Return enabled retina channels for an organism template."""
     get = params.get if hasattr(params, "get") else (lambda key, default=None: default)
-    channels = []
     sentinel = object()
-    fallback_channels = tuple(fallback or ("d",))
-    for channel in RETINA_CHANNEL_ORDER:
-        key = f"{prefix}_retina_channel_{channel}"
-        raw = get(key, sentinel)
-        enabled = (channel in fallback_channels) if raw is sentinel else bool(raw)
+    fallback_channels = normalize_retina_channels(fallback)
+    raw_mode = get(f"{prefix}_retina_input_mode", sentinel)
+    if raw_mode is sentinel:
+        mode = retina_input_mode_from_channels(fallback_channels)
+    else:
+        mode = normalize_retina_input_mode(raw_mode)
+
+    selected_colors = []
+    fallback_colors = {
+        ch[0] if len(ch) == 2 and ch.endswith("d") else ch
+        for ch in fallback_channels
+        if ch in RETINA_COLOR_CHANNELS or (len(ch) == 2 and ch.endswith("d"))
+    }
+    for channel in RETINA_COLOR_CHANNELS:
+        raw = get(f"{prefix}_retina_channel_{channel}", sentinel)
+        enabled = (channel in fallback_colors) if raw is sentinel else bool(raw)
         if enabled:
-            channels.append(channel)
-    if not channels:
-        channels.append("d")
-    return tuple(channels)
+            selected_colors.append(channel)
+
+    if mode == RETINA_INPUT_MODE_DISTANCE_ONLY:
+        return ("d",)
+    if mode == RETINA_INPUT_MODE_COLOR_DISTANCE:
+        if not selected_colors:
+            return ("d",)
+        return tuple(f"{channel}d" for channel in selected_colors)
+    if mode == RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE:
+        if not selected_colors:
+            return ("d",)
+        return tuple(selected_colors + ["d"])
+    if mode == RETINA_INPUT_MODE_COLOR_ONLY:
+        if not selected_colors:
+            return ("d",)
+        return tuple(selected_colors)
+    return fallback_channels
 
 
 def retina_input_size(params: Any, prefix: str, default_retina_count: int = 18) -> int:
     count = max(1, int((params.get if hasattr(params, "get") else lambda _k, d=None: d)(
         f"{prefix}_retina_count", default_retina_count
     )))
-    return count * len(active_retina_channels(params, prefix))
+    eyes = normalize_eye_count((params.get if hasattr(params, "get") else lambda _k, d=None: d)(
+        f"{prefix}_eye_count", 1
+    ))
+    return count * eyes * len(active_retina_channels(params, prefix))
+
+
+def normalize_eye_count(value: Any) -> int:
+    try:
+        return 2 if int(float(value)) >= 2 else 1
+    except (TypeError, ValueError):
+        return 1
 
 
 def _object_color01(obj: Any) -> tuple[float, float, float]:
@@ -285,7 +409,9 @@ class RetinaSensor:
     def __init__(self, retina_count: int = 18, vision_radius: float = 120.0,
                  fov_degrees: float = 180.0, skip: int = 0,
                  see_food: bool = True, see_bacteria: bool = False, see_predators: bool = False,
-                 channels: Sequence[str] | None = None):
+                 channels: Sequence[str] | None = None,
+                 eye_count: int = 1, eye_angle_degrees: float = 60.0,
+                 eye_separation_degrees: float = 45.0):
         """
         Args:
             retina_count: Número de raios da retina
@@ -303,11 +429,44 @@ class RetinaSensor:
         self.see_food = see_food
         self.see_bacteria = see_bacteria
         self.see_predators = see_predators
-        self.channels = tuple(ch for ch in (channels or ("d",)) if ch in RETINA_CHANNEL_ORDER) or ("d",)
+        self.channels = normalize_retina_channels(channels)
+        self.eye_count = normalize_eye_count(eye_count)
+        self.eye_angle_degrees = float(eye_angle_degrees)
+        self.eye_separation_degrees = float(eye_separation_degrees)
         
         # Estado interno
         self._countdown = 0
         self.last_inputs: List[float] = []
+        self.last_distance_inputs: List[float] = []
+
+    def total_ray_count(self) -> int:
+        return max(1, int(self.retina_count)) * normalize_eye_count(getattr(self, "eye_count", 1))
+
+    def _eye_specs(self) -> list[tuple[float, float]]:
+        if normalize_eye_count(getattr(self, "eye_count", 1)) <= 1:
+            return [(0.0, 0.0)]
+        gaze_half = math.radians(float(getattr(self, "eye_angle_degrees", 60.0)) * 0.5)
+        pos_half = math.radians(float(getattr(self, "eye_separation_degrees", 45.0)) * 0.5)
+        return [(-pos_half, -gaze_half), (pos_half, gaze_half)]
+
+    def _ray_pose(self, agent: 'Agent', ray_index: int) -> tuple[float, float, float] | None:
+        count = max(1, int(self.retina_count))
+        total = self.total_ray_count()
+        if ray_index < 0 or ray_index >= total:
+            return None
+        eye_index = ray_index // count
+        local_index = ray_index % count
+        specs = self._eye_specs()
+        pos_offset, gaze_offset = specs[min(eye_index, len(specs) - 1)]
+        position_angle = agent.angle + pos_offset
+        eye_x = agent.x + math.cos(position_angle) * agent.r
+        eye_y = agent.y + math.sin(position_angle) * agent.r
+        half_fov = math.radians(self.fov_degrees / 2.0)
+        if count > 1:
+            rel_angle = (-half_fov) + (local_index / (count - 1)) * (2 * half_fov)
+        else:
+            rel_angle = 0.0
+        return eye_x, eye_y, agent.angle + gaze_offset + rel_angle
     
     def sense(self, agent: 'Agent', scene: SceneQuery, params: 'Params') -> List[float]:
         """
@@ -323,19 +482,24 @@ class RetinaSensor:
         """
         # Atualização dinâmica dos parâmetros a cada frame (permite alterar na UI em tempo real)
         prefix = 'predator' if getattr(agent, 'is_predator', False) else 'bacteria'
-        desired_count = params.get(f'{prefix}_retina_count', self.retina_count)
-        desired_fov = params.get(f'{prefix}_retina_fov_degrees', self.fov_degrees)
-        desired_radius = params.get(f'{prefix}_vision_radius', self.vision_radius)
+        desired_count = self.retina_count
+        desired_fov = self.fov_degrees
+        desired_radius = self.vision_radius
         desired_skip = max(0, int(params.get('retina_skip', self.skip)))
-        desired_see_food = params.get(f'{prefix}_retina_see_food', self.see_food)
-        desired_see_bacteria = params.get(f'{prefix}_retina_see_bacteria', self.see_bacteria)
-        desired_see_predators = params.get(f'{prefix}_retina_see_predators', self.see_predators)
-        desired_channels = active_retina_channels(params, prefix, fallback=self.channels)
+        desired_see_food = self.see_food
+        desired_see_bacteria = self.see_bacteria
+        desired_see_predators = self.see_predators
+        desired_channels = normalize_retina_channels(self.channels)
+        desired_eye_count = normalize_eye_count(getattr(self, "eye_count", 1))
+        desired_eye_angle = float(getattr(self, "eye_angle_degrees", 60.0))
+        desired_eye_separation = float(getattr(self, "eye_separation_degrees", 45.0))
         if (desired_count != self.retina_count or desired_fov != self.fov_degrees or
             desired_radius != self.vision_radius or desired_skip != self.skip or
             desired_see_food != self.see_food or
             desired_see_bacteria != self.see_bacteria or desired_see_predators != self.see_predators or
-            desired_channels != self.channels):
+            desired_channels != self.channels or desired_eye_count != normalize_eye_count(getattr(self, "eye_count", 1)) or
+            desired_eye_angle != float(getattr(self, "eye_angle_degrees", 60.0)) or
+            desired_eye_separation != float(getattr(self, "eye_separation_degrees", 45.0))):
             self.retina_count = max(1, int(desired_count))
             self.fov_degrees = float(desired_fov)
             self.vision_radius = float(desired_radius)
@@ -344,8 +508,12 @@ class RetinaSensor:
             self.see_bacteria = bool(desired_see_bacteria)
             self.see_predators = bool(desired_see_predators)
             self.channels = desired_channels
+            self.eye_count = desired_eye_count
+            self.eye_angle_degrees = desired_eye_angle
+            self.eye_separation_degrees = desired_eye_separation
             # Força recálculo completo
             self.last_inputs = []
+            self.last_distance_inputs = []
             self._countdown = 0
 
         # Sistema de skip para otimização (após possível atualização dinâmica)
@@ -364,7 +532,8 @@ class RetinaSensor:
         
         # Faz raycasts
         inputs = []
-        for i in range(self.retina_count):
+        distance_inputs = []
+        for i in range(self.total_ray_count()):
             # Calcula ângulo relativo do raio
             if self.retina_count > 1:
                 rel_angle = (-half_fov) + (i / (self.retina_count - 1)) * (2 * half_fov)
@@ -372,6 +541,10 @@ class RetinaSensor:
                 rel_angle = 0
             
             ray_angle = agent.angle + rel_angle
+            pose = self._ray_pose(agent, i)
+            if pose is None:
+                continue
+            eye_x, eye_y, ray_angle = pose
             ray_dx = math.cos(ray_angle)
             ray_dy = math.sin(ray_angle)
             
@@ -393,19 +566,27 @@ class RetinaSensor:
                 # Ativação inversamente proporcional à distância
                 activation = max(0.0, min(1.0, (self.vision_radius - distance) / self.vision_radius))
                 color = _object_color01(obj)
+            distance_inputs.append(float(activation))
             
             for channel in self.channels:
                 if channel == "r":
-                    inputs.append(activation * color[0])
+                    inputs.append(color[0])
                 elif channel == "g":
-                    inputs.append(activation * color[1])
+                    inputs.append(color[1])
                 elif channel == "b":
+                    inputs.append(color[2])
+                elif channel == "rd":
+                    inputs.append(activation * color[0])
+                elif channel == "gd":
+                    inputs.append(activation * color[1])
+                elif channel == "bd":
                     inputs.append(activation * color[2])
                 else:
                     inputs.append(activation)
         
         # Atualiza estado e countdown
         self.last_inputs = list(inputs)
+        self.last_distance_inputs = list(distance_inputs)
         self._countdown = self.skip
         
         return inputs
@@ -414,21 +595,19 @@ class RetinaSensor:
         """Retorna (start_x, start_y, end_x, end_y, activation) para um raio.
         Se índice inválido ou sem dados ainda, retorna None.
         """
-        if ray_index < 0 or ray_index >= self.retina_count or not self.last_inputs:
+        if ray_index < 0 or ray_index >= self.total_ray_count() or not self.last_inputs:
             return None
-        eye_offset = agent.r
-        eye_x = agent.x + math.cos(agent.angle) * eye_offset
-        eye_y = agent.y + math.sin(agent.angle) * eye_offset
-        half_fov = math.radians(self.fov_degrees / 2.0)
-        if self.retina_count > 1:
-            rel_angle = (-half_fov) + (ray_index / (self.retina_count - 1)) * (2 * half_fov)
-        else:
-            rel_angle = 0.0
-        ray_angle = agent.angle + rel_angle
+        pose = self._ray_pose(agent, ray_index)
+        if pose is None:
+            return None
+        eye_x, eye_y, ray_angle = pose
         stride = max(1, len(getattr(self, "channels", ("d",))))
         start = ray_index * stride
         values = self.last_inputs[start:start + stride]
-        if not values:
+        distance_values = getattr(self, "last_distance_inputs", None)
+        if distance_values and ray_index < len(distance_values):
+            activation = float(distance_values[ray_index])
+        elif not values:
             activation = 0.0
         elif "d" in self.channels:
             activation = values[self.channels.index("d")]
@@ -460,7 +639,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     # Atualiza parâmetros dinâmicos e determina quais precisam recalcular
     param_get = params.get if params is not None else (lambda _key, default=None: default)
     vision_mode = normalize_retina_vision_mode(param_get('retina_vision_mode') if params is not None else None)
-    species_configs = {}
+    sensor_configs = {}
     fast_retina_single = None
     fast_retina_fullbody = None
     fast_retina_fullbody_precomputed = None
@@ -490,17 +669,34 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             fast_retina_batch_fullbody = None
 
     def _species_sensor_config(prefix, sensor):
-        config = species_configs.get(prefix)
+        desired_skip = max(0, int(param_get('retina_skip', sensor.skip)))
+        desired_channels = normalize_retina_channels(getattr(sensor, "channels", ("d",)))
+        cache_key = (
+            prefix,
+            int(getattr(sensor, "retina_count", 18)),
+            round(float(getattr(sensor, "fov_degrees", 180.0)), 6),
+            round(float(getattr(sensor, "vision_radius", 120.0)), 6),
+            desired_skip,
+            bool(getattr(sensor, "see_food", True)),
+            bool(getattr(sensor, "see_bacteria", False)),
+            bool(getattr(sensor, "see_predators", False)),
+            desired_channels,
+            normalize_eye_count(getattr(sensor, "eye_count", 1)),
+            round(float(getattr(sensor, "eye_angle_degrees", 60.0)), 6),
+            round(float(getattr(sensor, "eye_separation_degrees", 45.0)), 6),
+        )
+        config = sensor_configs.get(cache_key)
         if config is not None:
             return config
-        desired_count = max(1, int(param_get(f'{prefix}_retina_count', sensor.retina_count)))
-        desired_fov = float(param_get(f'{prefix}_retina_fov_degrees', sensor.fov_degrees))
-        desired_radius = float(param_get(f'{prefix}_vision_radius', sensor.vision_radius))
-        desired_skip = max(0, int(param_get('retina_skip', sensor.skip)))
-        desired_see_food = bool(param_get(f'{prefix}_retina_see_food', sensor.see_food))
-        desired_see_bacteria = bool(param_get(f'{prefix}_retina_see_bacteria', sensor.see_bacteria))
-        desired_see_predators = bool(param_get(f'{prefix}_retina_see_predators', sensor.see_predators))
-        desired_channels = active_retina_channels(params, prefix, fallback=getattr(sensor, "channels", ("d",)))
+        desired_count = max(1, int(getattr(sensor, "retina_count", 18)))
+        desired_fov = float(getattr(sensor, "fov_degrees", 180.0))
+        desired_radius = float(getattr(sensor, "vision_radius", 120.0))
+        desired_see_food = bool(getattr(sensor, "see_food", True))
+        desired_see_bacteria = bool(getattr(sensor, "see_bacteria", False))
+        desired_see_predators = bool(getattr(sensor, "see_predators", False))
+        desired_eye_count = normalize_eye_count(getattr(sensor, "eye_count", 1))
+        desired_eye_angle = float(getattr(sensor, "eye_angle_degrees", 60.0))
+        desired_eye_separation = float(getattr(sensor, "eye_separation_degrees", 45.0))
         type_codes = []
         max_seen_radius = 0.0
         if desired_see_food:
@@ -521,10 +717,13 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             desired_see_bacteria,
             desired_see_predators,
             desired_channels,
+            desired_eye_count,
+            desired_eye_angle,
+            desired_eye_separation,
             tuple(type_codes),
             max_seen_radius,
         )
-        species_configs[prefix] = config
+        sensor_configs[cache_key] = config
         return config
 
     need_update_idx = []
@@ -543,6 +742,9 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             desired_see_bacteria,
             desired_see_predators,
             desired_channels,
+            desired_eye_count,
+            desired_eye_angle,
+            desired_eye_separation,
             _type_codes,
             _max_seen_radius,
         ) = config
@@ -550,7 +752,10 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             desired_radius != sensor.vision_radius or desired_skip != sensor.skip or
             desired_see_food != sensor.see_food or
             desired_see_bacteria != sensor.see_bacteria or desired_see_predators != sensor.see_predators or
-            desired_channels != getattr(sensor, "channels", ("d",))):
+            desired_channels != getattr(sensor, "channels", ("d",)) or
+            desired_eye_count != normalize_eye_count(getattr(sensor, "eye_count", 1)) or
+            desired_eye_angle != float(getattr(sensor, "eye_angle_degrees", 60.0)) or
+            desired_eye_separation != float(getattr(sensor, "eye_separation_degrees", 45.0))):
             sensor.retina_count = desired_count
             sensor.fov_degrees = desired_fov
             sensor.vision_radius = desired_radius
@@ -559,7 +764,11 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             sensor.see_bacteria = desired_see_bacteria
             sensor.see_predators = desired_see_predators
             sensor.channels = desired_channels
+            sensor.eye_count = desired_eye_count
+            sensor.eye_angle_degrees = desired_eye_angle
+            sensor.eye_separation_degrees = desired_eye_separation
             sensor.last_inputs = []
+            sensor.last_distance_inputs = []
             sensor._countdown = 0
         if sensor._countdown > 0 and sensor.last_inputs:
             sensor._countdown -= 1
@@ -571,7 +780,18 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         return results  # type: ignore
 
     def _empty_retina_inputs(sensor):
-        return [0.0] * (int(sensor.retina_count) * max(1, len(getattr(sensor, "channels", ("d",)))))
+        rays = sensor.total_ray_count() if hasattr(sensor, "total_ray_count") else int(sensor.retina_count)
+        return [0.0] * (int(rays) * max(1, len(getattr(sensor, "channels", ("d",)))))
+
+    def _store_retina_inputs(sensor, inputs, distance_inputs=None):
+        sensor.last_inputs = list(inputs)
+        if distance_inputs is None:
+            rays = sensor.total_ray_count() if hasattr(sensor, "total_ray_count") else int(sensor.retina_count)
+            if len(inputs) == int(rays):
+                distance_inputs = inputs
+            else:
+                distance_inputs = [0.0] * int(rays)
+        sensor.last_distance_inputs = list(distance_inputs)
 
     # Preparação para fallback sem spatial hash (global candidates)
     global_candidates = None
@@ -591,7 +811,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             for idx in need_update_idx:
                 sensor = sensors[idx]
                 inputs = _empty_retina_inputs(sensor)
-                sensor.last_inputs = inputs
+                _store_retina_inputs(sensor, inputs)
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
             return results  # type: ignore
@@ -601,6 +821,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         and scene.spatial_hash is not None
         and len(need_update_idx) >= 8
         and all(getattr(sensors[i], "channels", ("d",)) == ("d",) for i in need_update_idx)
+        and all(normalize_eye_count(getattr(sensors[i], "eye_count", 1)) == 1 for i in need_update_idx)
         and (
             (vision_mode == 'fullbody' and fast_retina_batch_fullbody is not None)
             or ((vision_mode == 'single' or sensors[need_update_idx[0]].retina_count == 1) and fast_retina_batch_single is not None)
@@ -637,6 +858,9 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     _desired_see_bacteria,
                     _desired_see_predators,
                     _desired_channels,
+                    _desired_eye_count,
+                    _desired_eye_angle,
+                    _desired_eye_separation,
                     type_codes,
                     max_seen_radius,
                 ) = runtime_configs[idx]
@@ -667,7 +891,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 for idx in need_update_idx:
                     sensor = sensors[idx]
                     inputs = _empty_retina_inputs(sensor)
-                    sensor.last_inputs = inputs
+                    _store_retina_inputs(sensor, inputs)
                     sensor._countdown = sensor.skip
                     results[idx] = inputs
                 return results  # type: ignore
@@ -727,7 +951,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 for local_idx, idx in enumerate(need_update_idx):
                     sensor = sensors[idx]
                     inputs = out32[local_idx].tolist()
-                    sensor.last_inputs = inputs
+                    _store_retina_inputs(sensor, inputs)
                     sensor._countdown = sensor.skip
                     results[idx] = inputs
                 return results  # type: ignore
@@ -748,11 +972,19 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             _desired_see_bacteria,
             _desired_see_predators,
             _desired_channels,
+            _desired_eye_count,
+            _desired_eye_angle,
+            _desired_eye_separation,
             type_codes,
             max_seen_radius,
         ) = runtime_configs[idx]
 
         # Seleciona candidatos locais usando spatial hash quando disponível
+        if normalize_eye_count(getattr(sensor, "eye_count", 1)) != 1:
+            inputs = sensor.sense(agent, scene, params)
+            results[idx] = inputs
+            continue
+
         if scene.spatial_hash is not None:
             # Raio de busca: visao + maior raio entre os tipos relevantes.
             search_r = sensor.vision_radius + max_seen_radius
@@ -768,7 +1000,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             eye_y = agent.y + math.sin(agent.angle) * agent.r
         if not candidates_local:
             inputs = _empty_retina_inputs(sensor)
-            sensor.last_inputs = inputs
+            _store_retina_inputs(sensor, inputs)
             sensor._countdown = sensor.skip
             results[idx] = inputs
             continue
@@ -827,7 +1059,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 )
                 if ok:
                     inputs = out.astype(np.float32).tolist()
-                    sensor.last_inputs = inputs
+                    _store_retina_inputs(sensor, inputs)
                     sensor._countdown = sensor.skip
                     results[idx] = inputs
                     continue
@@ -884,7 +1116,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     )
                 if ok:
                     inputs = out.astype(np.float32).tolist()
-                    sensor.last_inputs = inputs
+                    _store_retina_inputs(sensor, inputs)
                     sensor._countdown = sensor.skip
                     results[idx] = inputs
                     continue
@@ -897,7 +1129,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         within = dist - cand_r <= sensor.vision_radius
         if not np.any(within):
             inputs = _empty_retina_inputs(sensor)
-            sensor.last_inputs = inputs
+            _store_retina_inputs(sensor, inputs)
             sensor._countdown = sensor.skip
             results[idx] = inputs
             continue
@@ -921,7 +1153,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 visible_mask = visible_mask & (~self_within)
         if not np.any(visible_mask):
             inputs = _empty_retina_inputs(sensor)
-            sensor.last_inputs = inputs
+            _store_retina_inputs(sensor, inputs)
             sensor._countdown = sensor.skip
             results[idx] = inputs
             continue
@@ -943,7 +1175,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         half_fov = math.radians(sensor.fov_degrees/2.0)
         if half_fov <= 0:
             inputs = _empty_retina_inputs(sensor)
-            sensor.last_inputs = inputs
+            _store_retina_inputs(sensor, inputs)
             sensor._countdown = sensor.skip
             results[idx] = inputs
             continue
@@ -963,7 +1195,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             inside = np.abs(ang_diff_objs) <= (half_fov + half_span_all)
             if not np.any(inside):
                 inputs = _empty_retina_inputs(sensor)
-                sensor.last_inputs = inputs
+                _store_retina_inputs(sensor, inputs)
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
                 continue
@@ -1002,7 +1234,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             inside = np.abs(ang_diff_objs) <= (half_fov + half_span_all)
             if not np.any(inside):
                 inputs = _empty_retina_inputs(sensor)
-                sensor.last_inputs = inputs
+                _store_retina_inputs(sensor, inputs)
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
                 continue
@@ -1077,14 +1309,20 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 color = ray_color[ray_idx_out]
                 for channel in channels:
                     if channel == "r":
-                        inputs.append(act * float(color[0]))
+                        inputs.append(float(color[0]))
                     elif channel == "g":
-                        inputs.append(act * float(color[1]))
+                        inputs.append(float(color[1]))
                     elif channel == "b":
+                        inputs.append(float(color[2]))
+                    elif channel == "rd":
+                        inputs.append(act * float(color[0]))
+                    elif channel == "gd":
+                        inputs.append(act * float(color[1]))
+                    elif channel == "bd":
                         inputs.append(act * float(color[2]))
                     else:
                         inputs.append(act)
-        sensor.last_inputs = inputs
+        _store_retina_inputs(sensor, inputs, activation.tolist())
         sensor._countdown = sensor.skip
         results[idx] = inputs
     return results  # type: ignore
