@@ -1,11 +1,26 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 
+asset_files = [
+    'AgentBioSim.ico',
+    'clean_food.png',
+    'dead.png',
+    'draw_icon.png',
+    'icon.png',
+    'Lasso.png',
+    'Pause.png',
+    'pipette.png',
+    'Play.png',
+    'Selection.png',
+    'Square.png',
+    'Stop.png',
+]
+
 a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('Assets', 'Assets')],
+    datas=[('Assets/' + name, 'Assets') for name in asset_files],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
