@@ -8,7 +8,8 @@ from typing import List, Optional, TYPE_CHECKING, Set, Any, Sequence
 
 RETINA_VISION_MODE_SINGLE = "single"
 RETINA_VISION_MODE_FULLBODY = "fullbody"
-RETINA_VISION_MODES = {RETINA_VISION_MODE_SINGLE, RETINA_VISION_MODE_FULLBODY}
+RETINA_VISION_MODE_SECTOR = "sector"
+RETINA_VISION_MODES = {RETINA_VISION_MODE_SINGLE, RETINA_VISION_MODE_FULLBODY, RETINA_VISION_MODE_SECTOR}
 RETINA_INPUT_MODE_DISTANCE_ONLY = "distance_only"
 RETINA_INPUT_MODE_COLOR_DISTANCE = "color_distance"
 RETINA_INPUT_MODE_COLOR_PLUS_DISTANCE = "color_plus_distance"
@@ -187,9 +188,21 @@ def normalize_retina_vision_mode(value: Any) -> str:
     ``fullbody`` casts each retina ray against the circular body of visible
     objects, so wide/near objects can activate more than one retina ray. It is
     the geometrically defined mode for stricter experiments.
+
+    ``sector`` maps visible objects into angular sectors. It preserves the
+    retina count, eyes, FOV and RGB/distance channels, but avoids per-ray
+    circle intersections. It is intended for large populations.
     """
     if isinstance(value, str):
         value = value.strip().lower()
+        aliases = {
+            "setorial": RETINA_VISION_MODE_SECTOR,
+            "sectorial": RETINA_VISION_MODE_SECTOR,
+            "fast_sector": RETINA_VISION_MODE_SECTOR,
+            "visao_setorial": RETINA_VISION_MODE_SECTOR,
+            "visão_setorial": RETINA_VISION_MODE_SECTOR,
+        }
+        value = aliases.get(value, value)
         if value in RETINA_VISION_MODES:
             return value
     return RETINA_VISION_MODE_SINGLE
@@ -279,6 +292,106 @@ def _raycast_hit_from_candidates(px: float, py: float, dx: float, dy: float,
     if best_distance is None:
         return None
     return best_distance, best_obj
+
+
+def _retina_channel_codes(channels: Sequence[str] | None) -> np.ndarray:
+    mapping = {"d": 0, "r": 1, "g": 2, "b": 3, "rd": 4, "gd": 5, "bd": 6}
+    return np.asarray([mapping.get(ch, 0) for ch in normalize_retina_channels(channels)], dtype=np.int8)
+
+
+def _channel_value(channel: str, activation: float, color: tuple[float, float, float]) -> float:
+    if channel == "r":
+        return color[0]
+    if channel == "g":
+        return color[1]
+    if channel == "b":
+        return color[2]
+    if channel == "rd":
+        return activation * color[0]
+    if channel == "gd":
+        return activation * color[1]
+    if channel == "bd":
+        return activation * color[2]
+    return activation
+
+
+def _sector_retina_from_candidates(
+    sensor: 'RetinaSensor',
+    agent: Any,
+    candidates,
+    type_codes: Sequence[int] | None = None,
+    spatial_filtered: bool = True,
+) -> tuple[list[float], list[float]]:
+    """Fast angular-sector retina mapping for one agent.
+
+    Each retina receives the nearest visible object whose center falls inside
+    that angular sector. This is intentionally cheaper than ray/body
+    intersections and keeps ``last_distance_inputs`` useful for drawing rays.
+    """
+    retina_count = max(1, int(getattr(sensor, "retina_count", 1)))
+    eye_count = normalize_eye_count(getattr(sensor, "eye_count", 1))
+    channels = normalize_retina_channels(getattr(sensor, "channels", ("d",)))
+    stride = max(1, len(channels))
+    total_rays = retina_count * eye_count
+    inputs = [0.0] * (total_rays * stride)
+    distance_inputs = [0.0] * total_rays
+    vision_radius = max(1e-9, float(getattr(sensor, "vision_radius", 0.0)))
+    half_fov = math.radians(float(getattr(sensor, "fov_degrees", 0.0)) * 0.5)
+    if half_fov <= 0.0 or not candidates:
+        return inputs, distance_inputs
+
+    type_code_set = set(type_codes or ())
+    specs = sensor._eye_specs() if hasattr(sensor, "_eye_specs") else [(0.0, 0.0)]
+    for eye_idx in range(eye_count):
+        pos_offset, gaze_offset = specs[min(eye_idx, len(specs) - 1)]
+        position_angle = float(getattr(agent, "angle", 0.0)) + pos_offset
+        eye_x = float(getattr(agent, "x", 0.0)) + math.cos(position_angle) * float(getattr(agent, "r", 0.0))
+        eye_y = float(getattr(agent, "y", 0.0)) + math.sin(position_angle) * float(getattr(agent, "r", 0.0))
+        gaze_angle = float(getattr(agent, "angle", 0.0)) + gaze_offset
+        best_dist = [math.inf] * retina_count
+        best_color = [(0.0, 0.0, 0.0)] * retina_count
+
+        for obj in candidates:
+            if obj is agent:
+                continue
+            if not spatial_filtered and type_code_set and getattr(obj, "type_code", -1) not in type_code_set:
+                continue
+            dx = float(getattr(obj, "x", 0.0)) - eye_x
+            dy = float(getattr(obj, "y", 0.0)) - eye_y
+            center_dist = math.hypot(dx, dy)
+            obj_r = max(0.0, float(getattr(obj, "r", 0.0)))
+            eff_dist = center_dist - obj_r
+            if eff_dist > vision_radius:
+                continue
+            obj_angle = math.atan2(dy, dx)
+            rel_angle = (obj_angle - gaze_angle + math.pi) % (2.0 * math.pi) - math.pi
+            if abs(rel_angle) > half_fov:
+                continue
+            if eff_dist < 0.0:
+                eff_dist = 0.0
+            if retina_count > 1:
+                rel = (rel_angle + half_fov) / (2.0 * half_fov) * (retina_count - 1)
+                ray_idx = max(0, min(retina_count - 1, int(math.floor(rel + 0.5))))
+            else:
+                ray_idx = 0
+            if eff_dist < best_dist[ray_idx]:
+                best_dist[ray_idx] = eff_dist
+                best_color[ray_idx] = _object_color01(obj)
+
+        for local_idx in range(retina_count):
+            ray_idx = eye_idx * retina_count + local_idx
+            dist = best_dist[local_idx]
+            if math.isfinite(dist):
+                activation = max(0.0, min(1.0, (vision_radius - dist) / vision_radius))
+                color = best_color[local_idx]
+            else:
+                activation = 0.0
+                color = (0.0, 0.0, 0.0)
+            distance_inputs[ray_idx] = activation
+            start = ray_idx * stride
+            for channel_idx, channel in enumerate(channels):
+                inputs[start + channel_idx] = _channel_value(channel, activation, color)
+    return inputs, distance_inputs
 
 
 class SceneQuery:
@@ -423,6 +536,7 @@ class SceneQuery:
 # Retina mode semantics:
 # - single: historical centroid approximation, at most one ray per object.
 # - fullbody: geometric ray-circle intersection, wide objects can hit many rays.
+# - sector: fast angular-sector mapping, optimized for large populations.
 class RetinaSensor:
     """
     Sensor de retina para visão dos agentes.
@@ -570,8 +684,19 @@ class RetinaSensor:
             if self.see_predators:
                 candidates.extend(scene.entities.get('predators', []))
         
-        # Determina campo de visão
-        # Faz raycasts
+        if normalize_retina_vision_mode(params.get('retina_vision_mode', RETINA_VISION_MODE_SINGLE)) == RETINA_VISION_MODE_SECTOR:
+            inputs, distance_inputs = _sector_retina_from_candidates(
+                self,
+                agent,
+                candidates,
+                type_codes=tuple(type_codes),
+                spatial_filtered=scene.spatial_hash is not None,
+            )
+            self.last_inputs = list(inputs)
+            self.last_distance_inputs = list(distance_inputs)
+            self._countdown = self.skip
+            return inputs
+
         inputs = []
         distance_inputs = []
         for i in range(self.total_ray_count()):
@@ -653,6 +778,7 @@ class RetinaSensor:
 # Batch semantics are selected by params['retina_vision_mode']:
 # - single preserves the historical fast centroid approximation.
 # - fullbody is the stricter geometric ray/body intersection mode.
+# - sector uses fast angular sectors and supports color channels.
 def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Params') -> List[List[float]]:
     """Processa percepção (retina) em lote para vários agentes que usam RetinaSensor.
     Combina pré-filtragem por tipo e operações numpy para reduzir custo de loops Python.
@@ -676,11 +802,15 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     fast_retina_fullbody_precomputed = None
     fast_retina_batch_single = None
     fast_retina_batch_fullbody = None
+    fast_retina_batch_sector = None
+    fast_retina_batch_sector_distance = None
     if bool(param_get('use_numba_kernels', True)):
         try:
             from .fast_kernels import (
                 has_numba,
                 retina_batch_fullbody_kernel,
+                retina_batch_sector_distance_kernel,
+                retina_batch_sector_kernel,
                 retina_batch_single_kernel,
                 retina_fullbody_precomputed_kernel,
                 retina_fullbody_kernel,
@@ -692,12 +822,16 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 fast_retina_fullbody_precomputed = retina_fullbody_precomputed_kernel
                 fast_retina_batch_single = retina_batch_single_kernel
                 fast_retina_batch_fullbody = retina_batch_fullbody_kernel
+                fast_retina_batch_sector = retina_batch_sector_kernel
+                fast_retina_batch_sector_distance = retina_batch_sector_distance_kernel
         except Exception:
             fast_retina_single = None
             fast_retina_fullbody = None
             fast_retina_fullbody_precomputed = None
             fast_retina_batch_single = None
             fast_retina_batch_fullbody = None
+            fast_retina_batch_sector = None
+            fast_retina_batch_sector_distance = None
 
     def _species_sensor_config(prefix, sensor):
         desired_skip = max(0, int(param_get('retina_skip', sensor.skip)))
@@ -846,6 +980,221 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 sensor._countdown = sensor.skip
                 results[idx] = inputs
             return results  # type: ignore
+
+    if vision_mode == RETINA_VISION_MODE_SECTOR:
+        remaining_sector_idx = []
+        if scene.spatial_hash is not None and fast_retina_batch_sector is not None:
+            groups = {}
+            for idx in need_update_idx:
+                sensor = sensors[idx]
+                key = (
+                    int(sensor.retina_count),
+                    normalize_eye_count(getattr(sensor, "eye_count", 1)),
+                    normalize_retina_channels(getattr(sensor, "channels", ("d",))),
+                )
+                groups.setdefault(key, []).append(idx)
+
+            candidate_buffer = set()
+            for (retina_count, eye_count, channels), group_indices in groups.items():
+                n_update = len(group_indices)
+                n_eye_rows = n_update * eye_count
+                channel_count = max(1, len(channels))
+                eye_x_arr = np.empty(n_eye_rows, dtype=np.float64)
+                eye_y_arr = np.empty(n_eye_rows, dtype=np.float64)
+                angle_arr = np.empty(n_eye_rows, dtype=np.float64)
+                vision_radius_arr = np.empty(n_eye_rows, dtype=np.float64)
+                half_fov_arr = np.empty(n_eye_rows, dtype=np.float64)
+                cand_start = np.empty(n_eye_rows, dtype=np.int64)
+                cand_count = np.empty(n_eye_rows, dtype=np.int64)
+                cand_x_values = []
+                cand_y_values = []
+                cand_r_values = []
+                needs_color = any(ch != "d" for ch in channels)
+                cand_color_r_values = [] if needs_color else None
+                cand_color_g_values = [] if needs_color else None
+                cand_color_b_values = [] if needs_color else None
+                self_values = []
+                total_candidates = 0
+
+                for local_idx, idx in enumerate(group_indices):
+                    agent = agents[idx]
+                    sensor = sensors[idx]
+                    (
+                        _desired_count,
+                        _desired_fov,
+                        _desired_radius,
+                        _desired_skip,
+                        _desired_see_food,
+                        _desired_see_bacteria,
+                        _desired_see_predators,
+                        _desired_channels,
+                        _desired_eye_count,
+                        _desired_eye_angle,
+                        _desired_eye_separation,
+                        type_codes,
+                        max_seen_radius,
+                    ) = runtime_configs[idx]
+                    specs = sensor._eye_specs() if hasattr(sensor, "_eye_specs") else [(0.0, 0.0)]
+                    for eye_idx in range(eye_count):
+                        row = local_idx * eye_count + eye_idx
+                        pos_offset, gaze_offset = specs[min(eye_idx, len(specs) - 1)]
+                        position_angle = agent.angle + pos_offset
+                        eye_x = agent.x + math.cos(position_angle) * agent.r
+                        eye_y = agent.y + math.sin(position_angle) * agent.r
+                        search_r = sensor.vision_radius + max_seen_radius
+                        candidates_local = (
+                            scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
+                            if type_codes else ()
+                        )
+                        eye_x_arr[row] = float(eye_x)
+                        eye_y_arr[row] = float(eye_y)
+                        angle_arr[row] = float(agent.angle + gaze_offset)
+                        vision_radius_arr[row] = float(sensor.vision_radius)
+                        half_fov_arr[row] = math.radians(sensor.fov_degrees / 2.0)
+                        cand_start[row] = total_candidates
+                        count = 0
+                        for candidate in candidates_local:
+                            cand_x_values.append(float(candidate.x))
+                            cand_y_values.append(float(candidate.y))
+                            cand_r_values.append(float(getattr(candidate, "r", 0.0)))
+                            if needs_color:
+                                cr, cg, cb = _object_color01(candidate)
+                                cand_color_r_values.append(cr)
+                                cand_color_g_values.append(cg)
+                                cand_color_b_values.append(cb)
+                            self_values.append(candidate is agent)
+                            count += 1
+                        cand_count[row] = count
+                        total_candidates += count
+
+                if total_candidates == 0:
+                    for idx in group_indices:
+                        sensor = sensors[idx]
+                        inputs = _empty_retina_inputs(sensor)
+                        _store_retina_inputs(sensor, inputs)
+                        sensor._countdown = sensor.skip
+                        results[idx] = inputs
+                    continue
+
+                cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
+                cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
+                cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
+                self_arr = np.asarray(self_values, dtype=bool)
+                if channels == ("d",) and fast_retina_batch_sector_distance is not None:
+                    out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
+                    ok = fast_retina_batch_sector_distance(
+                        eye_x_arr,
+                        eye_y_arr,
+                        angle_arr,
+                        vision_radius_arr,
+                        half_fov_arr,
+                        cand_start,
+                        cand_count,
+                        cand_x_arr,
+                        cand_y_arr,
+                        cand_r_arr,
+                        self_arr,
+                        int(retina_count),
+                        out,
+                    )
+                    if ok:
+                        out32 = out.astype(np.float32)
+                        for local_idx, idx in enumerate(group_indices):
+                            sensor = sensors[idx]
+                            start_row = local_idx * eye_count
+                            inputs = out32[start_row:start_row + eye_count].reshape(-1).tolist()
+                            _store_retina_inputs(sensor, inputs, inputs)
+                            sensor._countdown = sensor.skip
+                            results[idx] = inputs
+                        continue
+                    remaining_sector_idx.extend(group_indices)
+                    continue
+                cand_color_r_arr = np.asarray(cand_color_r_values or [], dtype=np.float64)
+                cand_color_g_arr = np.asarray(cand_color_g_values or [], dtype=np.float64)
+                cand_color_b_arr = np.asarray(cand_color_b_values or [], dtype=np.float64)
+                channel_codes = _retina_channel_codes(channels)
+                out = np.empty((n_eye_rows, retina_count, channel_count), dtype=np.float64)
+                distance_out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
+                ok = fast_retina_batch_sector(
+                    eye_x_arr,
+                    eye_y_arr,
+                    angle_arr,
+                    vision_radius_arr,
+                    half_fov_arr,
+                    cand_start,
+                    cand_count,
+                    cand_x_arr,
+                    cand_y_arr,
+                    cand_r_arr,
+                    self_arr,
+                    cand_color_r_arr,
+                    cand_color_g_arr,
+                    cand_color_b_arr,
+                    channel_codes,
+                    int(retina_count),
+                    out,
+                    distance_out,
+                )
+                if not ok:
+                    remaining_sector_idx.extend(group_indices)
+                    continue
+                out32 = out.astype(np.float32)
+                distance32 = distance_out.astype(np.float32)
+                for local_idx, idx in enumerate(group_indices):
+                    sensor = sensors[idx]
+                    start_row = local_idx * eye_count
+                    inputs = out32[start_row:start_row + eye_count].reshape(-1).tolist()
+                    distances = distance32[start_row:start_row + eye_count].reshape(-1).tolist()
+                    _store_retina_inputs(sensor, inputs, distances)
+                    sensor._countdown = sensor.skip
+                    results[idx] = inputs
+        else:
+            remaining_sector_idx = list(need_update_idx)
+
+        candidate_buffer = set()
+        for idx in remaining_sector_idx:
+            agent = agents[idx]
+            sensor = sensors[idx]
+            (
+                _desired_count,
+                _desired_fov,
+                _desired_radius,
+                _desired_skip,
+                _desired_see_food,
+                _desired_see_bacteria,
+                _desired_see_predators,
+                _desired_channels,
+                _desired_eye_count,
+                _desired_eye_angle,
+                _desired_eye_separation,
+                type_codes,
+                max_seen_radius,
+            ) = runtime_configs[idx]
+            if scene.spatial_hash is not None:
+                search_r = sensor.vision_radius + float(getattr(agent, "r", 0.0)) + max_seen_radius
+                candidates_local = (
+                    scene.spatial_hash.query_ball_filtered_into(agent.x, agent.y, search_r, type_codes, candidate_buffer)
+                    if type_codes else ()
+                )
+                spatial_filtered = True
+            else:
+                candidates_local = global_candidates
+                spatial_filtered = False
+            if not candidates_local:
+                inputs = _empty_retina_inputs(sensor)
+                _store_retina_inputs(sensor, inputs)
+            else:
+                inputs, distance_inputs = _sector_retina_from_candidates(
+                    sensor,
+                    agent,
+                    candidates_local,
+                    type_codes=type_codes,
+                    spatial_filtered=spatial_filtered,
+                )
+                _store_retina_inputs(sensor, inputs, distance_inputs)
+            sensor._countdown = sensor.skip
+            results[idx] = inputs
+        return results  # type: ignore
 
     multi_eye_batch_candidate = any(
         normalize_eye_count(getattr(sensors[i], "eye_count", 1)) > 1 for i in need_update_idx

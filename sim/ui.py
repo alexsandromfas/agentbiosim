@@ -1060,8 +1060,9 @@ class SimulationUI(QMainWindow):
             retina_count = int(getattr(sensor, 'retina_count', 0) or 0)
             eye_count = int(getattr(sensor, 'eye_count', 1) or 1)
             total_inputs = retina_count * eye_count * max(1, len(channels))
+            mapping_mode = str(self.params.get('retina_vision_mode', 'single'))
             labels['sensor'].setText(
-                f"{vision_type}; canais {channel_text}; "
+                f"{vision_type}; mapa {mapping_mode}; canais {channel_text}; "
                 f"{eye_count} olho(s), {retina_count} retinas/olho = {total_inputs} entradas; "
                 f"raio {self._short_float(getattr(sensor, 'vision_radius', 0.0), 0)}, "
                 f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}, "
@@ -1559,7 +1560,7 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
         w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
         w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
-        mode = QComboBox(); mode.addItems(['single', 'fullbody']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
+        mode = QComboBox(); mode.addItems(['single', 'fullbody', 'sector']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
         cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
         w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
         layout.addWidget(g_perf)
@@ -1752,7 +1753,7 @@ class SimulationUI(QMainWindow):
             'use_spatial': 'Usa uma grade espacial para acelerar buscas de proximidade, colisao, alimentacao e visao em populacoes grandes.',
             'retina_skip': 'Quantidade de frames que cada retina pode reutilizar a leitura anterior. Aumentar melhora desempenho, mas reduz precisao temporal da percepcao.',
             'random_seed': 'Seed do gerador aleatorio. Use -1 para aleatorio; use um numero fixo para repetir experimentos com o mesmo ponto de partida.',
-            'retina_vision_mode': 'Modo de mapeamento da retina. single e mais rapido; fullbody considera o corpo inteiro dos objetos e e geometricamente mais fiel.',
+            'retina_vision_mode': 'Modo de mapeamento da retina. single usa centro do objeto; fullbody considera o corpo inteiro; sector usa setores angulares rapidos para populacoes grandes.',
             'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
@@ -2924,9 +2925,9 @@ class SimulationUI(QMainWindow):
         w.setValue(int(self.params.get('random_seed', -1)))
         add_perf("Seed RNG (-1 aleatoria):", 'random_seed', w)
 
-        # Retina vision mode selector (single = centroid per object, fullbody = span-aware)
+        # Retina vision mode selector (single = centroid, fullbody = raycast, sector = fast sectors)
         mode_cb = QComboBox()
-        mode_cb.addItems(['single', 'fullbody'])
+        mode_cb.addItems(['single', 'fullbody', 'sector'])
         mode_cb.setCurrentText(self.params.get('retina_vision_mode', 'single'))
         add_perf("Visão retinas:", 'retina_vision_mode', mode_cb)
 

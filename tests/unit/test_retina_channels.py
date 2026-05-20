@@ -176,3 +176,96 @@ def test_batch_retina_preserves_two_eye_output_order_with_spatial_hash():
         assert len(row) == 2
         assert row[0] > 0.0
         assert row[1] > 0.0
+
+
+def test_sector_retina_preserves_color_channels_and_direction():
+    params = Params()
+    params.set("retina_vision_mode", "sector", validate=False)
+    params.set("bacteria_retina_count", 3, validate=False)
+    params.set("bacteria_vision_radius", 80.0, validate=False)
+    params.set("bacteria_retina_fov_degrees", 90.0, validate=False)
+
+    sensor = RetinaSensor(
+        retina_count=3,
+        vision_radius=80.0,
+        fov_degrees=90.0,
+        channels=("r", "g", "d"),
+        eye_count=1,
+    )
+    agent = Bacteria(
+        50.0,
+        50.0,
+        4.0,
+        NeuralNet([9, 2]),
+        sensor,
+        Locomotion(),
+        EnergyModel(),
+        angle=0.0,
+    )
+    food = Food(75.0, 50.0, 2.0)
+    food.color = (255, 0, 0)
+    scene = SceneQuery(None, {"foods": [food], "bacteria": [agent], "predators": []}, params)
+
+    values = sensor.sense(agent, scene, params)
+
+    assert len(values) == 9
+    middle = values[3:6]
+    assert middle[0] == pytest.approx(1.0)
+    assert middle[1] == pytest.approx(0.0)
+    assert middle[2] > 0.0
+    assert values[:3] == pytest.approx([0.0, 0.0, 0.0])
+    assert values[6:] == pytest.approx([0.0, 0.0, 0.0])
+
+
+def test_batch_sector_retina_supports_two_eyes_and_color_channels():
+    params = Params()
+    params.set("use_spatial", True, validate=False)
+    params.set("use_numba_kernels", True, validate=False)
+    params.set("retina_vision_mode", "sector", validate=False)
+
+    agents = []
+    foods = []
+    for idx in range(4):
+        sensor = RetinaSensor(
+            retina_count=1,
+            vision_radius=80.0,
+            fov_degrees=30.0,
+            channels=("rd", "d"),
+            eye_count=2,
+            eye_angle_degrees=60.0,
+            eye_separation_degrees=60.0,
+        )
+        agent = Bacteria(
+            40.0 + idx * 100.0,
+            50.0,
+            4.0,
+            NeuralNet([4, 2]),
+            sensor,
+            Locomotion(),
+            EnergyModel(),
+            angle=0.0,
+        )
+        agents.append(agent)
+        for ray_idx in range(sensor.total_ray_count()):
+            ex, ey, ray_angle = sensor._ray_pose(agent, ray_idx)
+            food = Food(ex + 24.0 * math.cos(ray_angle), ey + 24.0 * math.sin(ray_angle), 2.0)
+            food.type_code = 0
+            food.color = (255, 0, 0)
+            foods.append(food)
+
+    spatial = SpatialHash(20.0, 500.0, 120.0)
+    for food in foods:
+        spatial.insert(food, food.x, food.y, food.r)
+    for agent in agents:
+        spatial.insert(agent, agent.x, agent.y, agent.r)
+    scene = SceneQuery(spatial, {"foods": foods, "bacteria": agents, "predators": []}, params)
+
+    values = batch_retina_sense(agents, scene, params)
+
+    assert len(values) == 4
+    for row in values:
+        assert len(row) == 4
+        assert row[0] > 0.0
+        assert row[1] > 0.0
+        assert row[2] > 0.0
+        assert row[3] > 0.0

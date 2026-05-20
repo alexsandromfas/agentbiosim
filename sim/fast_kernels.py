@@ -659,6 +659,186 @@ if NUMBA_AVAILABLE:  # pragma: no cover - requires optional dependency
                     out[agent_idx, r_idx] = act
 
     @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_batch_sector_kernel_numba(
+        eye_x,
+        eye_y,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_start,
+        cand_count,
+        cand_x,
+        cand_y,
+        cand_r,
+        self_flags,
+        cand_color_r,
+        cand_color_g,
+        cand_color_b,
+        channel_codes,
+        retina_count,
+        out,
+        distance_out,
+    ):
+        channel_count = channel_codes.shape[0]
+        for agent_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                distance_out[agent_idx, r_idx] = 0.0
+                for ch_idx in range(channel_count):
+                    out[agent_idx, r_idx, ch_idx] = 0.0
+            hf = half_fov[agent_idx]
+            vr = vision_radius[agent_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            ray_r = np.empty(retina_count, dtype=np.float64)
+            ray_g = np.empty(retina_count, dtype=np.float64)
+            ray_b = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+                ray_r[r_idx] = 0.0
+                ray_g[r_idx] = 0.0
+                ray_b[r_idx] = 0.0
+
+            start = cand_start[agent_idx]
+            end = start + cand_count[agent_idx]
+            ex = eye_x[agent_idx]
+            ey = eye_y[agent_idx]
+            aa = agent_angle[agent_idx]
+            for i in range(start, end):
+                if self_flags[i]:
+                    continue
+                dx = cand_x[i] - ex
+                dy = cand_y[i] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[i]
+                if dist - cr > vr:
+                    continue
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(ang) > hf:
+                    continue
+                eff_dist = dist - cr
+                if eff_dist < 0.0:
+                    eff_dist = 0.0
+                elif eff_dist > vr:
+                    eff_dist = vr
+                if retina_count > 1:
+                    rel = (ang + hf) / (2.0 * hf) * (retina_count - 1)
+                    ray_idx = int(math.floor(rel + 0.5))
+                    if ray_idx < 0:
+                        ray_idx = 0
+                    elif ray_idx >= retina_count:
+                        ray_idx = retina_count - 1
+                else:
+                    ray_idx = 0
+                if eff_dist < ray_best[ray_idx]:
+                    ray_best[ray_idx] = eff_dist
+                    ray_r[ray_idx] = cand_color_r[i]
+                    ray_g[ray_idx] = cand_color_g[i]
+                    ray_b[ray_idx] = cand_color_b[i]
+
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if not math.isfinite(best):
+                    continue
+                act = (vr - best) / vr
+                if act < 0.0:
+                    act = 0.0
+                elif act > 1.0:
+                    act = 1.0
+                distance_out[agent_idx, r_idx] = act
+                for ch_idx in range(channel_count):
+                    code = channel_codes[ch_idx]
+                    if code == 1:
+                        out[agent_idx, r_idx, ch_idx] = ray_r[r_idx]
+                    elif code == 2:
+                        out[agent_idx, r_idx, ch_idx] = ray_g[r_idx]
+                    elif code == 3:
+                        out[agent_idx, r_idx, ch_idx] = ray_b[r_idx]
+                    elif code == 4:
+                        out[agent_idx, r_idx, ch_idx] = act * ray_r[r_idx]
+                    elif code == 5:
+                        out[agent_idx, r_idx, ch_idx] = act * ray_g[r_idx]
+                    elif code == 6:
+                        out[agent_idx, r_idx, ch_idx] = act * ray_b[r_idx]
+                    else:
+                        out[agent_idx, r_idx, ch_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_batch_sector_distance_kernel_numba(
+        eye_x,
+        eye_y,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_start,
+        cand_count,
+        cand_x,
+        cand_y,
+        cand_r,
+        self_flags,
+        retina_count,
+        out,
+    ):
+        for agent_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                out[agent_idx, r_idx] = 0.0
+            hf = half_fov[agent_idx]
+            vr = vision_radius[agent_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+
+            start = cand_start[agent_idx]
+            end = start + cand_count[agent_idx]
+            ex = eye_x[agent_idx]
+            ey = eye_y[agent_idx]
+            aa = agent_angle[agent_idx]
+            for i in range(start, end):
+                if self_flags[i]:
+                    continue
+                dx = cand_x[i] - ex
+                dy = cand_y[i] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[i]
+                if dist - cr > vr:
+                    continue
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(ang) > hf:
+                    continue
+                eff_dist = dist - cr
+                if eff_dist < 0.0:
+                    eff_dist = 0.0
+                elif eff_dist > vr:
+                    eff_dist = vr
+                if retina_count > 1:
+                    rel = (ang + hf) / (2.0 * hf) * (retina_count - 1)
+                    ray_idx = int(math.floor(rel + 0.5))
+                    if ray_idx < 0:
+                        ray_idx = 0
+                    elif ray_idx >= retina_count:
+                        ray_idx = retina_count - 1
+                else:
+                    ray_idx = 0
+                if eff_dist < ray_best[ray_idx]:
+                    ray_best[ray_idx] = eff_dist
+
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if math.isfinite(best):
+                    act = (vr - best) / vr
+                    if act < 0.0:
+                        act = 0.0
+                    elif act > 1.0:
+                        act = 1.0
+                    out[agent_idx, r_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
     def _retina_batch_fullbody_kernel_numba(
         eye_x,
         eye_y,
@@ -974,6 +1154,74 @@ def retina_batch_single_kernel(
             cand_start, cand_count, cand_x, cand_y, cand_r, cand_type,
             self_flags, int(retina_count), bool(see_food), bool(see_bacteria),
             bool(see_predators), bool(spatial_filtered), out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_batch_sector_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_start: np.ndarray,
+    cand_count: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    self_flags: np.ndarray,
+    cand_color_r: np.ndarray,
+    cand_color_g: np.ndarray,
+    cand_color_b: np.ndarray,
+    channel_codes: np.ndarray,
+    retina_count: int,
+    out: np.ndarray,
+    distance_out: np.ndarray,
+) -> bool:
+    """Fill ``out`` for a batch of eyes using fast angular sector mapping."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _retina_batch_sector_kernel_numba(
+            eye_x, eye_y, agent_angle, vision_radius, half_fov,
+            cand_start, cand_count, cand_x, cand_y, cand_r, self_flags,
+            cand_color_r, cand_color_g, cand_color_b, channel_codes,
+            int(retina_count), out, distance_out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_batch_sector_distance_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_start: np.ndarray,
+    cand_count: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    self_flags: np.ndarray,
+    retina_count: int,
+    out: np.ndarray,
+) -> bool:
+    """Fill ``out`` for fast angular sectors with distance-only inputs."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - depends on optional dep
+        return False
+    try:  # pragma: no cover - depends on optional dep
+        _retina_batch_sector_distance_kernel_numba(
+            eye_x, eye_y, agent_angle, vision_radius, half_fov,
+            cand_start, cand_count, cand_x, cand_y, cand_r, self_flags,
+            int(retina_count), out,
         )
         return True
     except Exception:
