@@ -27,10 +27,11 @@ class InteractionSystem:
         self._removed_bacteria_count = 0
         self.last_foods_eaten = 0
         self.last_agents_predated = 0
+        self.last_foods_changed = False
     
     def apply(self, bacteria: List['Bacteria'], predators: List['Predator'],
               foods: List['Food'], spatial_hash: 'SpatialHash', params: 'Params',
-              frozen_agents: Set['Agent'] | None = None) -> Set['Agent']:
+              frozen_agents: Set['Agent'] | None = None, dt: float = 1.0 / 30.0) -> Set['Agent']:
         """Aplica interações por um frame e retorna agentes removidos."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
@@ -38,7 +39,7 @@ class InteractionSystem:
         frozen_agents = frozen_agents or set()
 
         # Bactérias comem comida (ganham energia)
-        self._bacteria_eat_food(bacteria, foods, spatial_hash, params, frozen_agents)
+        self._bacteria_eat_food(bacteria, foods, spatial_hash, params, frozen_agents, dt)
 
         # Predadores comem bactérias
         if predators:
@@ -57,16 +58,18 @@ class InteractionSystem:
 
     def apply_generic(self, agents: List['Agent'], foods: List['Food'], spatial_hash: 'SpatialHash',
                       params: 'Params', frozen_agents: Set['Agent'] | None = None,
-                      agent_labels: dict | None = None) -> Set['Agent']:
+                      agent_labels: dict | None = None, dt: float = 1.0 / 30.0) -> Set['Agent']:
         """Aplica dieta genÃ©rica: organismos podem comer comida e/ou outros organismos."""
         self._foods_to_remove.clear()
         self._agents_to_remove.clear()
         self._removed_bacteria_count = 0
+        self.last_foods_changed = False
+        self.last_foods_changed = False
         frozen_agents = frozen_agents or set()
         agent_labels = agent_labels or {}
         agent_eaters = [agent for agent in agents if bool(getattr(agent, 'diet_agents', False))]
         max_agent_radius = max((float(getattr(agent, 'r', 0.0)) for agent in agents), default=0.0)
-        self._agents_eat_food_generic(agents, foods, spatial_hash, frozen_agents)
+        self._agents_eat_food_generic(agents, foods, spatial_hash, frozen_agents, params, dt)
         if agent_eaters:
             label_limits_active = any(
                 int(meta.get('min_limit', 0) or 0) > 0 or int(meta.get('max_limit', 0) or 0) > 0
@@ -122,14 +125,142 @@ class InteractionSystem:
                 continue
             label_counts[label_id] = max(0, label_counts.get(label_id, 0) - 1)
 
+    @staticmethod
+    def _food_kind(food: 'Food', params: 'Params') -> str:
+        kind = str(getattr(food, 'kind', '') or params.get('food_mode', 'instant'))
+        return kind if kind in {'instant', 'slow_absorption', 'chunk'} else 'instant'
+
+    @staticmethod
+    def _shrink_food_from_energy(food: 'Food'):
+        initial = max(1e-9, float(getattr(food, 'initial_energy', getattr(food, 'energy', 0.0)) or 1e-9))
+        base_radius = max(0.1, float(getattr(food, 'base_radius', getattr(food, 'r', 0.1)) or 0.1))
+        fraction = max(0.0, min(1.0, float(getattr(food, 'energy', 0.0)) / initial))
+        food.r = max(0.05, base_radius * math.sqrt(fraction))
+
+    @staticmethod
+    def _point_in_food_solid(food: 'Food', x: float, y: float) -> bool:
+        dx = float(x) - float(food.x)
+        dy = float(y) - float(food.y)
+        if dx * dx + dy * dy > float(food.r) * float(food.r):
+            return False
+        for hx, hy, hr in getattr(food, 'bite_holes', []) or []:
+            hx = float(hx); hy = float(hy); hr = float(hr)
+            ddx = float(x) - hx
+            ddy = float(y) - hy
+            if ddx * ddx + ddy * ddy <= hr * hr:
+                return False
+        return True
+
+    def _solid_fraction_in_bite(self, food: 'Food', x: float, y: float, radius: float) -> float:
+        radius = max(0.05, float(radius))
+        samples = [
+            (0.0, 0.0),
+            (radius, 0.0), (-radius, 0.0), (0.0, radius), (0.0, -radius),
+            (radius * 0.7071, radius * 0.7071),
+            (-radius * 0.7071, radius * 0.7071),
+            (radius * 0.7071, -radius * 0.7071),
+            (-radius * 0.7071, -radius * 0.7071),
+        ]
+        solid = 0
+        for ox, oy in samples:
+            if self._point_in_food_solid(food, x + ox, y + oy):
+                solid += 1
+        return solid / len(samples)
+
+    @staticmethod
+    def _add_bite_hole(food: 'Food', x: float, y: float, radius: float, max_holes: int):
+        holes = getattr(food, 'bite_holes', None)
+        if holes is None:
+            food.bite_holes = []
+            holes = food.bite_holes
+        radius = max(0.05, float(radius))
+        max_holes = max(1, int(max_holes))
+        nearest_index = None
+        nearest_dist = float('inf')
+        for index, (hx, hy, hr) in enumerate(holes):
+            dist = math.hypot(float(x) - float(hx), float(y) - float(hy))
+            if dist < nearest_dist:
+                nearest_dist = dist
+                nearest_index = index
+            if dist <= max(radius, float(hr)) * 0.45:
+                holes[index] = (float(hx), float(hy), max(float(hr), radius))
+                return
+        if len(holes) < max_holes:
+            holes.append((float(x), float(y), radius))
+        elif nearest_index is not None:
+            hx, hy, hr = holes[nearest_index]
+            holes[nearest_index] = (float(hx), float(hy), min(float(food.r), max(float(hr), nearest_dist + radius)))
+
+    def _bite_chunk_food(self, agent: 'Agent', food: 'Food', params: 'Params',
+                         efficiency: float, cap=None) -> bool:
+        head_radius = max(0.05, float(getattr(agent, 'r', 1.0)) * 0.25)
+        bite_radius = head_radius * max(0.1, float(params.get('food_bite_head_factor', 1.0)))
+        head_x = float(getattr(agent, 'x', 0.0)) + math.cos(float(getattr(agent, 'angle', 0.0))) * float(getattr(agent, 'r', 0.0))
+        head_y = float(getattr(agent, 'y', 0.0)) + math.sin(float(getattr(agent, 'angle', 0.0))) * float(getattr(agent, 'r', 0.0))
+        solid_fraction = self._solid_fraction_in_bite(food, head_x, head_y, bite_radius)
+        if solid_fraction <= 0.0:
+            return False
+        initial = max(1e-9, float(getattr(food, 'initial_energy', getattr(food, 'energy', 0.0)) or 1e-9))
+        base_radius = max(0.1, float(getattr(food, 'base_radius', getattr(food, 'r', 0.1)) or 0.1))
+        removed_energy = min(float(getattr(food, 'energy', 0.0)), initial * (bite_radius * bite_radius / (base_radius * base_radius)) * solid_fraction)
+        if removed_energy <= 0.0:
+            return False
+        before_energy = getattr(agent, 'energy', 0.0)
+        agent.add_energy(removed_energy * efficiency, cap=cap)
+        gained = max(0.0, getattr(agent, 'energy', 0.0) - before_energy)
+        agent.food_energy_eaten_total = getattr(agent, 'food_energy_eaten_total', 0.0) + gained
+        food.energy = max(0.0, float(getattr(food, 'energy', 0.0)) - removed_energy)
+        self._add_bite_hole(food, head_x, head_y, bite_radius, int(params.get('food_bite_max_holes', 80)))
+        self.last_foods_changed = True
+        if food.energy <= 1e-6:
+            agent.food_eaten_count = getattr(agent, 'food_eaten_count', 0) + 1
+            self._foods_to_remove.add(food)
+            return True
+        return False
+
+    def _consume_food_contact(self, agent: 'Agent', food: 'Food', params: 'Params',
+                              dt: float, efficiency: float, cap=None) -> bool:
+        kind = self._food_kind(food, params)
+        before_energy = getattr(agent, 'energy', 0.0)
+        if kind == 'instant':
+            agent.add_energy(max(0.0, float(getattr(food, 'energy', 0.0))) * efficiency, cap=cap)
+            gained = max(0.0, getattr(agent, 'energy', 0.0) - before_energy)
+            agent.food_eaten_count = getattr(agent, 'food_eaten_count', 0) + 1
+            agent.food_energy_eaten_total = getattr(agent, 'food_energy_eaten_total', 0.0) + gained
+            self._foods_to_remove.add(food)
+            self.last_foods_changed = True
+            return True
+        if kind == 'chunk':
+            return self._bite_chunk_food(agent, food, params, efficiency, cap=cap)
+
+        duration = max(0.05, float(params.get('food_absorption_seconds', 2.0)))
+        initial = max(1e-9, float(getattr(food, 'initial_energy', getattr(food, 'energy', 0.0)) or 1e-9))
+        available = max(0.0, float(getattr(food, 'energy', 0.0)))
+        raw_delta = min(available, (initial / duration) * max(0.0, float(dt)))
+        if raw_delta <= 0.0:
+            return False
+        agent.add_energy(raw_delta * efficiency, cap=cap)
+        gained = max(0.0, getattr(agent, 'energy', 0.0) - before_energy)
+        agent.food_energy_eaten_total = getattr(agent, 'food_energy_eaten_total', 0.0) + gained
+        food.energy = max(0.0, available - raw_delta)
+        self._shrink_food_from_energy(food)
+        self.last_foods_changed = True
+        if food.energy <= 1e-6 or food.r <= 0.12:
+            agent.food_eaten_count = getattr(agent, 'food_eaten_count', 0) + 1
+            self._foods_to_remove.add(food)
+            return True
+        return False
+
     def _agents_eat_food_generic(self, agents: List['Agent'], foods: List['Food'],
-                                 spatial_hash: 'SpatialHash', frozen_agents: Set['Agent']):
+                                 spatial_hash: 'SpatialHash', frozen_agents: Set['Agent'],
+                                 params: 'Params', dt: float):
+        max_food_radius = max(0.1, float(params.get('food_max_r', 8.0) or 8.0))
         nearby_buffer = set()
         for agent in agents:
             if agent in frozen_agents or not bool(getattr(agent, 'diet_food', False)):
                 continue
             if spatial_hash:
-                nearby_foods = spatial_hash.query_ball_filtered_into(agent.x, agent.y, agent.r + 8.0, 0, nearby_buffer)
+                nearby_foods = spatial_hash.query_ball_filtered_into(agent.x, agent.y, agent.r + max_food_radius, 0, nearby_buffer)
             else:
                 nearby_foods = foods
             for food in nearby_foods:
@@ -138,15 +269,13 @@ class InteractionSystem:
                 dx = agent.x - food.x
                 dy = agent.y - food.y
                 r_sum = agent.r + food.r
-                if dx*dx + dy*dy <= r_sum * r_sum:
+                margin = 0.0
+                if self._food_kind(food, params) == 'chunk':
+                    margin = max(1.0, float(getattr(agent, 'r', 0.0)) * 0.25 * float(params.get('food_bite_head_factor', 1.0)))
+                if dx*dx + dy*dy <= (r_sum + margin) * (r_sum + margin):
                     cap = getattr(getattr(agent, 'energy_model', None), 'energy_cap', None)
-                    before_energy = getattr(agent, 'energy', 0.0)
                     efficiency = max(0.0, float(getattr(agent, 'diet_food_efficiency', 1.0)))
-                    agent.add_energy(food.energy * efficiency, cap=cap)
-                    gained = max(0.0, getattr(agent, 'energy', 0.0) - before_energy)
-                    agent.food_eaten_count = getattr(agent, 'food_eaten_count', 0) + 1
-                    agent.food_energy_eaten_total = getattr(agent, 'food_energy_eaten_total', 0.0) + gained
-                    self._foods_to_remove.add(food)
+                    self._consume_food_contact(agent, food, params, dt, efficiency, cap=cap)
                     break
 
     def _agents_eat_agents_generic(self, agents: List['Agent'], agent_eaters: List['Agent'], spatial_hash: 'SpatialHash',
@@ -194,7 +323,7 @@ class InteractionSystem:
     
     def _bacteria_eat_food(self, bacteria: List['Bacteria'], foods: List['Food'],
                           spatial_hash: 'SpatialHash', params: 'Params',
-                          frozen_agents: Set['Agent']):
+                          frozen_agents: Set['Agent'], dt: float):
         """Processa bactérias comendo comida (energia += food.energy)."""
         food_radius = params.get('food_max_r', 5.0)
         configured_cap = params.get('bacteria_energy_cap', None)
@@ -219,15 +348,13 @@ class InteractionSystem:
                 dx = bacterium.x - food.x
                 dy = bacterium.y - food.y
                 r_sum = bacterium.r + food.r
-                if dx*dx + dy*dy <= r_sum * r_sum:
+                margin = 0.0
+                if self._food_kind(food, params) == 'chunk':
+                    margin = max(1.0, float(getattr(bacterium, 'r', 0.0)) * 0.25 * float(params.get('food_bite_head_factor', 1.0)))
+                if dx*dx + dy*dy <= (r_sum + margin) * (r_sum + margin):
                     # Bactéria come comida -> ganha energia respeitando cap.
                     cap = configured_cap if configured_cap is not None else getattr(bacterium.energy_model, 'energy_cap', None)
-                    before_energy = getattr(bacterium, 'energy', 0.0)
-                    bacterium.add_energy(food.energy, cap=cap)
-                    gained = max(0.0, getattr(bacterium, 'energy', 0.0) - before_energy)
-                    bacterium.food_eaten_count = getattr(bacterium, 'food_eaten_count', 0) + 1
-                    bacterium.food_energy_eaten_total = getattr(bacterium, 'food_energy_eaten_total', 0.0) + gained
-                    self._foods_to_remove.add(food)
+                    self._consume_food_contact(bacterium, food, params, dt, 1.0, cap=cap)
                     break  # Uma comida por frame por bactéria
     
     def _predators_eat_bacteria(self, predators: List['Predator'], 

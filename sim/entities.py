@@ -223,10 +223,14 @@ class Entity(ABC):
 
 
 class Food(Entity):
-    __slots__ = Entity.__slots__ + ("energy",)
-    def __init__(self, x: float, y: float, r: float):
+    __slots__ = Entity.__slots__ + ("energy", "initial_energy", "base_radius", "kind", "bite_holes")
+    def __init__(self, x: float, y: float, r: float, kind: str = "instant"):
         super().__init__(x, y, r, (220, 30, 30))
         self.energy = r * r
+        self.initial_energy = self.energy
+        self.base_radius = r
+        self.kind = kind
+        self.bite_holes = []
         self.type_code = 0
 
     def draw(self, renderer):  # pragma: no cover
@@ -802,11 +806,13 @@ def create_random_food(existing_food: list, params: 'Params',
             x = random.uniform(r, world_w - r)
             y = random.uniform(r, world_h - r)
     
-    food = Food(x, y, r)
+    food = Food(x, y, r, kind=str(params.get('food_mode', 'instant')))
     try:
         food.color = tuple(params.get('food_color', food.color))
     except Exception:
         pass
+    food.initial_energy = max(1e-9, float(getattr(food, 'energy', r * r)))
+    food.base_radius = float(r)
     return food
 
 

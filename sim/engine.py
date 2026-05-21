@@ -810,6 +810,7 @@ class Engine:
         self.food_controller.last_foods_removed = 0
         self.interaction_system.last_foods_eaten = 0
         self.interaction_system.last_agents_predated = 0
+        self.interaction_system.last_foods_changed = False
         self.reproduction_system.last_births = []
         self.reproduction_system.last_blocked_by_age = 0
         self.reproduction_system.last_blocked_by_cooldown = 0
@@ -899,6 +900,99 @@ class Engine:
             if pass_resolved == 0:
                 break
         return resolved
+
+    @staticmethod
+    def _point_in_chunk_food_solid(food, x: float, y: float) -> bool:
+        dx = float(x) - float(food.x)
+        dy = float(y) - float(food.y)
+        if dx * dx + dy * dy > float(food.r) * float(food.r):
+            return False
+        for hx, hy, hr in getattr(food, 'bite_holes', []) or []:
+            ddx = float(x) - float(hx)
+            ddy = float(y) - float(hy)
+            if ddx * ddx + ddy * ddy <= float(hr) * float(hr):
+                return False
+        return True
+
+    def _agent_overlaps_chunk_food_solid(self, agent, food) -> bool:
+        radius = max(0.0, float(getattr(agent, 'r', 0.0)))
+        if self._point_in_chunk_food_solid(food, float(agent.x), float(agent.y)):
+            return True
+        for i in range(8):
+            angle = (math.tau * i) / 8.0
+            if self._point_in_chunk_food_solid(
+                food,
+                float(agent.x) + math.cos(angle) * radius,
+                float(agent.y) + math.sin(angle) * radius,
+            ):
+                return True
+        return False
+
+    def _resolve_solid_food_collisions(self, params, frozen_agents: set | None = None) -> int:
+        """Trata comida em pedaços como obstáculo circular sólido, só nesse modo."""
+        if str(params.get('food_mode', 'instant')) != 'chunk':
+            return 0
+        foods = self.entities.get('foods', [])
+        if not foods or not self.all_agents:
+            return 0
+        frozen_agents = frozen_agents or set()
+        max_food_radius = max((float(getattr(food, 'r', 0.0)) for food in foods), default=0.0)
+        if max_food_radius <= 0.0:
+            return 0
+        nearby_buffer = set()
+        resolved = 0
+        for agent in self.all_agents:
+            if agent in frozen_agents:
+                continue
+            if self.spatial_hash:
+                nearby_foods = self.spatial_hash.query_ball_filtered_into(
+                    agent.x, agent.y, float(getattr(agent, 'r', 0.0)) + max_food_radius, 0, nearby_buffer
+                )
+            else:
+                nearby_foods = foods
+            for food in nearby_foods:
+                if str(getattr(food, 'kind', params.get('food_mode', 'instant'))) != 'chunk':
+                    continue
+                if not self._agent_overlaps_chunk_food_solid(agent, food):
+                    continue
+                dx = float(agent.x) - float(food.x)
+                dy = float(agent.y) - float(food.y)
+                dist = math.hypot(dx, dy)
+                agent_r = float(getattr(agent, 'r', 0.0))
+                r_sum = agent_r + float(getattr(food, 'r', 0.0))
+                if dist <= 1e-9:
+                    dx = math.cos(float(getattr(agent, 'angle', 0.0)))
+                    dy = math.sin(float(getattr(agent, 'angle', 0.0)))
+                    dist = 1.0
+                candidates = []
+                if dist < r_sum:
+                    candidates.append((dx / dist, dy / dist, r_sum - dist))
+                for hx, hy, hr in getattr(food, 'bite_holes', []) or []:
+                    hr = float(hr)
+                    if hr <= agent_r * 0.35:
+                        continue
+                    hx = float(hx); hy = float(hy)
+                    hdx = hx - float(agent.x)
+                    hdy = hy - float(agent.y)
+                    hdist = math.hypot(hdx, hdy)
+                    target = max(0.0, hr - agent_r)
+                    if hdist <= 1e-9:
+                        candidates.append((0.0, 0.0, 0.0))
+                    elif hdist > target:
+                        candidates.append((hdx / hdist, hdy / hdist, hdist - target))
+                if not candidates:
+                    continue
+                nx, ny, overlap = min(candidates, key=lambda item: item[2])
+                agent.x += nx * (overlap + 1e-3)
+                agent.y += ny * (overlap + 1e-3)
+                if hasattr(agent, 'vx'):
+                    inward = agent.vx * nx + agent.vy * ny
+                    if inward < 0.0:
+                        agent.vx -= inward * nx
+                        agent.vy -= inward * ny
+                agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, getattr(agent, 'r', 0.0))
+                resolved += 1
+        return resolved
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
@@ -984,6 +1078,11 @@ class Engine:
         with profile_section('spatial_hash'):
             self._update_spatial_hash(force=True)
 
+        with profile_section('food_collision'):
+            if self._resolve_solid_food_collisions(step_params, frozen_agents=frozen_agents):
+                self._spatial_hash_dirty = True
+                self._update_spatial_hash(force=True)
+
         topology_changed = False
         with profile_section('interaction'):
             if self._can_use_legacy_interactions():
@@ -994,6 +1093,7 @@ class Engine:
                     self.spatial_hash,
                     step_params,
                     frozen_agents=frozen_agents,
+                    dt=dt,
                 )
             else:
                 removed_agents = self.interaction_system.apply_generic(
@@ -1003,7 +1103,10 @@ class Engine:
                     step_params,
                     frozen_agents=frozen_agents,
                     agent_labels=self.agent_labels,
+                    dt=dt,
                 )
+            if getattr(self.interaction_system, 'last_foods_changed', False):
+                self._spatial_hash_dirty = True
             if removed_agents:
                 topology_changed = True
                 self.entities['bacteria'] = [a for a in self.entities['bacteria'] if a not in removed_agents]
@@ -1081,7 +1184,8 @@ class Engine:
             radius = max(min_r, min(max_r, float(getattr(agent, 'r', max_r)) * 0.5))
             if not self.can_place_circle(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius):
                 continue
-            food = Food(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius)
+            food = Food(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius,
+                        kind=str(params.get('food_mode', 'instant')))
             try:
                 food.color = tuple(params.get('food_color', food.color))
             except Exception:
@@ -1089,6 +1193,8 @@ class Engine:
             base_energy = getattr(food, 'energy', radius * radius)
             corpse_energy = max(0.0, float(getattr(agent, 'energy', 0.0))) * 0.5
             food.energy = max(base_energy, corpse_energy)
+            food.initial_energy = max(1e-9, float(food.energy))
+            food.base_radius = float(radius)
             foods.append(food)
         return foods
     

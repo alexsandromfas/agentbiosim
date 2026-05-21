@@ -56,10 +56,15 @@ class Params:
             'reuse_spatial_grid': True,
             
             # Comida/substrato
+            'food_mode': 'instant',  # instant, slow_absorption, chunk
             'food_target': 50,
             'food_min_r': 4.5,
             'food_max_r': 5.0,
             'food_replenish_interval': 0.1,
+            'food_absorption_seconds': 2.0,
+            'food_bite_seconds': 6.0,
+            'food_bite_head_factor': 1.0,
+            'food_bite_max_holes': 80,
             'food_trim_excess_enabled': True,
             'food_trim_max_per_step': 5,
             
@@ -267,6 +272,15 @@ class Params:
                 return int(float(value))
             except (TypeError, ValueError):
                 return -1
+        if key == 'food_mode':
+            value = str(value)
+            return value if value in {'instant', 'slow_absorption', 'chunk'} else 'instant'
+        if key in {'food_absorption_seconds', 'food_bite_seconds'}:
+            return max(0.05, float(value))
+        if key == 'food_bite_head_factor':
+            return max(0.1, min(5.0, float(value)))
+        if key == 'food_bite_max_holes':
+            return max(1, int(float(value)))
         if key in ['reproduction_min_age', 'reproduction_cooldown'] or key.endswith('_death_age') or key.endswith('_reproduction_min_age') or key.endswith('_reproduction_cooldown'):
             return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
@@ -501,11 +515,13 @@ class FoodController:
                         break
 
             if not overlaps:
-                f = Food(x, y, r)
+                f = Food(x, y, r, kind=str(params.get('food_mode', 'instant')))
                 try:
                     f.color = tuple(params.get('food_color', f.color))
                 except Exception:
                     pass
+                f.initial_energy = max(1e-9, float(getattr(f, 'energy', r * r)))
+                f.base_radius = float(r)
                 return f
 
         # Se não encontrou posição válida, retorna None

@@ -54,6 +54,13 @@ def _spin_int(min_v: int, max_v: int, step: int = 1) -> QSpinBox:
     return w
 
 
+def _param_int(params, name: str, default: int) -> int:
+    try:
+        return int(float(params.get(name, default)))
+    except Exception:
+        return int(default)
+
+
 def _spin_double(min_v: float, max_v: float, step: float = 0.1, decimals: int = 3) -> QDoubleSpinBox:
     w = QDoubleSpinBox()
     w.setRange(min_v, max_v)
@@ -1546,9 +1553,9 @@ class SimulationUI(QMainWindow):
         g_time.setStyleSheet(card_style)
         grid = QGridLayout(g_time)
         row = 0
-        w = _spin_int(1, 240); w.setValue(self.params.get('fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
-        w = _spin_int(5, 1000); w.setValue(self.params.get('physics_steps_per_second', 30)); row = self._add_grid_param(grid, row, "Fisica fixa (Hz):", 'physics_steps_per_second', w)
-        w = _spin_int(1, 1000); w.setValue(self.params.get('max_physics_steps_per_frame', 8)); row = self._add_grid_param(grid, row, "Substeps max/frame:", 'max_physics_steps_per_frame', w)
+        w = _spin_int(1, 240); w.setValue(_param_int(self.params, 'fps', 60)); row = self._add_grid_param(grid, row, "FPS:", 'fps', w)
+        w = _spin_int(5, 1000); w.setValue(_param_int(self.params, 'physics_steps_per_second', 30)); row = self._add_grid_param(grid, row, "Fisica fixa (Hz):", 'physics_steps_per_second', w)
+        w = _spin_int(1, 1000); w.setValue(_param_int(self.params, 'max_physics_steps_per_frame', 8)); row = self._add_grid_param(grid, row, "Substeps max/frame:", 'max_physics_steps_per_frame', w)
         w = _spin_double(0.0, 60.0, 0.25, 2); w.setValue(self.params.get('max_physics_backlog_seconds', 0.25)); row = self._add_grid_param(grid, row, "Atraso max fisico (s):", 'max_physics_backlog_seconds', w)
         layout.addWidget(g_time)
 
@@ -1558,8 +1565,8 @@ class SimulationUI(QMainWindow):
         row = 0
         cb = QCheckBox(); cb.setChecked(self.params.get('render_enabled', True)); row = self._add_grid_param(grid, row, "Renderizar:", 'render_enabled', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
-        w = _spin_int(0, 10); w.setValue(self.params.get('retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
-        w = _spin_int(-1, 2147483647); w.setValue(int(self.params.get('random_seed', -1))); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
+        w = _spin_int(0, 10); w.setValue(_param_int(self.params, 'retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
+        w = _spin_int(-1, 2147483647); w.setValue(_param_int(self.params, 'random_seed', -1)); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
         mode = QComboBox(); mode.addItems(['single', 'fullbody', 'sector']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
         cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
         w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
@@ -1773,9 +1780,13 @@ class SimulationUI(QMainWindow):
             'export_substrate_include_brain_activations': 'Inclui ativacoes neurais no save. Aumenta o arquivo e o custo de salvamento.',
             'export_substrate_pretty_json': 'Salva JSON com indentacao legivel. Facilita inspecao humana, mas gera arquivos maiores.',
             'food_target': 'Quantidade alvo de comida. O controlador tenta repor comida ate aproximar esse valor.',
+            'food_mode': 'Define como a comida entrega energia: instantanea, baixa absorcao por contato ou pedaco solido mordido aos poucos.',
+            'food_absorption_seconds': 'No modo baixa absorcao, tempo aproximado de contato necessario para absorver toda a energia de uma comida.',
+            'food_bite_head_factor': 'No modo mordida aos pedacos, multiplica o tamanho da cabeca do organismo para definir o raio de cada mordida.',
             'food_min_r': 'Raio minimo da comida nova. Afeta tamanho visual e energia disponivel por item.',
             'food_max_r': 'Raio maximo da comida nova. Tambem influencia energia e espaco ocupado.',
             'food_replenish_interval': 'Intervalo base de reposicao de comida. Valores menores repoe comida mais rapidamente.',
+            'food_color': 'Cor usada nas novas comidas e aplicada as comidas existentes quando alterada.',
             'world_w': 'Largura do substrato retangular base.',
             'world_h': 'Altura do substrato retangular base.',
             'substrate_shape': 'Formato fisico do substrato: retangular ou circular.',
@@ -2241,7 +2252,7 @@ class SimulationUI(QMainWindow):
 
     def _build_tab_environment(self):
         tab = QWidget()
-        self.tabs.addTab(tab, "Ambiente")
+        self.tabs.addTab(tab, "Substrato")
         outer = QVBoxLayout(tab)
         outer.setContentsMargins(4, 4, 4, 4)
         scroll = QScrollArea()
@@ -2258,10 +2269,39 @@ class SimulationUI(QMainWindow):
         g_food.setStyleSheet(card_style)
         grid = QGridLayout(g_food)
         row = 0
+        mode = QComboBox()
+        mode.addItem("Instantanea", "instant")
+        mode.addItem("Baixa absorcao", "slow_absorption")
+        mode.addItem("Mordida aos pedacos", "chunk")
+        self._set_combo_data(mode, self.params.get('food_mode', 'instant'))
+        mode.currentIndexChanged.connect(lambda _idx: self._update_food_mode_controls())
+        row = self._add_grid_param(grid, row, "Tipo de comida:", 'food_mode', mode)
+        w = _spin_double(0.05, 120.0, 0.1, 2)
+        w.setValue(self.params.get('food_absorption_seconds', 2.0))
+        row = self._add_grid_param(grid, row, "Tempo absorcao total (s):", 'food_absorption_seconds', w)
+        self._food_absorption_widget = w
+        w = _spin_double(0.1, 5.0, 0.05, 2)
+        w.setValue(self.params.get('food_bite_head_factor', 1.0))
+        row = self._add_grid_param(grid, row, "Raio mordida x cabeca:", 'food_bite_head_factor', w)
+        self._food_bite_widget = w
         w = _spin_int(0, 10000); w.setValue(self.params.get('food_target', 50)); row = self._add_grid_param(grid, row, "Target comida:", 'food_target', w)
         w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_min_r', 4.5)); row = self._add_grid_param(grid, row, "Comida raio min:", 'food_min_r', w)
         w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_max_r', 5.0)); row = self._add_grid_param(grid, row, "Comida raio max:", 'food_max_r', w)
         w = _spin_double(0.01, 60.0, 0.01, 2); w.setValue(self.params.get('food_replenish_interval', 0.1)); row = self._add_grid_param(grid, row, "Intervalo reposicao (s):", 'food_replenish_interval', w)
+        color_wrap = QWidget()
+        color_row = QHBoxLayout(color_wrap)
+        color_row.setContentsMargins(0, 0, 0, 0)
+        self._food_color_swatch = QLabel()
+        self._food_color_swatch.setFixedSize(36, 24)
+        self._refresh_food_color_swatch()
+        color_btn = QPushButton("Escolher cor")
+        color_btn.clicked.connect(self._pick_food_color)
+        color_row.addWidget(self._food_color_swatch)
+        color_row.addWidget(color_btn)
+        color_row.addStretch(1)
+        grid.addWidget(self._help_label("Cor da comida:", 'food_color'), row, 0)
+        grid.addWidget(color_wrap, row, 1)
+        row += 1
         v.addWidget(g_food)
 
         g_world = QGroupBox("Substrato")
@@ -2274,7 +2314,7 @@ class SimulationUI(QMainWindow):
         w = _spin_double(1.0, 5000.0, 1.0, 1); w.setValue(self.params.get('substrate_radius', 400.0)); row = self._add_grid_param(grid, row, "Raio do substrato:", 'substrate_radius', w)
         v.addWidget(g_world)
 
-        self._add_environment_color_pickers(v, card_style)
+        self._update_food_mode_controls()
 
         g_act = QGroupBox("Acoes do Ambiente")
         g_act.setStyleSheet(card_style)
@@ -2294,6 +2334,39 @@ class SimulationUI(QMainWindow):
         la.addWidget(wrap)
         v.addWidget(g_act)
         v.addStretch(1)
+
+    def _refresh_food_color_swatch(self):
+        swatch = getattr(self, '_food_color_swatch', None)
+        if swatch is None:
+            return
+        color = self.params.get('food_color', (220, 30, 30))
+        swatch.setStyleSheet(
+            f"background: rgb({color[0]},{color[1]},{color[2]}); border:1px solid #333; border-radius:4px;"
+        )
+
+    def _pick_food_color(self):
+        current = self.params.get('food_color', (220, 30, 30))
+        col = QColorDialog.getColor(QColor(*current), self, "Cor da comida")
+        if not col.isValid():
+            return
+        rgb = (col.red(), col.green(), col.blue())
+        self.params.set('food_color', rgb, validate=False)
+        for food in self.engine.entities.get('foods', []):
+            try:
+                food.color = rgb
+            except Exception:
+                pass
+        self._refresh_food_color_swatch()
+        self._schedule_ui_params_save()
+
+    def _update_food_mode_controls(self):
+        mode = self._get_widget_value('food_mode') if 'food_mode' in self.widgets else self.params.get('food_mode', 'instant')
+        absorption = getattr(self, '_food_absorption_widget', None)
+        bite = getattr(self, '_food_bite_widget', None)
+        if absorption is not None:
+            absorption.setEnabled(mode == 'slow_absorption')
+        if bite is not None:
+            bite.setEnabled(mode == 'chunk')
 
     def _add_environment_color_pickers(self, layout: QVBoxLayout, card_style: str):
         def add_picker(title: str, key: str, default: tuple[int, int, int], apply_existing=None):
@@ -2897,7 +2970,7 @@ class SimulationUI(QMainWindow):
             nonlocal r_exec
             self.widgets[name]=w; grid.addWidget(self._help_label(label, name), r_exec,0); grid.addWidget(w,r_exec,1); r_exec+=1
         w=_spin_double(0.01,100.0,0.01,3); w.setValue(self.params.get('time_scale',1.0)); add_exec("Escala de tempo (x):",'time_scale',w)
-        w=_spin_int(1,240); w.setValue(self.params.get('fps',60)); add_exec("FPS:",'fps',w)
+        w=_spin_int(1,240); w.setValue(_param_int(self.params,'fps',60)); add_exec("FPS:",'fps',w)
         cb=QCheckBox(); cb.setChecked(self.params.get('paused',False)); add_exec("Pausado:",'paused',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('population_min_rescue_enabled',True)); add_exec("Resgate pop. minima:",'population_min_rescue_enabled',cb)
         v.addWidget(g_exec)
@@ -2918,11 +2991,11 @@ class SimulationUI(QMainWindow):
         add_perf("Spatial Hash:", 'use_spatial', cb)
 
         w = _spin_int(0, 10)
-        w.setValue(self.params.get('retina_skip', 0))
+        w.setValue(_param_int(self.params, 'retina_skip', 0))
         add_perf("Retina skip:", 'retina_skip', w)
 
         w = _spin_int(-1, 2147483647)
-        w.setValue(int(self.params.get('random_seed', -1)))
+        w.setValue(_param_int(self.params, 'random_seed', -1))
         add_perf("Seed RNG (-1 aleatoria):", 'random_seed', w)
 
         # Retina vision mode selector (single = centroid, fullbody = raycast, sector = fast sectors)
@@ -3502,7 +3575,11 @@ class SimulationUI(QMainWindow):
 
     def _apply_widget_enter(self, name: str):
         genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
-        environment_names = {'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval', 'world_w', 'world_h', 'substrate_shape', 'substrate_radius'}
+        environment_names = {
+            'food_mode', 'food_absorption_seconds', 'food_bite_head_factor',
+            'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
+            'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
+        }
         simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
@@ -3635,9 +3712,10 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_substrate_params(self):
-        for name in ['food_target','food_min_r','food_max_r','food_replenish_interval','world_w','world_h','substrate_shape','substrate_radius']:
+        for name in ['food_mode','food_absorption_seconds','food_bite_head_factor','food_target','food_min_r','food_max_r','food_replenish_interval','world_w','world_h','substrate_shape','substrate_radius']:
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
+        self._update_food_mode_controls()
         # world reconfigure
         shape = self.params.get('substrate_shape','rectangular')
         radius = self.params.get('substrate_radius',350.0)
@@ -3649,6 +3727,16 @@ class SimulationUI(QMainWindow):
         for entity in entities:
             if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
                 entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
+        food_mode = str(self.params.get('food_mode', 'instant'))
+        for food in self.engine.entities.get('foods', []):
+            try:
+                food.kind = food_mode
+                if not getattr(food, 'initial_energy', None):
+                    food.initial_energy = max(1e-9, float(getattr(food, 'energy', food.r * food.r)))
+                if not getattr(food, 'base_radius', None):
+                    food.base_radius = float(getattr(food, 'r', 1.0))
+            except Exception:
+                pass
         self.engine._spatial_hash_dirty = True
         # color pickers already update params and propagate; nothing else to do here
         print("Parâmetros de substrato aplicados")
@@ -5013,7 +5101,11 @@ class SimulationUI(QMainWindow):
                     'x': food.x,
                     'y': food.y,
                     'r': food.r,
-                    'energy': getattr(food, 'energy', food.r * food.r)
+                    'energy': getattr(food, 'energy', food.r * food.r),
+                    'initial_energy': getattr(food, 'initial_energy', getattr(food, 'energy', food.r * food.r)),
+                    'base_radius': getattr(food, 'base_radius', food.r),
+                    'kind': getattr(food, 'kind', self.params.get('food_mode', 'instant')),
+                    'bite_holes': [list(hole) for hole in (getattr(food, 'bite_holes', []) or [])],
                 }
                 try:
                     fd['color'] = list(getattr(food, 'color', (220, 30, 30)))
@@ -5239,8 +5331,16 @@ class SimulationUI(QMainWindow):
             food_items = data.get('foods') or data.get('food_items')
             if food_items:
                 for fd in food_items:
-                    food = Food(fd.get('x', 0.0), fd.get('y', 0.0), fd.get('r', 4.5))
+                    food = Food(fd.get('x', 0.0), fd.get('y', 0.0), fd.get('r', 4.5),
+                                kind=fd.get('kind', self.params.get('food_mode', 'instant')))
                     food.energy = fd.get('energy', getattr(food, 'energy', food.r * food.r))
+                    food.initial_energy = fd.get('initial_energy', max(1e-9, getattr(food, 'energy', food.r * food.r)))
+                    food.base_radius = fd.get('base_radius', food.r)
+                    food.bite_holes = [
+                        (float(h[0]), float(h[1]), float(h[2]))
+                        for h in fd.get('bite_holes', []) or []
+                        if isinstance(h, (list, tuple)) and len(h) >= 3
+                    ]
                     try:
                         color = fd.get('color')
                         if isinstance(color, (list, tuple)) and len(color) >= 3:

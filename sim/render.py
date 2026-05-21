@@ -12,6 +12,21 @@ if TYPE_CHECKING:
     from .world import Camera
 
 
+def _draw_food_bite_holes(food: 'Food', surface: pygame.Surface, camera: 'Camera'):
+    holes = getattr(food, 'bite_holes', None)
+    if not holes:
+        return
+    for hx, hy, hr in holes:
+        sx, sy = camera.world_to_screen(float(hx), float(hy))
+        sr = max(1, int(float(hr) * camera.zoom))
+        x = max(0, min(surface.get_width() - 1, int(sx)))
+        y = max(0, min(surface.get_height() - 1, int(sy)))
+        fill = surface.get_at((x, y))[:3]
+        pygame.draw.circle(surface, fill, (int(sx), int(sy)), sr)
+        if sr >= 3:
+            pygame.draw.circle(surface, (35, 25, 20), (int(sx), int(sy)), sr, width=1)
+
+
 class RendererStrategy(ABC):
     """
     Interface para estratégias de renderização.
@@ -101,6 +116,9 @@ class SimpleRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+        _draw_food_bite_holes(food, surface, camera)
+        if getattr(food, 'kind', 'instant') == 'chunk' and screen_radius >= 3:
+            pygame.draw.circle(surface, (35, 25, 20), (int(screen_x), int(screen_y)), screen_radius, width=1)
 
     def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
                        visible_bounds=None):
@@ -318,6 +336,9 @@ class EllipseRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(food.x, food.y)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
+        _draw_food_bite_holes(food, surface, camera)
+        if getattr(food, 'kind', 'instant') == 'chunk' and screen_radius >= 3:
+            pygame.draw.circle(surface, (35, 25, 20), (int(screen_x), int(screen_y)), screen_radius, width=1)
 
     def draw_obstacles(self, obstacles: 'ObstacleMap', surface: pygame.Surface, camera: 'Camera',
                        visible_bounds=None):
