@@ -1068,8 +1068,20 @@ class SimulationUI(QMainWindow):
             eye_count = int(getattr(sensor, 'eye_count', 1) or 1)
             total_inputs = retina_count * eye_count * max(1, len(channels))
             mapping_mode = str(self.params.get('retina_vision_mode', 'single'))
+            visible_parts = []
+            if bool(getattr(sensor, 'see_all', False)):
+                visible_parts.append("tudo")
+            else:
+                if bool(getattr(sensor, 'see_food', False)):
+                    visible_parts.append("comida")
+                if bool(getattr(sensor, 'see_bacteria', False)) or bool(getattr(sensor, 'see_predators', False)):
+                    visible_parts.append("organismos")
+                if bool(getattr(sensor, 'see_obstacles', False)):
+                    visible_parts.append("obstaculos")
+            occlusion = "atravessa paredes" if bool(getattr(sensor, 'see_through_walls', True)) else "paredes bloqueiam"
             labels['sensor'].setText(
                 f"{vision_type}; mapa {mapping_mode}; canais {channel_text}; "
+                f"ve {', '.join(visible_parts) if visible_parts else 'nada'}; {occlusion}; "
                 f"{eye_count} olho(s), {retina_count} retinas/olho = {total_inputs} entradas; "
                 f"raio {self._short_float(getattr(sensor, 'vision_radius', 0.0), 0)}, "
                 f"FOV {self._short_float(getattr(sensor, 'fov_degrees', 0.0), 0)}, "
@@ -1780,9 +1792,12 @@ class SimulationUI(QMainWindow):
             'export_substrate_include_brain_activations': 'Inclui ativacoes neurais no save. Aumenta o arquivo e o custo de salvamento.',
             'export_substrate_pretty_json': 'Salva JSON com indentacao legivel. Facilita inspecao humana, mas gera arquivos maiores.',
             'food_target': 'Quantidade alvo de comida. O controlador tenta repor comida ate aproximar esse valor.',
-            'food_mode': 'Define como a comida entrega energia: instantanea, baixa absorcao por contato ou pedaco solido mordido aos poucos.',
-            'food_absorption_seconds': 'No modo baixa absorcao, tempo aproximado de contato necessario para absorver toda a energia de uma comida.',
-            'food_bite_head_factor': 'No modo mordida aos pedacos, multiplica o tamanho da cabeca do organismo para definir o raio de cada mordida.',
+            'food_mode': 'Define como a comida entrega energia: instantanea ou em pedacos solidos consumidos aos poucos.',
+            'food_bite_seconds': 'No modo pedacos, define quanto tempo de contato leva para consumir uma particula.',
+            'food_piece_particle_radius': 'Raio de cada particula solida que forma um aglomerado de comida.',
+            'food_piece_cluster_radius': 'Raio aproximado do aglomerado que nasce no modo pedacos.',
+            'food_piece_particle_spacing': 'Distancia entre os centros das particulas do aglomerado. Maior distancia reduz empilhamento e custo.',
+            'food_piece_replenish_mode': 'Define se a comida em pedacos nasce em novos aglomerados, cresce em aglomerados, ou cresce uma particula por vez.',
             'food_min_r': 'Raio minimo da comida nova. Afeta tamanho visual e energia disponivel por item.',
             'food_max_r': 'Raio maximo da comida nova. Tambem influencia energia e espaco ocupado.',
             'food_replenish_interval': 'Intervalo base de reposicao de comida. Valores menores repoe comida mais rapidamente.',
@@ -1816,6 +1831,9 @@ class SimulationUI(QMainWindow):
             'bacteria_retina_see_food': 'Define se a retina do organismo detecta comida.',
             'bacteria_retina_see_bacteria': 'Define se a retina do organismo detecta outros organismos.',
             'bacteria_retina_see_predators': 'Define se a retina detecta organismos legados criados como predadores.',
+            'bacteria_retina_see_obstacles': 'Define se a retina do organismo detecta obstaculos desenhados.',
+            'bacteria_retina_see_all': 'Detecta comida, organismos e obstaculos como coisas coloridas no substrato.',
+            'bacteria_retina_see_through_walls': 'Quando desligado, obstaculos bloqueiam a visao do que esta atras.',
             'bacteria_retina_input_mode': 'Define se a retina usa apenas distancia, cor ponderada pela distancia, cor e distancia separadas, ou apenas cor.',
             'bacteria_retina_channel_d': 'Canal interno de distancia/proximidade. Agora e controlado pelo tipo de entrada da retina.',
             'bacteria_retina_channel_r': 'Canal vermelho disponivel para a retina quando o modo de visao usa cor.',
@@ -1852,6 +1870,9 @@ class SimulationUI(QMainWindow):
             'predator_retina_see_food': 'Define se a retina do predador detecta comida.',
             'predator_retina_see_bacteria': 'Define se a retina do predador detecta bacterias.',
             'predator_retina_see_predators': 'Define se a retina do predador detecta outros predadores.',
+            'predator_retina_see_obstacles': 'Define se a retina do predador detecta obstaculos desenhados.',
+            'predator_retina_see_all': 'Detecta comida, organismos e obstaculos como coisas coloridas no substrato.',
+            'predator_retina_see_through_walls': 'Quando desligado, obstaculos bloqueiam a visao do que esta atras.',
             'obstacle_brush_width': 'Largura do pincel usado para desenhar ou apagar obstaculos solidos.',
             'obstacle_brush_erase': 'Quando ativo, o pincel apaga obstaculos em vez de desenhar novos.',
         }
@@ -2106,6 +2127,9 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_food', True)); row = self._add_grid_param(grid, row, "Ver comida:", f'{species}_retina_see_food', cb)
         cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)); row = self._add_grid_param(grid, row, "Ver organismos:", f'{species}_retina_see_bacteria', cb)
         self.params.set(f'{species}_retina_see_predators', bool(self.params.get(f'{species}_retina_see_bacteria', False if is_bacteria else True)), validate=False)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_obstacles', False)); row = self._add_grid_param(grid, row, "Ver obstaculos:", f'{species}_retina_see_obstacles', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_all', False)); row = self._add_grid_param(grid, row, "Ver tudo colorido:", f'{species}_retina_see_all', cb)
+        cb = QCheckBox(); cb.setChecked(self.params.get(f'{species}_retina_see_through_walls', True)); row = self._add_grid_param(grid, row, "Ver atraves paredes:", f'{species}_retina_see_through_walls', cb)
         mode_combo = self._make_retina_mode_combo(species)
         row = self._add_grid_param(grid, row, "Tipo de entrada:", f'{species}_retina_input_mode', mode_combo)
         grid.addWidget(QLabel("Canais de cor:"), row, 0)
@@ -2271,19 +2295,33 @@ class SimulationUI(QMainWindow):
         row = 0
         mode = QComboBox()
         mode.addItem("Instantanea", "instant")
-        mode.addItem("Baixa absorcao", "slow_absorption")
-        mode.addItem("Mordida aos pedacos", "chunk")
+        mode.addItem("Pedacos", "chunk")
         self._set_combo_data(mode, self.params.get('food_mode', 'instant'))
         mode.currentIndexChanged.connect(lambda _idx: self._update_food_mode_controls())
         row = self._add_grid_param(grid, row, "Tipo de comida:", 'food_mode', mode)
         w = _spin_double(0.05, 120.0, 0.1, 2)
-        w.setValue(self.params.get('food_absorption_seconds', 2.0))
-        row = self._add_grid_param(grid, row, "Tempo absorcao total (s):", 'food_absorption_seconds', w)
-        self._food_absorption_widget = w
-        w = _spin_double(0.1, 5.0, 0.05, 2)
-        w.setValue(self.params.get('food_bite_head_factor', 1.0))
-        row = self._add_grid_param(grid, row, "Raio mordida x cabeca:", 'food_bite_head_factor', w)
-        self._food_bite_widget = w
+        w.setValue(self.params.get('food_bite_seconds', 6.0))
+        row = self._add_grid_param(grid, row, "Tempo consumir particula (s):", 'food_bite_seconds', w)
+        self._piece_food_widgets = [w]
+        w = _spin_double(0.5, 200.0, 0.5, 1)
+        w.setValue(self.params.get('food_piece_particle_radius', self.params.get('food_max_r', 5.0)))
+        row = self._add_grid_param(grid, row, "Raio da particula:", 'food_piece_particle_radius', w)
+        self._piece_food_widgets.append(w)
+        w = _spin_double(1.0, 1000.0, 1.0, 1)
+        w.setValue(self.params.get('food_piece_cluster_radius', 36.0))
+        row = self._add_grid_param(grid, row, "Raio do aglomerado:", 'food_piece_cluster_radius', w)
+        self._piece_food_widgets.append(w)
+        w = _spin_double(0.5, 300.0, 0.5, 1)
+        w.setValue(self.params.get('food_piece_particle_spacing', 11.0))
+        row = self._add_grid_param(grid, row, "Distancia particulas:", 'food_piece_particle_spacing', w)
+        self._piece_food_widgets.append(w)
+        rep = QComboBox()
+        rep.addItem("Surgir em pedacos", "spawn_cluster")
+        rep.addItem("Crescer em pedacos", "grow_existing")
+        rep.addItem("Crescer em particulas", "grow_particles")
+        self._set_combo_data(rep, self.params.get('food_piece_replenish_mode', 'spawn_cluster'))
+        row = self._add_grid_param(grid, row, "Reposicao pedacos:", 'food_piece_replenish_mode', rep)
+        self._piece_food_widgets.append(rep)
         w = _spin_int(0, 10000); w.setValue(self.params.get('food_target', 50)); row = self._add_grid_param(grid, row, "Target comida:", 'food_target', w)
         w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_min_r', 4.5)); row = self._add_grid_param(grid, row, "Comida raio min:", 'food_min_r', w)
         w = _spin_double(0.1, 100.0, 0.1, 2); w.setValue(self.params.get('food_max_r', 5.0)); row = self._add_grid_param(grid, row, "Comida raio max:", 'food_max_r', w)
@@ -2361,12 +2399,8 @@ class SimulationUI(QMainWindow):
 
     def _update_food_mode_controls(self):
         mode = self._get_widget_value('food_mode') if 'food_mode' in self.widgets else self.params.get('food_mode', 'instant')
-        absorption = getattr(self, '_food_absorption_widget', None)
-        bite = getattr(self, '_food_bite_widget', None)
-        if absorption is not None:
-            absorption.setEnabled(mode == 'slow_absorption')
-        if bite is not None:
-            bite.setEnabled(mode == 'chunk')
+        for widget in getattr(self, '_piece_food_widgets', []) or []:
+            widget.setEnabled(mode == 'chunk')
 
     def _add_environment_color_pickers(self, layout: QVBoxLayout, card_style: str):
         def add_picker(title: str, key: str, default: tuple[int, int, int], apply_existing=None):
@@ -3287,6 +3321,9 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_food',True)); add_vis("Ver comida:",'bacteria_retina_see_food',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_bacteria',False)); add_vis("Ver bactérias:",'bacteria_retina_see_bacteria',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_predators',False)); add_vis("Ver predadores:",'bacteria_retina_see_predators',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_obstacles',False)); add_vis("Ver obstaculos:",'bacteria_retina_see_obstacles',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_all',False)); add_vis("Ver tudo:",'bacteria_retina_see_all',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('bacteria_retina_see_through_walls',True)); add_vis("Ver atraves paredes:",'bacteria_retina_see_through_walls',cb)
         v.addWidget(g_vis)
         # Ações
         g_act = QGroupBox("Ações"); g_act.setStyleSheet(card_style); la=QVBoxLayout(g_act)
@@ -3419,6 +3456,9 @@ class SimulationUI(QMainWindow):
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_food',True)); add_vis("Ver comida:",'predator_retina_see_food',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_bacteria',True)); add_vis("Ver bactérias:",'predator_retina_see_bacteria',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_predators',False)); add_vis("Ver predadores:",'predator_retina_see_predators',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_obstacles',False)); add_vis("Ver obstaculos:",'predator_retina_see_obstacles',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_all',False)); add_vis("Ver tudo:",'predator_retina_see_all',cb)
+        cb=QCheckBox(); cb.setChecked(self.params.get('predator_retina_see_through_walls',True)); add_vis("Ver atraves paredes:",'predator_retina_see_through_walls',cb)
         cb=QCheckBox(); cb.setChecked(self.params.get('predator_show_vision',False)); add_vis("Mostrar visão:",'predator_show_vision',cb)
         v.addWidget(g_vis)
         # Ações
@@ -3576,7 +3616,8 @@ class SimulationUI(QMainWindow):
     def _apply_widget_enter(self, name: str):
         genetic_names = set(self._agent_param_names('bacteria')) | {f'bacteria_neurons_layer_{i}' for i in range(1, 6)}
         environment_names = {
-            'food_mode', 'food_absorption_seconds', 'food_bite_head_factor',
+            'food_mode', 'food_bite_seconds', 'food_piece_particle_radius',
+            'food_piece_cluster_radius', 'food_piece_particle_spacing', 'food_piece_replenish_mode',
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
@@ -3712,7 +3753,8 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_substrate_params(self):
-        for name in ['food_mode','food_absorption_seconds','food_bite_head_factor','food_target','food_min_r','food_max_r','food_replenish_interval','world_w','world_h','substrate_shape','substrate_radius']:
+        old_food_mode = str(self.params.get('food_mode', 'instant'))
+        for name in ['food_mode','food_bite_seconds','food_piece_particle_radius','food_piece_cluster_radius','food_piece_particle_spacing','food_piece_replenish_mode','food_target','food_min_r','food_max_r','food_replenish_interval','world_w','world_h','substrate_shape','substrate_radius']:
             if name in self.widgets:
                 self.params.set(name, self._get_widget_value(name))
         self._update_food_mode_controls()
@@ -3728,15 +3770,34 @@ class SimulationUI(QMainWindow):
             if hasattr(entity,'x') and hasattr(entity,'y') and hasattr(entity,'r'):
                 entity.x, entity.y = world.clamp_position(entity.x, entity.y, getattr(entity,'r',0.0))
         food_mode = str(self.params.get('food_mode', 'instant'))
-        for food in self.engine.entities.get('foods', []):
+        if old_food_mode != 'chunk' and food_mode == 'chunk':
+            self.engine.entities['foods'].clear()
             try:
-                food.kind = food_mode
-                if not getattr(food, 'initial_energy', None):
-                    food.initial_energy = max(1e-9, float(getattr(food, 'energy', food.r * food.r)))
-                if not getattr(food, 'base_radius', None):
-                    food.base_radius = float(getattr(food, 'r', 1.0))
+                self.engine.food_controller.food_debt = 0.0
+                self.engine.food_controller.food_energy_debt = 0.0
+                new_foods = self.engine.food_controller.update(
+                    self.engine.entities['foods'],
+                    int(self.params.get('food_target', 0) or 0),
+                    self.engine.world.width,
+                    self.engine.world.height,
+                    self.params,
+                    float(self.params.get('food_replenish_interval', 0.1) or 0.1),
+                    obstacle_map=self.engine.obstacles,
+                    agents=self.engine.all_agents,
+                )
+                self.engine.entities['foods'].extend(new_foods)
             except Exception:
                 pass
+        else:
+            for food in self.engine.entities.get('foods', []):
+                try:
+                    food.kind = food_mode
+                    if not getattr(food, 'initial_energy', None):
+                        food.initial_energy = max(1e-9, float(getattr(food, 'energy', food.r * food.r)))
+                    if not getattr(food, 'base_radius', None):
+                        food.base_radius = float(getattr(food, 'r', 1.0))
+                except Exception:
+                    pass
         self.engine._spatial_hash_dirty = True
         # color pickers already update params and propagate; nothing else to do here
         print("Parâmetros de substrato aplicados")
@@ -3753,6 +3814,7 @@ class SimulationUI(QMainWindow):
                 'bacteria_body_shape','bacteria_movement_mode','bacteria_allow_reverse_locomotion',
                 'bacteria_retina_fov_degrees','bacteria_eye_count','bacteria_eye_angle_degrees','bacteria_eye_separation_degrees',
                 'bacteria_retina_see_food','bacteria_retina_see_bacteria','bacteria_retina_see_predators',
+                'bacteria_retina_see_obstacles','bacteria_retina_see_all','bacteria_retina_see_through_walls',
                 'bacteria_retina_input_mode',
                 'bacteria_retina_channel_r','bacteria_retina_channel_g','bacteria_retina_channel_b','bacteria_retina_channel_d',
                 'bacteria_diet_food','bacteria_diet_agents','bacteria_diet_same_label',
@@ -3769,6 +3831,7 @@ class SimulationUI(QMainWindow):
                 'predator_show_vision','predator_vision_radius','predator_retina_see_food','predator_retina_count',
                 'predator_retina_fov_degrees','predator_eye_count','predator_eye_angle_degrees','predator_eye_separation_degrees',
                 'predator_retina_see_bacteria','predator_retina_see_predators','predator_max_speed',
+            'predator_retina_see_obstacles','predator_retina_see_all','predator_retina_see_through_walls',
             'predator_retina_input_mode',
             'predator_retina_channel_r','predator_retina_channel_g','predator_retina_channel_b','predator_retina_channel_d',
             'predator_diet_food','predator_diet_agents','predator_diet_same_label',
@@ -3804,6 +3867,9 @@ class SimulationUI(QMainWindow):
                 f'{species}_retina_see_food',
                 f'{species}_retina_see_bacteria',
                 f'{species}_retina_see_predators',
+                f'{species}_retina_see_obstacles',
+                f'{species}_retina_see_all',
+                f'{species}_retina_see_through_walls',
                 f'{species}_retina_input_mode',
                 f'{species}_retina_channel_r',
                 f'{species}_retina_channel_g',
@@ -3831,6 +3897,9 @@ class SimulationUI(QMainWindow):
                 f'{species}_retina_see_food',
                 f'{species}_retina_see_bacteria',
                 f'{species}_retina_see_predators',
+                f'{species}_retina_see_obstacles',
+                f'{species}_retina_see_all',
+                f'{species}_retina_see_through_walls',
                 f'{species}_retina_input_mode',
                 f'{species}_retina_channel_r',
                 f'{species}_retina_channel_g',
@@ -4036,6 +4105,7 @@ class SimulationUI(QMainWindow):
             f'{species}_vision_radius', f'{species}_retina_count', f'{species}_retina_fov_degrees',
             f'{species}_eye_count', f'{species}_eye_angle_degrees', f'{species}_eye_separation_degrees',
             f'{species}_retina_see_food', f'{species}_retina_see_bacteria', f'{species}_retina_see_predators',
+            f'{species}_retina_see_obstacles', f'{species}_retina_see_all', f'{species}_retina_see_through_walls',
             f'{species}_retina_input_mode',
             f'{species}_retina_channel_r', f'{species}_retina_channel_g', f'{species}_retina_channel_b',
             f'{species}_retina_channel_d',
@@ -4769,7 +4839,7 @@ class SimulationUI(QMainWindow):
                     w_list = list(W); b_list = list(B)
                 add(f'brain_weight_{idx}', json.dumps(w_list)); add(f'brain_bias_{idx}', json.dumps(b_list))
         if sensor is not None:
-            for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','eye_count','eye_angle_degrees','eye_separation_degrees']:
+            for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','see_obstacles','see_all','see_through_walls','eye_count','eye_angle_degrees','eye_separation_degrees']:
                 if hasattr(sensor, attr): add(f'sensor_{attr}', getattr(sensor, attr))
             if hasattr(sensor, 'channels'):
                 channels = tuple(getattr(sensor, 'channels', ('d',)))
@@ -4911,6 +4981,9 @@ class SimulationUI(QMainWindow):
         set_param('bacteria_retina_see_food', as_bool(pick('sensor_see_food', default=True), True))
         set_param('bacteria_retina_see_bacteria', as_bool(pick('sensor_see_bacteria', default=False), False))
         set_param('bacteria_retina_see_predators', as_bool(pick('sensor_see_predators', default=False), False))
+        set_param('bacteria_retina_see_obstacles', as_bool(pick('sensor_see_obstacles', default=False), False))
+        set_param('bacteria_retina_see_all', as_bool(pick('sensor_see_all', default=False), False))
+        set_param('bacteria_retina_see_through_walls', as_bool(pick('sensor_see_through_walls', default=True), True))
 
         channels = pick('sensor_channels', default='["d"]')
         if isinstance(channels, str):
@@ -5139,7 +5212,7 @@ class SimulationUI(QMainWindow):
                     except Exception:
                         ad['brain_weights'] = [list(w) for w in brain.weights]; ad['brain_biases'] = [list(b) for b in brain.biases]
                 if sensor:
-                    for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','eye_count','eye_angle_degrees','eye_separation_degrees']:
+                    for attr in ['retina_count','vision_radius','fov_degrees','skip','see_food','see_bacteria','see_predators','see_obstacles','see_all','see_through_walls','eye_count','eye_angle_degrees','eye_separation_degrees']:
                         if hasattr(sensor, attr): ad[f'sensor_{attr}'] = getattr(sensor, attr)
                     if hasattr(sensor, 'channels'):
                         ad['sensor_channels'] = list(getattr(sensor, 'channels', ('d',)))
@@ -5380,6 +5453,9 @@ class SimulationUI(QMainWindow):
                     retina_count=ad.get('sensor_retina_count',18), vision_radius=ad.get('sensor_vision_radius',120.0),
                     fov_degrees=ad.get('sensor_fov_degrees',180.0), skip=ad.get('sensor_skip',0), see_food=ad.get('sensor_see_food',True),
                     see_bacteria=ad.get('sensor_see_bacteria',False), see_predators=ad.get('sensor_see_predators',False),
+                    see_obstacles=ad.get('sensor_see_obstacles', False),
+                    see_all=ad.get('sensor_see_all', False),
+                    see_through_walls=ad.get('sensor_see_through_walls', True),
                     channels=raw_channels,
                     eye_count=ad.get('sensor_eye_count', 1),
                     eye_angle_degrees=ad.get('sensor_eye_angle_degrees', 60.0),

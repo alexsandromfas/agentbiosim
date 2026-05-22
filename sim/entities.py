@@ -417,7 +417,7 @@ class Agent(Entity):
         parent_sensor = getattr(self, 'sensor', None)
         child_sensor = getattr(child, 'sensor', None)
         if parent_sensor is not None and child_sensor is not None:
-            for attr in ("retina_count", "vision_radius", "fov_degrees", "skip", "see_food", "see_bacteria", "see_predators", "channels", "eye_count", "eye_angle_degrees", "eye_separation_degrees"):
+            for attr in ("retina_count", "vision_radius", "fov_degrees", "skip", "see_food", "see_bacteria", "see_predators", "see_obstacles", "see_all", "see_through_walls", "channels", "eye_count", "eye_angle_degrees", "eye_separation_degrees"):
                 try:
                     value = getattr(parent_sensor, attr)
                     if attr == "channels":
@@ -520,6 +520,9 @@ class Bacteria(Agent):
             see_food=params.get('bacteria_retina_see_food', True),
             see_bacteria=params.get('bacteria_retina_see_bacteria', False),
             see_predators=params.get('bacteria_retina_see_predators', False),
+            see_obstacles=params.get('bacteria_retina_see_obstacles', False),
+            see_all=params.get('bacteria_retina_see_all', False),
+            see_through_walls=params.get('bacteria_retina_see_through_walls', True),
             channels=active_retina_channels(params, 'bacteria'),
             eye_count=params.get('bacteria_eye_count', 1),
             eye_angle_degrees=params.get('bacteria_eye_angle_degrees', 60.0),
@@ -586,6 +589,9 @@ class Predator(Agent):
             see_food=params.get('predator_retina_see_food', True),
             see_bacteria=params.get('predator_retina_see_bacteria', True),
             see_predators=params.get('predator_retina_see_predators', False),
+            see_obstacles=params.get('predator_retina_see_obstacles', False),
+            see_all=params.get('predator_retina_see_all', False),
+            see_through_walls=params.get('predator_retina_see_through_walls', True),
             channels=active_retina_channels(params, 'predator'),
             eye_count=params.get('predator_eye_count', 1),
             eye_angle_degrees=params.get('predator_eye_angle_degrees', 60.0),
@@ -806,7 +812,8 @@ def create_random_food(existing_food: list, params: 'Params',
             x = random.uniform(r, world_w - r)
             y = random.uniform(r, world_h - r)
     
-    food = Food(x, y, r, kind=str(params.get('food_mode', 'instant')))
+    food_mode = 'chunk' if str(params.get('food_mode', 'instant')) == 'chunk' else 'instant'
+    food = Food(x, y, r, kind=food_mode)
     try:
         food.color = tuple(params.get('food_color', food.color))
     except Exception:
@@ -851,6 +858,9 @@ def _create_bacteria_sensor(params: 'Params'):
         see_food=params.get('bacteria_retina_see_food', True),
         see_bacteria=params.get('bacteria_retina_see_bacteria', False),
         see_predators=params.get('bacteria_retina_see_predators', False),
+        see_obstacles=params.get('bacteria_retina_see_obstacles', False),
+        see_all=params.get('bacteria_retina_see_all', False),
+        see_through_walls=params.get('bacteria_retina_see_through_walls', True),
         channels=active_retina_channels(params, 'bacteria'),
         eye_count=params.get('bacteria_eye_count', 1),
         eye_angle_degrees=params.get('bacteria_eye_angle_degrees', 60.0),
@@ -922,6 +932,9 @@ def _create_predator_sensor(params: 'Params'):
         see_food=params.get('predator_retina_see_food', True),
         see_bacteria=params.get('predator_retina_see_bacteria', True),
         see_predators=params.get('predator_retina_see_predators', False),
+        see_obstacles=params.get('predator_retina_see_obstacles', False),
+        see_all=params.get('predator_retina_see_all', False),
+        see_through_walls=params.get('predator_retina_see_through_walls', True),
         channels=active_retina_channels(params, 'predator'),
         eye_count=params.get('predator_eye_count', 1),
         eye_angle_degrees=params.get('predator_eye_angle_degrees', 60.0),

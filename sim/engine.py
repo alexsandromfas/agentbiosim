@@ -800,7 +800,7 @@ class Engine:
             self._resolve_obstacle_collisions()
             self._spatial_hash_dirty = True
         return changed
-    
+
     def _physics_dt(self) -> float:
         hz = max(1.0, float(self.params.get('physics_steps_per_second', 30)))
         return 1.0 / hz
@@ -811,6 +811,7 @@ class Engine:
         self.interaction_system.last_foods_eaten = 0
         self.interaction_system.last_agents_predated = 0
         self.interaction_system.last_foods_changed = False
+        self.interaction_system.last_food_energy_consumed = 0.0
         self.reproduction_system.last_births = []
         self.reproduction_system.last_blocked_by_age = 0
         self.reproduction_system.last_blocked_by_cooldown = 0
@@ -901,33 +902,6 @@ class Engine:
                 break
         return resolved
 
-    @staticmethod
-    def _point_in_chunk_food_solid(food, x: float, y: float) -> bool:
-        dx = float(x) - float(food.x)
-        dy = float(y) - float(food.y)
-        if dx * dx + dy * dy > float(food.r) * float(food.r):
-            return False
-        for hx, hy, hr in getattr(food, 'bite_holes', []) or []:
-            ddx = float(x) - float(hx)
-            ddy = float(y) - float(hy)
-            if ddx * ddx + ddy * ddy <= float(hr) * float(hr):
-                return False
-        return True
-
-    def _agent_overlaps_chunk_food_solid(self, agent, food) -> bool:
-        radius = max(0.0, float(getattr(agent, 'r', 0.0)))
-        if self._point_in_chunk_food_solid(food, float(agent.x), float(agent.y)):
-            return True
-        for i in range(8):
-            angle = (math.tau * i) / 8.0
-            if self._point_in_chunk_food_solid(
-                food,
-                float(agent.x) + math.cos(angle) * radius,
-                float(agent.y) + math.sin(angle) * radius,
-            ):
-                return True
-        return False
-
     def _resolve_solid_food_collisions(self, params, frozen_agents: set | None = None) -> int:
         """Trata comida em pedaços como obstáculo circular sólido, só nesse modo."""
         if str(params.get('food_mode', 'instant')) != 'chunk':
@@ -950,48 +924,48 @@ class Engine:
                 )
             else:
                 nearby_foods = foods
+            push_x = 0.0
+            push_y = 0.0
+            max_overlap = 0.0
+            hit_count = 0
             for food in nearby_foods:
                 if str(getattr(food, 'kind', params.get('food_mode', 'instant'))) != 'chunk':
-                    continue
-                if not self._agent_overlaps_chunk_food_solid(agent, food):
                     continue
                 dx = float(agent.x) - float(food.x)
                 dy = float(agent.y) - float(food.y)
                 dist = math.hypot(dx, dy)
                 agent_r = float(getattr(agent, 'r', 0.0))
                 r_sum = agent_r + float(getattr(food, 'r', 0.0))
+                if dist >= r_sum:
+                    continue
                 if dist <= 1e-9:
                     dx = math.cos(float(getattr(agent, 'angle', 0.0)))
                     dy = math.sin(float(getattr(agent, 'angle', 0.0)))
                     dist = 1.0
-                candidates = []
-                if dist < r_sum:
-                    candidates.append((dx / dist, dy / dist, r_sum - dist))
-                for hx, hy, hr in getattr(food, 'bite_holes', []) or []:
-                    hr = float(hr)
-                    if hr <= agent_r * 0.35:
-                        continue
-                    hx = float(hx); hy = float(hy)
-                    hdx = hx - float(agent.x)
-                    hdy = hy - float(agent.y)
-                    hdist = math.hypot(hdx, hdy)
-                    target = max(0.0, hr - agent_r)
-                    if hdist <= 1e-9:
-                        candidates.append((0.0, 0.0, 0.0))
-                    elif hdist > target:
-                        candidates.append((hdx / hdist, hdy / hdist, hdist - target))
-                if not candidates:
-                    continue
-                nx, ny, overlap = min(candidates, key=lambda item: item[2])
-                agent.x += nx * (overlap + 1e-3)
-                agent.y += ny * (overlap + 1e-3)
+                nx, ny = dx / dist, dy / dist
+                overlap = r_sum - dist
+                push_x += nx * overlap
+                push_y += ny * overlap
+                max_overlap = max(max_overlap, overlap)
+                hit_count += 1
+            if hit_count:
+                mag = math.hypot(push_x, push_y)
+                if mag <= 1e-9:
+                    nx = math.cos(float(getattr(agent, 'angle', 0.0)))
+                    ny = math.sin(float(getattr(agent, 'angle', 0.0)))
+                    push = max_overlap
+                else:
+                    nx, ny = push_x / mag, push_y / mag
+                    push = min(mag, max_overlap * max(1.0, math.sqrt(hit_count)))
+                agent.x += nx * (push + 1e-3)
+                agent.y += ny * (push + 1e-3)
                 if hasattr(agent, 'vx'):
                     inward = agent.vx * nx + agent.vy * ny
                     if inward < 0.0:
                         agent.vx -= inward * nx
                         agent.vy -= inward * ny
                 agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, getattr(agent, 'r', 0.0))
-                resolved += 1
+                resolved += hit_count
         return resolved
     
     def _simulate_substep(self, dt: float):
@@ -1006,7 +980,8 @@ class Engine:
             target_food = step_params.get('food_target', 300)
             new_foods = self.food_controller.update(
                 self.entities['foods'], target_food, self.world.width, self.world.height, step_params, dt,
-                obstacle_map=self.obstacles
+                obstacle_map=self.obstacles,
+                agents=self.all_agents,
             )
             self.entities['foods'].extend(new_foods)
             if new_foods or getattr(self.food_controller, 'last_foods_removed', 0):
@@ -1033,6 +1008,9 @@ class Engine:
                         bool(getattr(sensor, 'see_food', False)),
                         bool(getattr(sensor, 'see_bacteria', False)),
                         bool(getattr(sensor, 'see_predators', False)),
+                        bool(getattr(sensor, 'see_obstacles', False)),
+                        bool(getattr(sensor, 'see_all', False)),
+                        bool(getattr(sensor, 'see_through_walls', True)),
                         tuple(getattr(sensor, 'channels', ('d',)) or ('d',)),
                         int(getattr(sensor, 'eye_count', 1) or 1),
                         round(float(getattr(sensor, 'eye_angle_degrees', 60.0) or 0.0), 6),
@@ -1107,6 +1085,9 @@ class Engine:
                 )
             if getattr(self.interaction_system, 'last_foods_changed', False):
                 self._spatial_hash_dirty = True
+            consumed_food_energy = float(getattr(self.interaction_system, 'last_food_energy_consumed', 0.0) or 0.0)
+            if consumed_food_energy > 0.0 and str(step_params.get('food_mode', 'instant')) == 'chunk':
+                self.food_controller.note_food_energy_consumed(consumed_food_energy)
             if removed_agents:
                 topology_changed = True
                 self.entities['bacteria'] = [a for a in self.entities['bacteria'] if a not in removed_agents]
@@ -1184,8 +1165,9 @@ class Engine:
             radius = max(min_r, min(max_r, float(getattr(agent, 'r', max_r)) * 0.5))
             if not self.can_place_circle(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius):
                 continue
+            food_mode = 'chunk' if str(params.get('food_mode', 'instant')) == 'chunk' else 'instant'
             food = Food(float(getattr(agent, 'x', 0.0)), float(getattr(agent, 'y', 0.0)), radius,
-                        kind=str(params.get('food_mode', 'instant')))
+                        kind=food_mode)
             try:
                 food.color = tuple(params.get('food_color', food.color))
             except Exception:
@@ -1225,7 +1207,7 @@ class Engine:
             return False
         if not self.params.get('use_spatial', True):
             self.spatial_hash = None
-            self.scene_query = SceneQuery(None, self.entities, self.params)
+            self.scene_query = SceneQuery(None, self.entities, self.params, obstacles=self.obstacles)
             self._spatial_hash_dirty = False
             self.spatial_hash_rebuilds += 1
             return True
@@ -1264,7 +1246,7 @@ class Engine:
             self.spatial_hash.insert(predator, predator.x, predator.y, predator.r)
         
         # Atualiza scene query
-        self.scene_query = SceneQuery(self.spatial_hash, self.entities, self.params)
+        self.scene_query = SceneQuery(self.spatial_hash, self.entities, self.params, obstacles=self.obstacles)
         self._spatial_hash_dirty = False
         self.spatial_hash_rebuilds += 1
         return True
@@ -1419,6 +1401,9 @@ class Engine:
                 see_food=_b('sensor_see_food',True),
                 see_bacteria=_b('sensor_see_bacteria',False),
                 see_predators=_b('sensor_see_predators',False),
+                see_obstacles=_b('sensor_see_obstacles',False),
+                see_all=_b('sensor_see_all',False),
+                see_through_walls=_b('sensor_see_through_walls',True),
                 channels=_channels(),
                 eye_count=_i('sensor_eye_count', 1),
                 eye_angle_degrees=_f('sensor_eye_angle_degrees', 60.0),
@@ -1550,7 +1535,7 @@ class Engine:
 
         sensor = getattr(agent, 'sensor', None)
         if sensor is not None:
-            for attr in ['retina_count', 'vision_radius', 'fov_degrees', 'skip', 'see_food', 'see_bacteria', 'see_predators', 'eye_count', 'eye_angle_degrees', 'eye_separation_degrees']:
+            for attr in ['retina_count', 'vision_radius', 'fov_degrees', 'skip', 'see_food', 'see_bacteria', 'see_predators', 'see_obstacles', 'see_all', 'see_through_walls', 'eye_count', 'eye_angle_degrees', 'eye_separation_degrees']:
                 if hasattr(sensor, attr):
                     add(f'sensor_{attr}', getattr(sensor, attr))
             if hasattr(sensor, 'channels'):

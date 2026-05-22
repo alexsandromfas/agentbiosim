@@ -12,8 +12,10 @@ def _engine_with_one_agent(food_mode: str) -> Engine:
     params.set("predators_enabled", False, validate=False)
     params.set("food_target", 0, validate=False)
     params.set("food_mode", food_mode, validate=False)
-    params.set("food_absorption_seconds", 2.0, validate=False)
     params.set("food_bite_seconds", 4.0, validate=False)
+    params.set("food_piece_particle_radius", 5.0, validate=False)
+    params.set("food_piece_cluster_radius", 12.0, validate=False)
+    params.set("food_piece_particle_spacing", 10.0, validate=False)
     params.set("random_seed", 123, validate=False)
     engine = Engine(World(200, 160), Camera(), params, headless=True)
     engine.start(initialize=True)
@@ -54,27 +56,6 @@ def test_instant_food_keeps_existing_full_consume_behavior():
     assert agent.food_eaten_count == 1
 
 
-def test_slow_absorption_food_drains_over_contact_time():
-    engine = _engine_with_one_agent("slow_absorption")
-    agent = engine.entities["bacteria"][0]
-    agent.energy = 0.0
-    food = _place_food_on_agent(engine, "slow_absorption", radius=5.0)
-
-    engine.interaction_system.apply(
-        engine.entities["bacteria"],
-        engine.entities["predators"],
-        engine.entities["foods"],
-        engine.spatial_hash,
-        engine.params,
-        dt=0.5,
-    )
-
-    assert engine.entities["foods"] == [food]
-    assert 0.0 < agent.energy < food.initial_energy
-    assert math.isclose(food.energy, 18.75)
-    assert food.r < food.base_radius
-
-
 def test_chunk_food_is_solid_and_consumed_by_bites():
     engine = _engine_with_one_agent("chunk")
     agent = engine.entities["bacteria"][0]
@@ -96,7 +77,7 @@ def test_chunk_food_is_solid_and_consumed_by_bites():
         engine.entities["foods"],
         engine.spatial_hash,
         engine.params,
-        dt=1.0,
+        dt=0.1,
     )
 
     assert resolved > 0
@@ -104,5 +85,102 @@ def test_chunk_food_is_solid_and_consumed_by_bites():
     assert engine.entities["foods"] == [food]
     assert 0.0 < agent.energy < food.initial_energy
     assert food.energy < food.initial_energy
-    assert food.r == food.base_radius
-    assert len(food.bite_holes) == 1
+    assert food.r < food.base_radius
+
+
+def test_chunk_food_controller_creates_pellet_cluster():
+    engine = _engine_with_one_agent("chunk")
+    engine.params.set("food_target", 8, validate=False)
+
+    new_foods = engine.food_controller.update(
+        engine.entities["foods"],
+        target_count=8,
+        world_w=engine.world.width,
+        world_h=engine.world.height,
+        params=engine.params,
+        dt=0.1,
+        obstacle_map=engine.obstacles,
+        agents=engine.all_agents,
+    )
+
+    assert len(new_foods) > 1
+    assert all(food.kind == "chunk" for food in new_foods)
+
+
+def test_chunk_food_can_grow_existing_cluster_when_configured():
+    engine = _engine_with_one_agent("chunk")
+    anchor = Food(80.0, 80.0, 5.0, kind="chunk")
+    engine.entities["foods"][:] = [anchor]
+    engine.params.set("food_target", 2, validate=False)
+    engine.params.set("food_piece_replenish_mode", "grow_existing", validate=False)
+
+    new_foods = engine.food_controller.update(
+        engine.entities["foods"],
+        target_count=2,
+        world_w=engine.world.width,
+        world_h=engine.world.height,
+        params=engine.params,
+        dt=0.1,
+        obstacle_map=engine.obstacles,
+    )
+
+    assert len(new_foods) == 1
+    new_food = new_foods[0]
+    assert new_food.kind == "chunk"
+    assert math.hypot(new_food.x - anchor.x, new_food.y - anchor.y) <= 24.0
+
+
+def test_chunk_food_can_grow_one_particle_at_a_time_when_configured():
+    engine = _engine_with_one_agent("chunk")
+    anchor = Food(80.0, 80.0, 5.0, kind="chunk")
+    engine.entities["foods"][:] = [anchor]
+    engine.params.set("food_target", 2, validate=False)
+    engine.params.set("food_piece_replenish_mode", "grow_particles", validate=False)
+
+    new_foods = engine.food_controller.update(
+        engine.entities["foods"],
+        target_count=2,
+        world_w=engine.world.width,
+        world_h=engine.world.height,
+        params=engine.params,
+        dt=0.1,
+        obstacle_map=engine.obstacles,
+    )
+
+    assert len(new_foods) == 1
+    new_food = new_foods[0]
+    assert new_food.kind == "chunk"
+    assert math.hypot(new_food.x - anchor.x, new_food.y - anchor.y) <= anchor.r + new_food.r + 2.0
+
+
+def test_chunk_food_spawn_cluster_waits_for_consumed_energy():
+    engine = _engine_with_one_agent("chunk")
+    anchor = Food(80.0, 80.0, 5.0, kind="chunk")
+    engine.entities["foods"][:] = [anchor]
+    engine.params.set("food_target", 8, validate=False)
+    engine.params.set("food_piece_replenish_mode", "spawn_cluster", validate=False)
+
+    no_foods = engine.food_controller.update(
+        engine.entities["foods"],
+        target_count=8,
+        world_w=engine.world.width,
+        world_h=engine.world.height,
+        params=engine.params,
+        dt=0.1,
+        obstacle_map=engine.obstacles,
+        agents=engine.all_agents,
+    )
+    engine.food_controller.note_food_energy_consumed(1000.0)
+    new_foods = engine.food_controller.update(
+        engine.entities["foods"],
+        target_count=8,
+        world_w=engine.world.width,
+        world_h=engine.world.height,
+        params=engine.params,
+        dt=0.1,
+        obstacle_map=engine.obstacles,
+        agents=engine.all_agents,
+    )
+
+    assert no_foods == []
+    assert len(new_foods) > 1

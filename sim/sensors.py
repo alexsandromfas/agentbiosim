@@ -400,10 +400,12 @@ class SceneQuery:
     Usado pelos sensores para fazer raycasts e queries de proximidade.
     """
     
-    def __init__(self, spatial_hash: Optional['SpatialHash'], entities: dict, params: 'Params'):
+    def __init__(self, spatial_hash: Optional['SpatialHash'], entities: dict, params: 'Params',
+                 obstacles: Any = None):
         self.spatial_hash = spatial_hash
         self.entities = entities  # {'bacteria': [...], 'predators': [...], 'foods': [...]}
         self.params = params
+        self.obstacles = obstacles
     
     def raycast(self, px: float, py: float, dx: float, dy: float, max_distance: float,
                 ignore: Any = None, see_food: bool = True, see_bacteria: bool = False, 
@@ -546,6 +548,7 @@ class RetinaSensor:
     def __init__(self, retina_count: int = 18, vision_radius: float = 120.0,
                  fov_degrees: float = 180.0, skip: int = 0,
                  see_food: bool = True, see_bacteria: bool = False, see_predators: bool = False,
+                 see_obstacles: bool = False, see_all: bool = False, see_through_walls: bool = True,
                  channels: Sequence[str] | None = None,
                  eye_count: int = 1, eye_angle_degrees: float = 60.0,
                  eye_separation_degrees: float = 45.0):
@@ -566,6 +569,9 @@ class RetinaSensor:
         self.see_food = see_food
         self.see_bacteria = see_bacteria
         self.see_predators = see_predators
+        self.see_obstacles = bool(see_obstacles)
+        self.see_all = bool(see_all)
+        self.see_through_walls = bool(see_through_walls)
         self.channels = normalize_retina_channels(channels)
         self.eye_count = normalize_eye_count(eye_count)
         self.eye_angle_degrees = float(eye_angle_degrees)
@@ -626,6 +632,9 @@ class RetinaSensor:
         desired_see_food = self.see_food
         desired_see_bacteria = self.see_bacteria
         desired_see_predators = self.see_predators
+        desired_see_obstacles = bool(getattr(self, "see_obstacles", False))
+        desired_see_all = bool(getattr(self, "see_all", False))
+        desired_see_through_walls = bool(getattr(self, "see_through_walls", True))
         desired_channels = normalize_retina_channels(self.channels)
         desired_eye_count = normalize_eye_count(getattr(self, "eye_count", 1))
         desired_eye_angle = float(getattr(self, "eye_angle_degrees", 60.0))
@@ -634,6 +643,9 @@ class RetinaSensor:
             desired_radius != self.vision_radius or desired_skip != self.skip or
             desired_see_food != self.see_food or
             desired_see_bacteria != self.see_bacteria or desired_see_predators != self.see_predators or
+            desired_see_obstacles != bool(getattr(self, "see_obstacles", False)) or
+            desired_see_all != bool(getattr(self, "see_all", False)) or
+            desired_see_through_walls != bool(getattr(self, "see_through_walls", True)) or
             desired_channels != self.channels or desired_eye_count != normalize_eye_count(getattr(self, "eye_count", 1)) or
             desired_eye_angle != float(getattr(self, "eye_angle_degrees", 60.0)) or
             desired_eye_separation != float(getattr(self, "eye_separation_degrees", 45.0))):
@@ -644,6 +656,9 @@ class RetinaSensor:
             self.see_food = bool(desired_see_food)
             self.see_bacteria = bool(desired_see_bacteria)
             self.see_predators = bool(desired_see_predators)
+            self.see_obstacles = bool(desired_see_obstacles)
+            self.see_all = bool(desired_see_all)
+            self.see_through_walls = bool(desired_see_through_walls)
             self.channels = desired_channels
             self.eye_count = desired_eye_count
             self.eye_angle_degrees = desired_eye_angle
@@ -662,13 +677,16 @@ class RetinaSensor:
         # Calcula posição do "olho" (frente do agente)
         type_codes = []
         max_seen_radius = 0.0
-        if self.see_food:
+        see_all = bool(getattr(self, "see_all", False))
+        see_obstacles = bool(getattr(self, "see_obstacles", False)) or see_all
+        see_through_walls = bool(getattr(self, "see_through_walls", True))
+        if self.see_food or see_all:
             type_codes.append(0)
             max_seen_radius = max(max_seen_radius, float(params.get('food_max_r', 5.0)))
-        if self.see_bacteria:
+        if self.see_bacteria or see_all:
             type_codes.append(1)
             max_seen_radius = max(max_seen_radius, float(params.get('bacteria_body_size', 9.0)))
-        if self.see_predators:
+        if self.see_predators or see_all:
             type_codes.append(2)
             max_seen_radius = max(max_seen_radius, float(params.get('predator_body_size', 14.0)))
 
@@ -677,14 +695,26 @@ class RetinaSensor:
             candidates = scene.spatial_hash.query_ball_filtered(agent.x, agent.y, search_r, tuple(type_codes))
         else:
             candidates = []
-            if self.see_food:
+            if self.see_food or see_all:
                 candidates.extend(scene.entities.get('foods', []))
-            if self.see_bacteria:
+            if self.see_bacteria or see_all:
                 candidates.extend(scene.entities.get('bacteria', []))
-            if self.see_predators:
+            if self.see_predators or see_all:
                 candidates.extend(scene.entities.get('predators', []))
+
+        obstacle_candidates = []
+        obstacles = getattr(scene, "obstacles", None)
+        if (see_obstacles or not see_through_walls) and getattr(obstacles, "has_obstacles", False):
+            obstacle_radius = float(self.vision_radius) + float(getattr(agent, 'r', 0.0)) + max(1.0, float(params.get('food_max_r', 5.0)))
+            obstacle_candidates = [obstacles.stamps[i] for i in obstacles.query_indices(agent.x, agent.y, obstacle_radius)]
+            if see_obstacles:
+                if not isinstance(candidates, list):
+                    candidates = list(candidates)
+                candidates.extend(obstacle_candidates)
+                if 3 not in type_codes:
+                    type_codes.append(3)
         
-        if normalize_retina_vision_mode(params.get('retina_vision_mode', RETINA_VISION_MODE_SINGLE)) == RETINA_VISION_MODE_SECTOR:
+        if normalize_retina_vision_mode(params.get('retina_vision_mode', RETINA_VISION_MODE_SINGLE)) == RETINA_VISION_MODE_SECTOR and see_through_walls:
             inputs, distance_inputs = _sector_retina_from_candidates(
                 self,
                 agent,
@@ -712,6 +742,12 @@ class RetinaSensor:
             hit = _raycast_hit_from_candidates(
                 eye_x, eye_y, ray_dx, ray_dy, self.vision_radius, candidates, ignore=agent
             )
+            if not see_through_walls and obstacle_candidates:
+                wall_hit = _raycast_hit_from_candidates(
+                    eye_x, eye_y, ray_dx, ray_dy, self.vision_radius, obstacle_candidates, ignore=None
+                )
+                if wall_hit is not None and (hit is None or wall_hit[0] < hit[0]):
+                    hit = wall_hit if see_obstacles else None
             
             # Converte distância para ativação [0..1]
             if hit is None:
@@ -791,6 +827,13 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     sensors = [a.sensor for a in agents]
     _RS = RetinaSensor  # referenciar a classe local diretamente
     if not all(isinstance(s, _RS) for s in sensors):  # fallback se algum não for retina
+        return [a.sensor.sense(a, scene, params) for a in agents]
+    if any(
+        bool(getattr(s, "see_obstacles", False)) or
+        bool(getattr(s, "see_all", False)) or
+        not bool(getattr(s, "see_through_walls", True))
+        for s in sensors
+    ):
         return [a.sensor.sense(a, scene, params) for a in agents]
 
     # Atualiza parâmetros dinâmicos e determina quais precisam recalcular
