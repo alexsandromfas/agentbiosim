@@ -333,6 +333,7 @@ class Engine:
         if self.headless or self.renderer is None:
             return
         # Limpa tela usando cor configurável
+        setattr(self.renderer, 'interpolation_alpha', self._render_interpolation_alpha())
         self._draw_scene_background(surface)
         visible_bounds = self._visible_world_bounds(surface)
         
@@ -384,6 +385,16 @@ class Engine:
             float(self.camera.x) + width + margin,
             float(self.camera.y) + height + margin,
         )
+
+    def _render_interpolation_alpha(self) -> float:
+        if not bool(self.params.get('render_interpolation_enabled', False)):
+            return 1.0
+        if bool(self.params.get('paused', False)):
+            return 1.0
+        physics_dt = self._physics_dt()
+        if physics_dt <= 1e-12:
+            return 1.0
+        return max(0.0, min(1.0, float(self._sim_time_accumulator) / physics_dt))
 
     @staticmethod
     def _is_object_visible(obj, bounds) -> bool:
@@ -590,6 +601,36 @@ class Engine:
         self.set_selected_agents(agents)
         return agents
 
+    def reset_label_brains(self, label_id: int) -> int:
+        """Reinicializa pesos e biases dos agentes vivos de uma label."""
+        try:
+            from .brain import NeuralNet, clear_multi_brain_cache
+        except Exception:
+            return 0
+
+        def reset_locked() -> int:
+            if label_id not in self.agent_labels:
+                return 0
+            reset_count = 0
+            for agent in self.get_agents_by_label(label_id):
+                brain = getattr(agent, 'brain', None)
+                sizes = list(getattr(brain, 'sizes', []) or [])
+                if len(sizes) < 2:
+                    continue
+                agent.brain = NeuralNet(sizes, init_std=1.0)
+                agent.last_brain_output = []
+                agent.last_brain_activations = []
+                reset_count += 1
+            if reset_count:
+                clear_multi_brain_cache()
+            return reset_count
+
+        state_lock = getattr(self, 'state_lock', None)
+        if state_lock is None:
+            return reset_locked()
+        with state_lock:
+            return reset_locked()
+
     def _cleanup_agent_labels(self):
         live_ids = set()
         for agent in self.all_agents:
@@ -785,6 +826,15 @@ class Engine:
         if hasattr(obj, 'vx'):
             obj.vx = 0.0
             obj.vy = 0.0
+            if hasattr(obj, 'angular_velocity'):
+                obj.angular_velocity = 0.0
+        for prev_attr, value in (
+            ('prev_x', getattr(obj, 'x', world_x)),
+            ('prev_y', getattr(obj, 'y', world_y)),
+            ('prev_angle', getattr(obj, 'angle', 0.0)),
+        ):
+            if hasattr(obj, prev_attr):
+                setattr(obj, prev_attr, value)
         self._spatial_hash_dirty = True
         return True
 
@@ -924,10 +974,6 @@ class Engine:
                 )
             else:
                 nearby_foods = foods
-            push_x = 0.0
-            push_y = 0.0
-            max_overlap = 0.0
-            hit_count = 0
             for food in nearby_foods:
                 if str(getattr(food, 'kind', params.get('food_mode', 'instant'))) != 'chunk':
                     continue
@@ -944,28 +990,16 @@ class Engine:
                     dist = 1.0
                 nx, ny = dx / dist, dy / dist
                 overlap = r_sum - dist
-                push_x += nx * overlap
-                push_y += ny * overlap
-                max_overlap = max(max_overlap, overlap)
-                hit_count += 1
-            if hit_count:
-                mag = math.hypot(push_x, push_y)
-                if mag <= 1e-9:
-                    nx = math.cos(float(getattr(agent, 'angle', 0.0)))
-                    ny = math.sin(float(getattr(agent, 'angle', 0.0)))
-                    push = max_overlap
-                else:
-                    nx, ny = push_x / mag, push_y / mag
-                    push = min(mag, max_overlap * max(1.0, math.sqrt(hit_count)))
-                agent.x += nx * (push + 1e-3)
-                agent.y += ny * (push + 1e-3)
+                agent.x += nx * (overlap + 1e-3)
+                agent.y += ny * (overlap + 1e-3)
                 if hasattr(agent, 'vx'):
                     inward = agent.vx * nx + agent.vy * ny
                     if inward < 0.0:
                         agent.vx -= inward * nx
                         agent.vy -= inward * ny
                 agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, getattr(agent, 'r', 0.0))
-                resolved += hit_count
+                resolved += 1
+                break
         return resolved
     
     def _simulate_substep(self, dt: float):
@@ -976,6 +1010,7 @@ class Engine:
         if dragged_agent is not None:
             dragged_agent.vx = 0.0
             dragged_agent.vy = 0.0
+            dragged_agent.angular_velocity = 0.0
         with profile_section('food_control'):
             target_food = step_params.get('food_target', 300)
             new_foods = self.food_controller.update(
@@ -1445,6 +1480,7 @@ class Engine:
             # Ajustes adicionais
             agent.energy = _f('energy', 0.0)
             agent.age = _f('age', 0.0)
+            agent.angular_velocity = _f('angular_velocity', 0.0)
             agent.food_eaten_count = _i('food_eaten_count', 0)
             agent.food_energy_eaten_total = _f('food_energy_eaten_total', 0.0)
             agent.prey_eaten_count = _i('prey_eaten_count', 0)
@@ -1514,7 +1550,7 @@ class Engine:
 
         add('agent_name', name or getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'))
         add('type', 'predator' if getattr(agent, 'is_predator', False) else 'organism')
-        for attr in ['x', 'y', 'r', 'angle', 'vx', 'vy', 'energy', 'age']:
+        for attr in ['x', 'y', 'r', 'angle', 'vx', 'vy', 'angular_velocity', 'energy', 'age']:
             add(attr, getattr(agent, attr, 0.0))
         for attr in ['food_eaten_count', 'food_energy_eaten_total', 'prey_eaten_count', 'prey_energy_eaten_total']:
             add(attr, getattr(agent, attr, 0.0))
@@ -1856,11 +1892,14 @@ class Engine:
             'fallback_metrics': (not self.resources_available),
             'max_speed': self.params.get('bacteria_max_speed', 300.0),
             'time_scale': self.params.get('time_scale', 1.0),
+            'physics_target_hz': self.params.get('physics_steps_per_second', 30),
             'world_w': self.world.width,
             'world_h': self.world.height,
+            'world_shape': getattr(self.world, 'shape', 'rectangular'),
+            'world_radius': getattr(self.world, 'radius', 0.0),
             'selected_agent': self.selected_agent,
             'obstacle_count': len(self.obstacles),
-            'hide_overlay': True,
+            'hide_overlay': False,
             'show_selected_details': False
         }
 

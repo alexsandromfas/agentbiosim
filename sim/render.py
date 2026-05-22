@@ -27,6 +27,19 @@ def _draw_food_bite_holes(food: 'Food', surface: pygame.Surface, camera: 'Camera
             pygame.draw.circle(surface, (35, 25, 20), (int(sx), int(sy)), sr, width=1)
 
 
+def _interpolated_agent_pose(agent: 'Agent', alpha: float) -> tuple[float, float, float]:
+    """Retorna pose renderizada entre o substep anterior e o atual."""
+    if alpha >= 1.0:
+        return float(agent.x), float(agent.y), float(agent.angle)
+    prev_x = float(getattr(agent, 'prev_x', agent.x))
+    prev_y = float(getattr(agent, 'prev_y', agent.y))
+    prev_angle = float(getattr(agent, 'prev_angle', agent.angle))
+    x = prev_x + (float(agent.x) - prev_x) * alpha
+    y = prev_y + (float(agent.y) - prev_y) * alpha
+    delta_angle = (float(agent.angle) - prev_angle + math.pi) % (2.0 * math.pi) - math.pi
+    return x, y, prev_angle + delta_angle * alpha
+
+
 class RendererStrategy(ABC):
     """
     Interface para estratégias de renderização.
@@ -73,7 +86,10 @@ class SimpleRenderer(RendererStrategy):
                    show_head: bool = True, show_vision: bool = False, selected: bool = False):
         """Desenha agente como círculo simples."""
         # Converte posição para tela
-        screen_x, screen_y = camera.world_to_screen(agent.x, agent.y)
+        pose_x, pose_y, pose_angle = _interpolated_agent_pose(
+            agent, float(getattr(self, 'interpolation_alpha', 1.0))
+        )
+        screen_x, screen_y = camera.world_to_screen(pose_x, pose_y)
         screen_radius = max(1, int(agent.r * camera.zoom))
         
         # Cor do corpo
@@ -96,14 +112,14 @@ class SimpleRenderer(RendererStrategy):
                     eye_count = 1
             if eye_count == 2 and sensor is not None and hasattr(sensor, '_eye_specs'):
                 for pos_offset, _gaze_offset in sensor._eye_specs():
-                    eye_angle = agent.angle + pos_offset
-                    head_world_x = agent.x + math.cos(eye_angle) * agent.r
-                    head_world_y = agent.y + math.sin(eye_angle) * agent.r
+                    eye_angle = pose_angle + pos_offset
+                    head_world_x = pose_x + math.cos(eye_angle) * agent.r
+                    head_world_y = pose_y + math.sin(eye_angle) * agent.r
                     head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
                     pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
             else:
-                head_world_x = agent.x + math.cos(agent.angle) * agent.r
-                head_world_y = agent.y + math.sin(agent.angle) * agent.r
+                head_world_x = pose_x + math.cos(pose_angle) * agent.r
+                head_world_y = pose_y + math.sin(pose_angle) * agent.r
                 head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
                 pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
         
@@ -139,6 +155,8 @@ class SimpleRenderer(RendererStrategy):
         """Desenha informações de overlay."""
         if info.get('hide_overlay', False):
             return
+        self._draw_sim_hud(surface, info)
+        return
         bacteria_count = info.get('bacteria_count', 0)
         predator_count = info.get('predator_count', 0)
         organism_count = info.get('organism_count', bacteria_count + predator_count)
@@ -188,6 +206,45 @@ class SimpleRenderer(RendererStrategy):
         if selected_agent and info.get('show_selected_details', True):
             self._draw_agent_details(selected_agent, surface)
     
+    def _draw_sim_hud(self, surface: pygame.Surface, info: dict):
+        organisms = int(info.get('organism_count', info.get('bacteria_count', 0) + info.get('predator_count', 0)))
+        physics_now = float(info.get('physics_steps_per_wall_second', 0.0) or 0.0)
+        physics_target = float(info.get('physics_target_hz', 0.0) or 0.0)
+        backlog = float(info.get('simulation_backlog', 0.0) or 0.0)
+        dropped = float(info.get('dropped_simulation_time', 0.0) or 0.0)
+        lines = [
+            f"Organismos  {organisms}",
+            f"Comida      {int(info.get('food_count', 0))}",
+            f"Alvo comida {int(info.get('food_target', 0))}",
+            f"Obstaculos  {int(info.get('obstacle_count', 0))}",
+            f"FPS         {int(info.get('fps', 0))}",
+            f"Tempo       {float(info.get('time_scale', 1.0)):.2f}x",
+            f"Efetivo     {float(info.get('effective_time_scale', 0.0)):.2f}x",
+            f"Fisica      {physics_now:.0f}/{physics_target:.0f} Hz",
+            f"Atraso      {backlog:.2f}s" if dropped <= 0 else f"Atraso      {backlog:.2f}s drop {dropped:.1f}s",
+        ]
+        if str(info.get('world_shape', 'rectangular')) == 'circular':
+            lines.append(f"Mundo       circular r {float(info.get('world_radius', 0.0)):.0f}")
+        else:
+            lines.append(f"Mundo       {float(info.get('world_w', 0.0)):.0f}x{float(info.get('world_h', 0.0)):.0f}")
+        if info.get('resources_available', True):
+            proc_cpu = info.get('cpu_proc_percent')
+            ram = info.get('mem_used_mb')
+            if proc_cpu is not None:
+                lines.append(f"CPU proc    {float(proc_cpu):.0f}%")
+            if ram is not None:
+                lines.append(f"RAM         {float(ram):.0f} MB")
+        else:
+            lines.append("CPU/RAM     N/A")
+        rendered = [self.small_font.render(line, True, (222, 232, 242)) for line in lines]
+        pad, top, line_gap = 10, 9, 16
+        width = max((item.get_width() for item in rendered), default=0)
+        x = max(pad, surface.get_width() - width - pad)
+        for row, item in enumerate(rendered):
+            y = top + row * line_gap
+            surface.blit(self.small_font.render(lines[row], True, (6, 10, 14)), (x + 1, y + 1))
+            surface.blit(item, (x, y))
+
     def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera'):
         """Desenha raios de visão com intensidade proporcional à ativação."""
         if not hasattr(agent, 'sensor'):
@@ -279,7 +336,10 @@ class EllipseRenderer(RendererStrategy):
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
                    show_head: bool = True, show_vision: bool = False, selected: bool = False):
         """Desenha agente como elipse rotacionada."""
-        screen_x, screen_y = camera.world_to_screen(agent.x, agent.y)
+        pose_x, pose_y, pose_angle = _interpolated_agent_pose(
+            agent, float(getattr(self, 'interpolation_alpha', 1.0))
+        )
+        screen_x, screen_y = camera.world_to_screen(pose_x, pose_y)
         
         # Dimensões do corpo
         body_length = max(1, int(agent.r * 2 * camera.zoom))  # Comprimento
@@ -293,6 +353,7 @@ class EllipseRenderer(RendererStrategy):
         
         # Cria superfície para elipse rotacionada
         if getattr(agent, 'body_shape', getattr(getattr(agent, 'locomotion', None), 'body_shape', 'ellipse')) == 'circle':
+            self._simple_renderer.interpolation_alpha = float(getattr(self, 'interpolation_alpha', 1.0))
             self._simple_renderer.draw_agent(agent, surface, camera, show_head=show_head, show_vision=show_vision, selected=selected)
             return
 
@@ -300,7 +361,7 @@ class EllipseRenderer(RendererStrategy):
         pygame.draw.ellipse(ellipse_surf, color, pygame.Rect(0, 0, body_length, body_width))
         
         # Rotaciona
-        angle_degrees = -math.degrees(agent.angle)  # Pygame usa graus, negativo para correção
+        angle_degrees = -math.degrees(pose_angle)
         rotated_surf = pygame.transform.rotate(ellipse_surf, angle_degrees)
         
         # Desenha centralizado
@@ -311,17 +372,17 @@ class EllipseRenderer(RendererStrategy):
         # Desenha cabeça
         if show_head:
             head_offset = agent.r
-            head_world_x = agent.x + math.cos(agent.angle) * head_offset
-            head_world_y = agent.y + math.sin(agent.angle) * head_offset
+            head_world_x = pose_x + math.cos(pose_angle) * head_offset
+            head_world_y = pose_y + math.sin(pose_angle) * head_offset
             head_screen_x, head_screen_y = camera.world_to_screen(head_world_x, head_world_y)
             head_radius = max(1, int(agent.r * 0.25 * camera.zoom))
             sensor = getattr(agent, 'sensor', None)
             eye_count = int(getattr(sensor, 'eye_count', 1) or 1) if sensor is not None else 1
             if eye_count >= 2 and sensor is not None and hasattr(sensor, '_eye_specs'):
                 for pos_offset, _gaze_offset in sensor._eye_specs():
-                    eye_angle = agent.angle + pos_offset
-                    ex = agent.x + math.cos(eye_angle) * agent.r
-                    ey = agent.y + math.sin(eye_angle) * agent.r
+                    eye_angle = pose_angle + pos_offset
+                    ex = pose_x + math.cos(eye_angle) * agent.r
+                    ey = pose_y + math.sin(eye_angle) * agent.r
                     sx, sy = camera.world_to_screen(ex, ey)
                     pygame.draw.circle(surface, (0, 0, 0), (int(sx), int(sy)), head_radius)
             else:

@@ -42,6 +42,7 @@ from .controllers import Params
 from .diagnostics import log_event, log_exception
 from .engine import Engine
 from .game import PygameView
+from .neural_viewer import AgentNeuralNetworkView
 from .profiler import profiler
 
 
@@ -336,7 +337,7 @@ class SimulationUI(QMainWindow):
         root = QVBoxLayout(central)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(6)
-        root.addWidget(self._build_status_bar(), stretch=0)
+        root.addWidget(self._build_top_tools_strip(), stretch=0)
 
         lay = QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
@@ -368,9 +369,6 @@ class SimulationUI(QMainWindow):
         self.metrics_panel = self._build_metrics_panel()
         self.metrics_panel.setVisible(bool(self.params.get('show_metrics_chart', False)))
         sim_lay.addWidget(self.metrics_panel, stretch=0)
-        self.runtime_toolbar = self._build_runtime_toolbar()
-        sim_lay.addWidget(self.runtime_toolbar, stretch=0)
-        sim_lay.addWidget(self._build_canvas_tools(), stretch=0)
         lay.addWidget(self.sim_container, stretch=1)
         self.agent_details_panel = self._build_selected_agent_panel()
         lay.addWidget(self.agent_details_panel, stretch=0)
@@ -442,6 +440,25 @@ class SimulationUI(QMainWindow):
         self._metrics_chart_timer.start(max(1, chart_sample) * 1000)
         return panel
 
+    def _build_top_tools_strip(self) -> QWidget:
+        strip = QWidget()
+        strip.setObjectName("top_tools_strip")
+        strip.setStyleSheet(
+            "#top_tools_strip { background:#15181d; border:1px solid #303741; }"
+        )
+        layout = QHBoxLayout(strip)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.runtime_toolbar = self._build_runtime_toolbar()
+        self.canvas_tools = self._build_canvas_tools()
+        layout.addWidget(self.runtime_toolbar, stretch=0)
+        layout.addWidget(self.canvas_tools, stretch=1)
+
+        self._runtime_sync_timer = QTimer(self)
+        self._runtime_sync_timer.timeout.connect(self._sync_time_toolbar_from_params)
+        self._runtime_sync_timer.start(500)
+        return strip
+
     def _build_runtime_toolbar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("runtime_toolbar")
@@ -489,7 +506,6 @@ class SimulationUI(QMainWindow):
         self.widgets['time_scale'] = spin
         self._time_scale_spin = spin
         layout.addWidget(spin)
-        layout.addStretch(1)
         return bar
 
     def _build_status_bar(self) -> QWidget:
@@ -741,60 +757,97 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def _build_selected_agent_panel(self) -> QWidget:
+        shell = QWidget()
+        shell.setObjectName("agent_details_shell")
+        shell_layout = QHBoxLayout(shell)
+        shell_layout.setContentsMargins(0, 0, 0, 0)
+        shell_layout.setSpacing(0)
+
+        self._agent_panel_collapsed = False
+        self._agent_panel_toggle = QPushButton(">")
+        self._agent_panel_toggle.setFixedWidth(18)
+        self._agent_panel_toggle.setToolTip("Recolher ou abrir o painel do agente.")
+        self._agent_panel_toggle.setStyleSheet(
+            "QPushButton { background:#20262e; color:#dce7f3; border:1px solid #303741; "
+            "border-right:0; border-radius:7px; padding:0; } "
+            "QPushButton:hover { background:#2d3946; }"
+        )
+        self._agent_panel_toggle.clicked.connect(self._toggle_selected_agent_panel)
+        shell_layout.addWidget(self._agent_panel_toggle, stretch=0)
+
         panel = QWidget()
         panel.setObjectName("agent_details_panel")
-        panel.setFixedWidth(340)
         panel.setStyleSheet(
             "#agent_details_panel { background:#171a1f; border-left:1px solid #303741; } "
-            "QLabel { color:#dce7f3; } "
-            "QTextEdit { background:#101318; color:#dce7f3; border:1px solid #303741; }"
+            "#agent_details_panel QLabel { color:#dce7f3; } "
+            "#agent_details_panel QTabWidget::pane { border:1px solid #303741; background:#14181e; } "
+            "#agent_details_panel QTabBar::tab { background:#20262e; color:#cbd8e6; padding:7px 12px; } "
+            "#agent_details_panel QTabBar::tab:selected { background:#315b80; color:#f4f8ff; }"
         )
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        self._agent_details_content = panel
+        shell_layout.addWidget(panel, stretch=0)
 
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(8, 8, 8, 8)
+        panel_layout.setSpacing(7)
         title = QLabel("Agente selecionado")
         title.setStyleSheet("font-weight:700; font-size:14px; color:#f0f5ff;")
-        layout.addWidget(title)
+        panel_layout.addWidget(title)
+
+        self._agent_detail_tabs = QTabWidget()
+        self._agent_detail_tabs.currentChanged.connect(self._on_selected_agent_tab_changed)
+        panel_layout.addWidget(self._agent_detail_tabs, stretch=1)
+
+        genome_scroll = QScrollArea()
+        genome_scroll.setWidgetResizable(True)
+        genome_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        genome_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        genome_host = QWidget()
+        genome_layout = QVBoxLayout(genome_host)
+        genome_layout.setContentsMargins(7, 7, 7, 7)
+        genome_layout.setSpacing(7)
+        genome_scroll.setWidget(genome_host)
+        self._agent_detail_tabs.addTab(genome_scroll, "Genoma")
 
         self._agent_portrait = QLabel()
-        self._agent_portrait.setFixedHeight(150)
+        self._agent_portrait.setFixedHeight(126)
         self._agent_portrait.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._agent_portrait.setStyleSheet("background:#0f1217; border:1px solid #303741;")
-        layout.addWidget(self._agent_portrait)
-
+        self._agent_portrait.setStyleSheet("background:#0f1217; border:1px solid #303741; border-radius:6px;")
+        genome_layout.addWidget(self._agent_portrait)
         self._agent_detail_labels: Dict[str, QLabel] = {}
 
-        def add_detail_group(title: str, rows: list[tuple[str, str]]):
-            box = QGroupBox(title)
+        def add_detail_group(group_title: str, rows: list[tuple[str, str]]):
+            box = QGroupBox(group_title)
             box.setStyleSheet(self._card_style())
             grid = QGridLayout(box)
             grid.setContentsMargins(8, 10, 8, 8)
-            grid.setHorizontalSpacing(8)
-            grid.setVerticalSpacing(4)
+            grid.setHorizontalSpacing(7)
+            grid.setVerticalSpacing(3)
             for row_idx, (key, caption) in enumerate(rows):
                 left = QLabel(f"{caption}:")
                 left.setStyleSheet("color:#9fb1c4;")
                 right = QLabel("-")
                 right.setWordWrap(True)
-                grid.addWidget(left, row_idx, 0)
+                right.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+                grid.addWidget(left, row_idx, 0, alignment=Qt.AlignmentFlag.AlignTop)
                 grid.addWidget(right, row_idx, 1)
                 self._agent_detail_labels[key] = right
-            layout.addWidget(box)
+            grid.setColumnStretch(1, 1)
+            genome_layout.addWidget(box)
 
-        add_detail_group("Corpo & Movimento", [
+        add_detail_group("Identidade", [
             ('species', 'Tipo'),
             ('selected_count', 'Selecionados'),
+            ('age', 'Idade'),
+            ('position', 'Posicao'),
+        ])
+        add_detail_group("Corpo & Movimento", [
             ('body', 'Corpo'),
             ('speed', 'Velocidade'),
-            ('position', 'Posicao'),
-            ('age', 'Idade'),
             ('locomotion', 'Motor'),
         ])
         add_detail_group("Visao", [
             ('sensor', 'Retina'),
-            ('brain', 'Rede neural'),
-            ('output', 'Saida neural'),
         ])
         add_detail_group("Energia & Dieta", [
             ('energy', 'Energia'),
@@ -803,18 +856,57 @@ class SimulationUI(QMainWindow):
             ('smart_local', 'Fator intel. local'),
             ('intake', 'Alimentacao'),
         ])
+        genome_layout.addStretch(1)
 
-        layout.addWidget(QLabel("Ativacoes por camada"))
-        self._agent_brain_text = QTextEdit()
-        self._agent_brain_text.setReadOnly(True)
-        self._agent_brain_text.setMinimumHeight(150)
-        layout.addWidget(self._agent_brain_text, stretch=1)
+        neural_page = QWidget()
+        neural_layout = QVBoxLayout(neural_page)
+        neural_layout.setContentsMargins(0, 0, 0, 0)
+        self._agent_neural_view = AgentNeuralNetworkView(self.params.get('neural_view_dense_layout', 'fixed'))
+        neural_layout.addWidget(self._agent_neural_view, stretch=1)
+        self._agent_detail_tabs.addTab(neural_page, "Rede Neural")
 
-        panel.hide()
+        shell.hide()
+        self._refresh_selected_agent_panel_width()
         self._agent_panel_timer = QTimer(self)
         self._agent_panel_timer.timeout.connect(self._update_selected_agent_panel)
         self._agent_panel_timer.start(350)
-        return panel
+        return shell
+
+    def _toggle_selected_agent_panel(self):
+        self._agent_panel_collapsed = not bool(getattr(self, '_agent_panel_collapsed', False))
+        self._refresh_selected_agent_panel_width()
+
+    def _on_selected_agent_tab_changed(self, _index: int):
+        self._refresh_selected_agent_panel_width()
+        if getattr(self, '_agent_detail_tabs', None) is not None and self._agent_detail_tabs.currentIndex() == 1:
+            self.params.set('disable_brain_activations', False, validate=False)
+            viewer = getattr(self, '_agent_neural_view', None)
+            if viewer is not None:
+                viewer.set_dense_layout(self.params.get('neural_view_dense_layout', 'fixed'))
+                viewer.set_agent(getattr(self.engine, 'selected_agent', None))
+
+    def _refresh_selected_agent_panel_width(self):
+        content = getattr(self, '_agent_details_content', None)
+        toggle = getattr(self, '_agent_panel_toggle', None)
+        if content is None or toggle is None:
+            return
+        shell = toggle.parentWidget()
+        if bool(getattr(self, '_agent_panel_collapsed', False)):
+            content.hide()
+            toggle.setText("<")
+            if shell is not None:
+                shell.setFixedWidth(toggle.width())
+            return
+        content.show()
+        toggle.setText(">")
+        neural_tab = getattr(self, '_agent_detail_tabs', None) is not None and self._agent_detail_tabs.currentIndex() == 1
+        if neural_tab:
+            content_width = max(620, min(980, int(max(1280, self.width()) * 0.48)))
+        else:
+            content_width = 326
+        content.setFixedWidth(content_width)
+        if shell is not None:
+            shell.setFixedWidth(toggle.width() + content_width)
 
     @staticmethod
     def _short_float(value: Any, digits: int = 2) -> str:
@@ -1032,8 +1124,12 @@ class SimulationUI(QMainWindow):
         visible = bool(agent is not None and self.params.get('show_selected_details', True))
         panel.setVisible(visible)
         if not visible:
+            viewer = getattr(self, '_agent_neural_view', None)
+            if viewer is not None:
+                viewer.set_agent(None)
             return
 
+        self._refresh_selected_agent_panel_width()
         self._draw_selected_agent_portrait(agent)
         selected_count = len(getattr(self.engine, 'selected_agents', set()) or [])
         speed = math.hypot(float(getattr(agent, 'vx', 0.0)), float(getattr(agent, 'vy', 0.0)))
@@ -1053,7 +1149,6 @@ class SimulationUI(QMainWindow):
             f"r {self._short_float(getattr(agent, 'r', 0.0), 1)}, "
             f"{getattr(agent, 'body_shape', getattr(locomotion, 'body_shape', 'ellipse'))}"
         )
-        labels['brain'].setText(" -> ".join(str(v) for v in getattr(brain, 'sizes', []) or []))
         if sensor is not None:
             try:
                 from .sensors import retina_channels_description, retina_input_mode_from_channels, retina_input_mode_label
@@ -1127,27 +1222,12 @@ class SimulationUI(QMainWindow):
             f"total {self._short_float(smart.get('intake_energy', 0.0), 1)}, "
             f"eventos {int(smart.get('intake_events', 0.0) or 0)}"
         )
-        output = self._flatten_numeric_values(getattr(agent, 'last_brain_output', []))
-        labels['output'].setText(", ".join(self._short_float(v, 3) for v in output[:4]) if output else "-")
-
-        activations = getattr(agent, 'last_brain_activations', []) or []
-        lines = []
-        for idx, layer in enumerate(activations):
-            vals = self._flatten_numeric_values(layer)
-            if not vals:
-                continue
-            sample = ", ".join(self._short_float(v, 3) for v in vals[:10])
-            mean = sum(vals) / len(vals)
-            lines.append(
-                f"Camada {idx}: n={len(vals)} min={min(vals):.3f} media={mean:.3f} max={max(vals):.3f}\n"
-                f"  {sample}"
-            )
-        if not lines:
-            if self.params.get('disable_brain_activations', False):
-                lines = ["Ativacoes neurais desativadas no menu View."]
-            else:
-                lines = ["Aguardando o proximo frame do agente selecionado."]
-        self._agent_brain_text.setPlainText("\n\n".join(lines))
+        tabs = getattr(self, '_agent_detail_tabs', None)
+        viewer = getattr(self, '_agent_neural_view', None)
+        if tabs is not None and viewer is not None and tabs.currentIndex() == 1 and not bool(getattr(self, '_agent_panel_collapsed', False)):
+            self.params.set('disable_brain_activations', False, validate=False)
+            viewer.set_dense_layout(self.params.get('neural_view_dense_layout', 'fixed'))
+            viewer.set_agent(agent)
 
     def _build_canvas_tools(self):
         bar = QWidget()
@@ -1160,7 +1240,6 @@ class SimulationUI(QMainWindow):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(8, 5, 8, 5)
         layout.setSpacing(6)
-        layout.addStretch(1)
 
         self._canvas_tool_buttons = {}
 
@@ -1216,6 +1295,7 @@ class SimulationUI(QMainWindow):
         erase.stateChanged.connect(lambda _state: self._update_brush_erase())
         self.widgets['obstacle_brush_erase'] = erase
         layout.addWidget(erase)
+        layout.addStretch(1)
 
         self._refresh_brush_color_swatch()
         self._set_canvas_tool('food')
@@ -1330,6 +1410,8 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(view_menu, "Mostrar visao dos organismos", 'bacteria_show_vision')
         self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
         self._add_bool_menu_action(view_menu, "Ver spatial hash", 'show_spatial_hash')
+        neural_layout_menu = view_menu.addMenu("Layout da rede neural")
+        self._build_neural_layout_menu(neural_layout_menu)
 
         pref_menu = bar.addMenu("Preferencias")
         self._add_bool_menu_action(pref_menu, "Renderizar", 'render_enabled')
@@ -1379,6 +1461,34 @@ class SimulationUI(QMainWindow):
             group.addAction(action)
             menu.addAction(action)
             self._chart_sample_actions[int(seconds)] = action
+
+    def _build_neural_layout_menu(self, menu):
+        group = QActionGroup(self)
+        group.setExclusive(True)
+        current = str(self.params.get('neural_view_dense_layout', 'fixed'))
+        self._neural_layout_actions = {}
+        for key, label in (('fixed', 'Espacamento fixo'), ('spread', 'Preencher painel')):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(key == current)
+            action.triggered.connect(lambda _checked=False, mode=key: self._set_neural_layout_mode(mode))
+            group.addAction(action)
+            menu.addAction(action)
+            self._neural_layout_actions[key] = action
+        self._neural_layout_group = group
+
+    def _set_neural_layout_mode(self, mode: str):
+        mode = 'spread' if str(mode) == 'spread' else 'fixed'
+        self.params.set('neural_view_dense_layout', mode, validate=False)
+        for key, action in getattr(self, '_neural_layout_actions', {}).items():
+            action.blockSignals(True)
+            action.setChecked(key == mode)
+            action.blockSignals(False)
+        viewer = getattr(self, '_agent_neural_view', None)
+        if viewer is not None:
+            viewer.set_dense_layout(mode)
+            viewer.set_agent(getattr(self.engine, 'selected_agent', None))
+        self._schedule_ui_params_save()
 
     def _build_render_resolution_menu(self, menu):
         group = QActionGroup(self)
@@ -1581,8 +1691,23 @@ class SimulationUI(QMainWindow):
         w = _spin_int(-1, 2147483647); w.setValue(_param_int(self.params, 'random_seed', -1)); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
         mode = QComboBox(); mode.addItems(['single', 'fullbody', 'sector']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
         cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
-        w = _spin_double(0.1, 10.0, 0.1, 2); w.setValue(self.params.get('agents_inertia', 1.0)); row = self._add_grid_param(grid, row, "Inercia global:", 'agents_inertia', w)
         layout.addWidget(g_perf)
+
+        g_motion = QGroupBox("Fisica de movimento")
+        g_motion.setStyleSheet(card_style)
+        grid = QGridLayout(g_motion)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('smooth_locomotion_enabled', False))); row = self._add_grid_param(grid, row, "Locomocao suave:", 'smooth_locomotion_enabled', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('smooth_linear_inertia_enabled', True))); row = self._add_grid_param(grid, row, "Inercia linear:", 'smooth_linear_inertia_enabled', cb)
+        w = _spin_double(0.0, 50000.0, 25.0, 1); w.setValue(self.params.get('smooth_max_linear_accel', 900.0)); row = self._add_grid_param(grid, row, "Aceleracao linear max:", 'smooth_max_linear_accel', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('smooth_linear_drag_enabled', True))); row = self._add_grid_param(grid, row, "Arrasto linear:", 'smooth_linear_drag_enabled', cb)
+        w = _spin_double(0.0, 50.0, 0.05, 3); w.setValue(self.params.get('smooth_linear_drag', 0.75)); row = self._add_grid_param(grid, row, "Fator arrasto linear:", 'smooth_linear_drag', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('smooth_angular_inertia_enabled', True))); row = self._add_grid_param(grid, row, "Inercia angular:", 'smooth_angular_inertia_enabled', cb)
+        w = _spin_double(0.0, 500.0, 0.25, 3); w.setValue(self.params.get('smooth_max_angular_accel', math.pi * 4.0)); row = self._add_grid_param(grid, row, "Acel. angular max (rad/s2):", 'smooth_max_angular_accel', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('smooth_angular_drag_enabled', True))); row = self._add_grid_param(grid, row, "Arrasto angular:", 'smooth_angular_drag_enabled', cb)
+        w = _spin_double(0.0, 50.0, 0.05, 3); w.setValue(self.params.get('smooth_angular_drag', 1.5)); row = self._add_grid_param(grid, row, "Fator arrasto angular:", 'smooth_angular_drag', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('render_interpolation_enabled', False))); row = self._add_grid_param(grid, row, "Interpolar render:", 'render_interpolation_enabled', cb)
+        layout.addWidget(g_motion)
 
         g_actions = QGroupBox("Acoes")
         g_actions.setStyleSheet(card_style)
@@ -1781,6 +1906,16 @@ class SimulationUI(QMainWindow):
             'use_numba_locomotion_energy': 'Experimental: aplica Numba tambem na locomocao e energia. Desligado por padrao porque pode ser mais lento em alguns perfis.',
             'reuse_spatial_grid': 'Reutiliza a estrutura da grade espacial entre frames quando possivel, reduzindo alocacoes.',
             'agents_inertia': 'Controla suavizacao da velocidade. 1 aplica o comando neural imediatamente; valores maiores deixam movimento mais inercial.',
+            'smooth_locomotion_enabled': 'Liga o atuador fisico suave. Desligado preserva a locomocao direta usada em experimentos antigos.',
+            'smooth_linear_inertia_enabled': 'Limita a mudanca de velocidade linear para o organismo acelerar e frear gradualmente.',
+            'smooth_max_linear_accel': 'Aceleracao linear maxima usada quando a inercia linear esta ativa.',
+            'smooth_linear_drag_enabled': 'Aplica arrasto viscoso na velocidade linear do organismo.',
+            'smooth_linear_drag': 'Intensidade do arrasto linear por segundo. Valores maiores freiam mais rapido.',
+            'smooth_angular_inertia_enabled': 'Usa velocidade angular para a rotacao entrar e sair gradualmente.',
+            'smooth_max_angular_accel': 'Aceleracao angular maxima em radianos por segundo ao quadrado.',
+            'smooth_angular_drag_enabled': 'Aplica arrasto viscoso na velocidade de rotacao.',
+            'smooth_angular_drag': 'Intensidade do arrasto angular por segundo. Valores maiores reduzem giros persistentes.',
+            'render_interpolation_enabled': 'Interpola a pose visual entre substeps fisicos. Melhora fluidez visual e nao muda a dinamica simulada.',
             'allow_reverse_locomotion': 'Permite que a saida neural gere movimento para tras. Desligado preserva a locomocao historica apenas para frente.',
             'reproduction_min_age': 'Idade minima para um agente poder reproduzir. Ajuda a evitar reproducao imediata de recem-nascidos.',
             'reproduction_cooldown': 'Tempo minimo entre duas reproducoes do mesmo agente.',
@@ -2840,6 +2975,9 @@ class SimulationUI(QMainWindow):
         remove_btn = QPushButton("Remover selecionados")
         remove_btn.clicked.connect(lambda _checked=False, lid=label_id: self._remove_selection_from_label(lid))
         actions.addWidget(remove_btn, 1, 1)
+        reset_brain_btn = QPushButton("Resetar rede neural")
+        reset_brain_btn.clicked.connect(lambda _checked=False, lid=label_id: self._reset_label_brains(lid))
+        actions.addWidget(reset_brain_btn, 2, 0, 1, 2)
         layout.addLayout(actions)
         return frame
 
@@ -2940,6 +3078,24 @@ class SimulationUI(QMainWindow):
         if agents:
             self.engine.remove_label_from_agents(label_id, agents)
         self._refresh_labels_list()
+
+    def _reset_label_brains(self, label_id: int):
+        agents = self.engine.get_agents_by_label(label_id)
+        if not agents:
+            QMessageBox.information(self, "Resetar rede neural", "Essa label nao tem organismos vivos.")
+            return
+        meta = self.engine.agent_labels.get(label_id, {})
+        name = str(meta.get('name', f'Label {label_id}'))
+        answer = QMessageBox.question(
+            self,
+            "Resetar rede neural",
+            f"Reinicializar a rede neural dos {len(agents)} organismos da label '{name}'?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        reset_count = self.engine.reset_label_brains(label_id)
+        self._refresh_labels_list_light()
+        QMessageBox.information(self, "Resetar rede neural", f"{reset_count} redes reinicializadas.")
 
     def _delete_label(self, label_id: int):
         self.engine.delete_agent_label(label_id)
@@ -3621,7 +3777,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3739,7 +3895,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -4488,7 +4644,7 @@ class SimulationUI(QMainWindow):
         QMessageBox.information(
             self,
             "Ajuda",
-            "Mouse: botao direito move a camera. Na barra inferior use Play/Pause/Stop, selecao unitaria/quadrada/lasso, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
+            "Mouse: botao direito move a camera. Na barra superior use Play/Pause/Stop, selecao unitaria/quadrada/lasso, F para comida, A para agente importado, pincel para obstaculos, M para mover e D para remover.\n\n"
             "Menus superiores: Arquivo salva/abre projetos .biosim; View controla visualizacao; Preferencias abre opcoes de simulacao, autosave e aparencia; Agente exporta, carrega e cria linhagens."
         )
 
@@ -4547,7 +4703,7 @@ class SimulationUI(QMainWindow):
                 }
                 for param_name, default in bool_params.items():
                     rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
-                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision', 'neural_view_dense_layout']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, True if menu_param == 'render_enabled' else False)}
                 rows_by_name['render_resolution_scale'] = {
                     'name': 'render_resolution_scale',
@@ -4569,6 +4725,16 @@ class SimulationUI(QMainWindow):
                     'retina_vision_mode': 'single',
                     'reuse_spatial_grid': True,
                     'agents_inertia': 1.0,
+                    'smooth_locomotion_enabled': False,
+                    'smooth_linear_inertia_enabled': True,
+                    'smooth_max_linear_accel': 900.0,
+                    'smooth_linear_drag_enabled': True,
+                    'smooth_linear_drag': 0.75,
+                    'smooth_angular_inertia_enabled': True,
+                    'smooth_max_angular_accel': math.pi * 4.0,
+                    'smooth_angular_drag_enabled': True,
+                    'smooth_angular_drag': 1.5,
+                    'render_interpolation_enabled': False,
                 }.items():
                     rows_by_name[param_name] = {
                         'name': param_name,
@@ -4816,7 +4982,7 @@ class SimulationUI(QMainWindow):
         def add(k,v): rows.append({'key':k,'value':v})
         add('agent_name', getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'))
         add('type', 'predator' if getattr(agent,'is_predator', False) else 'organism')
-        for attr in ['x','y','r','angle','vx','vy','energy','age']:
+        for attr in ['x','y','r','angle','vx','vy','angular_velocity','energy','age']:
             add(attr, getattr(agent, attr, 0.0))
         for attr in ['food_eaten_count','food_energy_eaten_total','prey_eaten_count','prey_energy_eaten_total']:
             add(attr, getattr(agent, attr, 0.0))
@@ -5192,6 +5358,7 @@ class SimulationUI(QMainWindow):
                     'type': 'predator' if getattr(agent,'is_predator', False) else 'organism',
                     'agent_name': getattr(agent, 'agent_name', None) or self.params.get('agent_template_name', 'organismo_1'),
                     'x': agent.x,'y': agent.y,'r': agent.r,'angle': agent.angle,'vx': agent.vx,'vy': agent.vy,
+                    'angular_velocity': getattr(agent, 'angular_velocity', 0.0),
                     'energy': getattr(agent,'energy',0.0),'age': getattr(agent,'age',0.0),
                     'last_reproduction_age': getattr(agent, 'last_reproduction_age', None),
                     'food_eaten_count': getattr(agent, 'food_eaten_count', 0),
@@ -5488,7 +5655,8 @@ class SimulationUI(QMainWindow):
                 )
                 cls = Predator if ad.get('type')=='predator' else Bacteria
                 agent = cls(ad.get('x',0.0), ad.get('y',0.0), ad.get('r',9.0), brain, sensor, locomotion, energy_model, ad.get('angle',0.0))
-                agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
+                agent.vx = ad.get('vx',0.0); agent.vy = ad.get('vy',0.0); agent.angular_velocity = ad.get('angular_velocity',0.0); agent.energy = ad.get('energy',0.0); agent.age = ad.get('age',0.0)
+                agent.prev_x = agent.x; agent.prev_y = agent.y; agent.prev_angle = agent.angle
                 agent.last_reproduction_age = ad.get('last_reproduction_age', getattr(agent, 'last_reproduction_age', None))
                 agent.food_eaten_count = int(ad.get('food_eaten_count', 0) or 0)
                 agent.food_energy_eaten_total = float(ad.get('food_energy_eaten_total', 0.0) or 0.0)

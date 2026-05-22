@@ -208,6 +208,18 @@ class Params:
             
             # Física geral
             'agents_inertia': 1.0,  # Inércia global (antes derivada de massa individual)
+            # Mantem a locomocao historica por padrao. O modo suave e opt-in
+            # porque altera a dinamica evolutiva de experimentos existentes.
+            'smooth_locomotion_enabled': False,
+            'smooth_linear_inertia_enabled': True,
+            'smooth_max_linear_accel': 900.0,
+            'smooth_linear_drag_enabled': True,
+            'smooth_linear_drag': 0.75,
+            'smooth_angular_inertia_enabled': True,
+            'smooth_max_angular_accel': math.pi * 4.0,
+            'smooth_angular_drag_enabled': True,
+            'smooth_angular_drag': 1.5,
+            'render_interpolation_enabled': False,
             'allow_reverse_locomotion': False,
             'reproduction_min_age': 0.0,
             'reproduction_cooldown': 0.0,
@@ -215,6 +227,7 @@ class Params:
             # UI/Debug
             'show_selected_details': True,
             'show_metrics_chart': False,
+            'neural_view_dense_layout': 'fixed',
             'metrics_chart_sample_seconds': 5,
             'debug_tracebacks': False,
             'diagnostic_heartbeat_minutes': 1.0,
@@ -304,6 +317,14 @@ class Params:
         elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame']:
             return max(1, int(float(value)))
         elif key == 'max_physics_backlog_seconds':
+            return max(0.0, float(value))
+        elif key in {
+            'agents_inertia',
+            'smooth_max_linear_accel',
+            'smooth_linear_drag',
+            'smooth_max_angular_accel',
+            'smooth_angular_drag',
+        }:
             return max(0.0, float(value))
         elif key == 'render_resolution_scale':
             return max(1.0, min(3.0, float(value)))

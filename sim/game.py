@@ -271,6 +271,8 @@ class PygameView:
                 if self.moving_object is not None and hasattr(self.moving_object, 'vx'):
                     self.moving_object.vx = 0.0
                     self.moving_object.vy = 0.0
+                    if hasattr(self.moving_object, 'angular_velocity'):
+                        self.moving_object.angular_velocity = 0.0
             elif self.active_tool == 'dead':
                 self.engine.send_command('remove_object_at', world_x=world_x, world_y=world_y)
         

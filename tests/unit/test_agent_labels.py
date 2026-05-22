@@ -86,3 +86,22 @@ def test_label_max_limit_blocks_reproduction_for_that_group():
 
     assert len(births) == 1
     assert label_id in births[0].label_ids
+
+
+def test_label_brain_reset_reinitializes_whole_group():
+    params = Params()
+    params.set("bacteria_count", 2, validate=False)
+    params.set("predators_enabled", False, validate=False)
+    params.set("food_target", 0, validate=False)
+    engine = Engine(World(200, 160), Camera(), params, headless=True)
+    engine.start(initialize=True)
+
+    label_id = engine.ensure_default_agent_label()
+    original_brains = [agent.brain for agent in engine.get_agents_by_label(label_id)]
+    original_sizes = [tuple(agent.brain.sizes) for agent in engine.get_agents_by_label(label_id)]
+
+    assert engine.reset_label_brains(label_id) == 2
+    reset_agents = engine.get_agents_by_label(label_id)
+    assert [tuple(agent.brain.sizes) for agent in reset_agents] == original_sizes
+    assert all(agent.brain is not old for agent, old in zip(reset_agents, original_brains))
+    assert all(agent.last_brain_output == [] for agent in reset_agents)

@@ -66,6 +66,11 @@ class Locomotion:
         """
         if len(control_output) < 2:
             return
+        if bool(params.get('render_interpolation_enabled', False)):
+            self._capture_render_pose(agent)
+        if bool(params.get('smooth_locomotion_enabled', False)):
+            self._smooth_step(agent, control_output, dt, world, params)
+            return
 
         if normalize_movement_mode(getattr(self, "movement_mode", MOVEMENT_MODE_FORWARD)) == MOVEMENT_MODE_OMNI:
             if len(control_output) < 3:
@@ -136,6 +141,101 @@ class Locomotion:
         # Colisão com paredes (wall bounce)
         self._handle_wall_collisions(agent, world)
     
+    @staticmethod
+    def _capture_render_pose(agent: 'Agent'):
+        agent.prev_x = float(getattr(agent, 'x', 0.0))
+        agent.prev_y = float(getattr(agent, 'y', 0.0))
+        agent.prev_angle = float(getattr(agent, 'angle', 0.0))
+
+    def _smooth_step(self, agent: 'Agent', control_output: list, dt: float,
+                     world: 'World', params: 'Params'):
+        """Atuador com aceleracao limitada e arrastos opcionais."""
+        movement_mode = normalize_movement_mode(getattr(self, "movement_mode", MOVEMENT_MODE_FORWARD))
+        if movement_mode == MOVEMENT_MODE_OMNI:
+            if len(control_output) < 3:
+                return
+            forward_cmd = math.tanh(float(control_output[0]))
+            strafe_cmd = math.tanh(float(control_output[1]))
+            steer_cmd = math.tanh(float(control_output[2]))
+            magnitude = math.hypot(forward_cmd, strafe_cmd)
+            if magnitude > 1.0:
+                forward_cmd /= magnitude
+                strafe_cmd /= magnitude
+        else:
+            speed_raw = float(control_output[0])
+            if bool(getattr(self, "allow_reverse", False)):
+                forward_cmd = math.tanh(speed_raw)
+            else:
+                forward_cmd = self._sigmoid(speed_raw)
+            strafe_cmd = 0.0
+            steer_cmd = math.tanh(float(control_output[1]))
+
+        self._update_smooth_rotation(agent, steer_cmd, dt, params)
+        ca = math.cos(agent.angle)
+        sa = math.sin(agent.angle)
+        desired_vx = (ca * forward_cmd - sa * strafe_cmd) * self.max_speed
+        desired_vy = (sa * forward_cmd + ca * strafe_cmd) * self.max_speed
+        self._update_smooth_velocity(agent, desired_vx, desired_vy, dt, params)
+        agent.x += agent.vx * dt
+        agent.y += agent.vy * dt
+        self._handle_wall_collisions(agent, world)
+
+    def _update_smooth_rotation(self, agent: 'Agent', steer_cmd: float, dt: float,
+                                params: 'Params'):
+        target_omega = steer_cmd * self.max_turn
+        omega = float(getattr(agent, 'angular_velocity', 0.0))
+        if bool(params.get('smooth_angular_inertia_enabled', True)):
+            max_accel = max(0.0, float(params.get('smooth_max_angular_accel', math.pi * 4.0)))
+            max_delta = max_accel * max(0.0, dt)
+            delta = target_omega - omega
+            if delta > max_delta:
+                delta = max_delta
+            elif delta < -max_delta:
+                delta = -max_delta
+            omega += delta
+        else:
+            omega = target_omega
+        if bool(params.get('smooth_angular_drag_enabled', True)):
+            omega *= self._drag_decay(float(params.get('smooth_angular_drag', 1.5)), dt)
+        if omega > self.max_turn:
+            omega = self.max_turn
+        elif omega < -self.max_turn:
+            omega = -self.max_turn
+        agent.angular_velocity = omega
+        agent.angle = self._normalize_angle(agent.angle + omega * dt)
+
+    def _update_smooth_velocity(self, agent: 'Agent', desired_vx: float, desired_vy: float,
+                                dt: float, params: 'Params'):
+        vx = float(getattr(agent, 'vx', 0.0))
+        vy = float(getattr(agent, 'vy', 0.0))
+        if bool(params.get('smooth_linear_inertia_enabled', True)):
+            dx = desired_vx - vx
+            dy = desired_vy - vy
+            delta = math.hypot(dx, dy)
+            max_delta = max(0.0, float(params.get('smooth_max_linear_accel', 900.0))) * max(0.0, dt)
+            if delta > max_delta and delta > 1e-12:
+                scale = max_delta / delta
+                dx *= scale
+                dy *= scale
+            vx += dx
+            vy += dy
+        else:
+            vx = desired_vx
+            vy = desired_vy
+        if bool(params.get('smooth_linear_drag_enabled', True)):
+            decay = self._drag_decay(float(params.get('smooth_linear_drag', 0.75)), dt)
+            vx *= decay
+            vy *= decay
+        agent.vx = vx
+        agent.vy = vy
+
+    @staticmethod
+    def _drag_decay(drag: float, dt: float) -> float:
+        drag = max(0.0, drag)
+        if drag <= 0.0 or dt <= 0.0:
+            return 1.0
+        return math.exp(-drag * dt)
+
     def _sigmoid(self, x: float) -> float:
         """Função sigmoid para normalizar speed command."""
         try:

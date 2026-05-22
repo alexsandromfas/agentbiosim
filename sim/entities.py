@@ -89,6 +89,9 @@ def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_pyth
     """
     if not agents:
         return None
+    if bool(params.get('smooth_locomotion_enabled', False)):
+        # O caminho suave ainda depende de velocidade angular no objeto.
+        return None
     try:
         from .fast_kernels import apply_locomotion_energy_arrays, has_numba
     except Exception:
@@ -122,6 +125,10 @@ def _apply_fast_locomotion_energy(agents, outputs, dt, world, params, force_pyth
     max_turn = np.empty(n, dtype=np.float64)
 
     for i, ag in enumerate(agents):
+        if bool(params.get('render_interpolation_enabled', False)):
+            ag.prev_x = float(getattr(ag, 'x', 0.0))
+            ag.prev_y = float(getattr(ag, 'y', 0.0))
+            ag.prev_angle = float(getattr(ag, 'angle', 0.0))
         x[i] = float(getattr(ag, 'x', 0.0))
         y[i] = float(getattr(ag, 'y', 0.0))
         radius[i] = float(getattr(ag, 'r', 0.0))
@@ -246,7 +253,8 @@ class Agent(Entity):
     """
 
     __slots__ = Entity.__slots__ + (
-        "angle", "vx", "vy", "m", "age", "last_reproduction_age", "selected", "brain", "sensor",
+        "angle", "vx", "vy", "angular_velocity", "prev_x", "prev_y", "prev_angle",
+        "m", "age", "last_reproduction_age", "selected", "brain", "sensor",
         "locomotion", "energy_model", "last_brain_output", "last_brain_activations",
         "is_predator", "energy",
         "food_eaten_count", "food_energy_eaten_total",
@@ -266,6 +274,10 @@ class Agent(Entity):
         self.angle = angle if angle is not None else random.uniform(0, math.pi * 2)
         self.vx = 0.0
         self.vy = 0.0
+        self.angular_velocity = 0.0
+        self.prev_x = x
+        self.prev_y = y
+        self.prev_angle = self.angle
         self.m = r * r  # mantido para cálculos físicos existentes
         self.energy = 0.0  # bateria interna
         self.age = 0.0
@@ -403,6 +415,10 @@ class Agent(Entity):
         child.energy = child_energy_value
         child.vx = math.cos(child_angle) * child_speed
         child.vy = math.sin(child_angle) * child_speed
+        child.angular_velocity = float(getattr(self, "angular_velocity", 0.0)) * 0.5
+        child.prev_x = child.x
+        child.prev_y = child.y
+        child.prev_angle = child.angle
         # Ensure child inherits parent's color (fallback) and optionally debug
         if getattr(self, 'color', None) is not None:
             try:

@@ -59,3 +59,21 @@ def test_locomotion_omni_can_move_diagonal_and_rotate():
     assert agent.vy != 0.0
     assert agent.angle > 0.0
     assert (agent.vx ** 2 + agent.vy ** 2) ** 0.5 <= 10.0 + 1e-6
+
+
+def test_smooth_locomotion_limits_linear_and_angular_changes():
+    params = Params()
+    params.set("smooth_locomotion_enabled", True, validate=False)
+    params.set("smooth_max_linear_accel", 2.0, validate=False)
+    params.set("smooth_linear_drag_enabled", False, validate=False)
+    params.set("smooth_max_angular_accel", 1.0, validate=False)
+    params.set("smooth_angular_drag_enabled", False, validate=False)
+    agent = _agent()
+
+    Locomotion(max_speed=10.0, max_turn=4.0).step(
+        agent, [10.0, 10.0], 0.1, World(100, 100), params
+    )
+
+    assert 0.0 < agent.vx <= 0.2 + 1e-9
+    assert 0.0 < agent.angular_velocity <= 0.1 + 1e-9
+    assert 0.0 < agent.angle <= 0.01 + 1e-9
