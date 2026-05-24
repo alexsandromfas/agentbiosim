@@ -1430,6 +1430,10 @@ class SimulationUI(QMainWindow):
         self._build_chart_sampling_menu(chart_menu)
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
         self._build_render_resolution_menu(render_menu)
+        new_changes_menu = pref_menu.addMenu("Novas mudancas")
+        act_perf_changes = QAction("Percepcao, cerebro e escala", self)
+        act_perf_changes.triggered.connect(self.open_new_changes_window)
+        new_changes_menu.addAction(act_perf_changes)
 
         agent_menu = bar.addMenu("Agente")
         act_export_agent = QAction("Exportar agente selecionado", self)
@@ -1720,6 +1724,49 @@ class SimulationUI(QMainWindow):
 
         dlg.show()
 
+    def open_new_changes_window(self):
+        created = self._make_preferences_dialog('_new_changes_dialog', "Novas mudancas", 580)
+        if created is None:
+            return
+        dlg, layout = created
+        card_style = self._card_style()
+
+        g_perception = QGroupBox("Percepcao e visao em lote")
+        g_perception.setStyleSheet(card_style)
+        grid = QGridLayout(g_perception)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('use_persistent_perception_arrays', False))); row = self._add_grid_param(grid, row, "Buffers persistentes da cena:", 'use_persistent_perception_arrays', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('use_grouped_vision_batches', True))); row = self._add_grid_param(grid, row, "Visao por grupos:", 'use_grouped_vision_batches', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('use_numba_batch_retina', False))); row = self._add_grid_param(grid, row, "Retina Numba em lote:", 'use_numba_batch_retina', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('retina_high_scale_auto_sector', False))); row = self._add_grid_param(grid, row, "Auto visao setorial em escala:", 'retina_high_scale_auto_sector', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('retina_high_scale_global_sector', False))); row = self._add_grid_param(grid, row, "Setor global experimental:", 'retina_high_scale_global_sector', cb)
+        w = _spin_int(1, 200000); w.setValue(_param_int(self.params, 'retina_high_scale_sector_min_agents', 800)); row = self._add_grid_param(grid, row, "Min. agentes por grupo:", 'retina_high_scale_sector_min_agents', w)
+        layout.addWidget(g_perception)
+
+        g_compiled = QGroupBox("Cerebro e movimento compilados")
+        g_compiled.setStyleSheet(card_style)
+        grid = QGridLayout(g_compiled)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(not bool(self.params.get('brain_cache_disable', False))); cb.toggled.connect(lambda checked: self.params.set('brain_cache_disable', not bool(checked), validate=False)); row = self._add_grid_param(grid, row, "Cache de pesos por grupo:", 'enable_brain_group_cache', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('use_numba_brain_forward', False))); row = self._add_grid_param(grid, row, "Forward do cerebro em Numba:", 'use_numba_brain_forward', cb)
+        w = _spin_int(1, 200000); w.setValue(_param_int(self.params, 'numba_brain_forward_min_batch', 256)); row = self._add_grid_param(grid, row, "Min. lote Numba cerebro:", 'numba_brain_forward_min_batch', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('use_numba_locomotion_energy', False))); row = self._add_grid_param(grid, row, "Numba locomocao/energia:", 'use_numba_locomotion_energy', cb)
+        layout.addWidget(g_compiled)
+
+        hint = QLabel("Visao setorial automatica muda a aproximacao sensorial apenas quando habilitada. Os demais controles mantem o contrato atual e atacam preparacao de arrays, lotes e cache numerico.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#9fb1c4;")
+        layout.addWidget(hint)
+
+        actions = QHBoxLayout()
+        btn_apply = QPushButton("Aplicar novas mudancas")
+        btn_apply.clicked.connect(self.apply_simulation_params)
+        actions.addWidget(btn_apply)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        layout.addStretch(1)
+        dlg.show()
+
     def open_autosave_window(self):
         created = self._make_preferences_dialog('_autosave_dialog', "Autosave", 520)
         if created is None:
@@ -1902,7 +1949,15 @@ class SimulationUI(QMainWindow):
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
             'use_numba_kernels': 'Ativa kernels numericos por arrays/Numba quando disponiveis. Mantem fallback seguro para o caminho antigo.',
-            'use_numba_batch_retina': 'Experimental: processa varios agentes no mesmo kernel Numba de retina. Desligado por padrao porque ainda nao ganhou benchmark.',
+            'use_numba_batch_retina': 'Processa retinas compativeis no mesmo kernel Numba para reduzir chamadas por agente.',
+            'use_grouped_vision_batches': 'Agrupa organismos com a mesma configuracao de retina antes de preparar candidatos e executar kernels.',
+            'use_persistent_perception_arrays': 'Reusa buffers numericos da cena gerados junto com o spatial hash para reduzir leitura repetida de objetos Python na visao.',
+            'retina_high_scale_auto_sector': 'Troca automaticamente grupos grandes para visao setorial quando habilitado. Custa menos, mas usa aproximacao sensorial diferente.',
+            'retina_high_scale_global_sector': 'No modo setorial, usa um snapshot global compacto do grupo visivel em vez de montar vizinhanca por olho. E experimental.',
+            'retina_high_scale_sector_min_agents': 'Tamanho minimo do grupo visual para ativar a visao setorial automatica.',
+            'use_numba_brain_forward': 'Usa kernels Numba no forward de grupos grandes de cerebros com arquitetura compativel.',
+            'numba_brain_forward_min_batch': 'Quantidade minima de cerebros no grupo antes de usar o forward Numba.',
+            'enable_brain_group_cache': 'Reusa pilhas de pesos de grupos estaveis entre passos. Economiza empilhamento repetido e consome memoria extra.',
             'use_numba_locomotion_energy': 'Experimental: aplica Numba tambem na locomocao e energia. Desligado por padrao porque pode ser mais lento em alguns perfis.',
             'reuse_spatial_grid': 'Reutiliza a estrutura da grade espacial entre frames quando possivel, reduzindo alocacoes.',
             'agents_inertia': 'Controla suavizacao da velocidade. 1 aplica o comando neural imediatamente; valores maiores deixam movimento mais inercial.',
@@ -3777,7 +3832,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3895,7 +3950,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -3905,6 +3960,19 @@ class SimulationUI(QMainWindow):
             enabled = bool(self._get_widget_value('enable_brain_activations'))
             profiler.enabled = enabled
             self.params.set('disable_brain_activations', not enabled)
+        try:
+            from .brain import clear_multi_brain_cache, configure_multi_brain_cache
+            configure_multi_brain_cache(
+                max_entries=self.params.get('brain_cache_max_entries', 32),
+                max_mb=self.params.get('brain_cache_max_mb', 512),
+                disable=self.params.get('brain_cache_disable', True),
+                log=self.params.get('brain_cache_log', False),
+                numba_forward=self.params.get('use_numba_brain_forward', False),
+                numba_min_batch=self.params.get('numba_brain_forward_min_batch', 256),
+            )
+            clear_multi_brain_cache()
+        except Exception:
+            pass
         print("Parâmetros de simulação aplicados")
         self._schedule_ui_params_save()
 
@@ -4724,6 +4792,16 @@ class SimulationUI(QMainWindow):
                     'random_seed': -1,
                     'retina_vision_mode': 'single',
                     'reuse_spatial_grid': True,
+                    'use_numba_batch_retina': False,
+                    'use_grouped_vision_batches': True,
+                    'use_persistent_perception_arrays': False,
+                    'retina_high_scale_auto_sector': False,
+                    'retina_high_scale_global_sector': False,
+                    'retina_high_scale_sector_min_agents': 800,
+                    'brain_cache_disable': False,
+                    'use_numba_brain_forward': False,
+                    'numba_brain_forward_min_batch': 256,
+                    'use_numba_locomotion_energy': False,
                     'agents_inertia': 1.0,
                     'smooth_locomotion_enabled': False,
                     'smooth_linear_inertia_enabled': True,

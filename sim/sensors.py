@@ -839,6 +839,39 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     # Atualiza parâmetros dinâmicos e determina quais precisam recalcular
     param_get = params.get if params is not None else (lambda _key, default=None: default)
     vision_mode = normalize_retina_vision_mode(param_get('retina_vision_mode') if params is not None else None)
+    if (
+        bool(param_get('retina_high_scale_auto_sector', False))
+        and len(agents) >= max(1, int(param_get('retina_high_scale_sector_min_agents', 800)))
+    ):
+        vision_mode = RETINA_VISION_MODE_SECTOR
+    spatial_arrays_enabled = bool(
+        param_get('use_persistent_perception_arrays', False)
+        and scene.spatial_hash is not None
+        and bool(getattr(scene.spatial_hash, 'numeric_index_enabled', False))
+        and hasattr(scene.spatial_hash, 'query_ball_filtered_indices_into')
+        and hasattr(scene.spatial_hash, 'numeric_x')
+    )
+
+    def _spatial_numeric_candidate_arrays(candidate_indices, owner_indices, needs_color: bool):
+        spatial = scene.spatial_hash
+        if not candidate_indices or spatial is None:
+            empty = np.empty(0, dtype=np.float64)
+            return empty, empty, empty, np.empty(0, dtype=bool), empty, empty, empty
+        idx_arr = np.fromiter(candidate_indices, dtype=np.int64, count=len(candidate_indices))
+        owner_arr = np.fromiter(owner_indices, dtype=np.int64, count=len(owner_indices))
+        empty = np.empty(0, dtype=np.float64)
+        color_r = spatial.numeric_color_r[idx_arr] if needs_color else empty
+        color_g = spatial.numeric_color_g[idx_arr] if needs_color else empty
+        color_b = spatial.numeric_color_b[idx_arr] if needs_color else empty
+        return (
+            spatial.numeric_x[idx_arr],
+            spatial.numeric_y[idx_arr],
+            spatial.numeric_r[idx_arr],
+            idx_arr == owner_arr,
+            color_r,
+            color_g,
+            color_b,
+        )
     sensor_configs = {}
     fast_retina_single = None
     fast_retina_fullbody = None
@@ -847,6 +880,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     fast_retina_batch_fullbody = None
     fast_retina_batch_sector = None
     fast_retina_batch_sector_distance = None
+    fast_retina_global_sector = None
+    fast_retina_global_sector_distance = None
     if bool(param_get('use_numba_kernels', True)):
         try:
             from .fast_kernels import (
@@ -855,6 +890,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 retina_batch_sector_distance_kernel,
                 retina_batch_sector_kernel,
                 retina_batch_single_kernel,
+                retina_global_sector_distance_kernel,
+                retina_global_sector_kernel,
                 retina_fullbody_precomputed_kernel,
                 retina_fullbody_kernel,
                 retina_single_kernel,
@@ -867,6 +904,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 fast_retina_batch_fullbody = retina_batch_fullbody_kernel
                 fast_retina_batch_sector = retina_batch_sector_kernel
                 fast_retina_batch_sector_distance = retina_batch_sector_distance_kernel
+                fast_retina_global_sector = retina_global_sector_kernel
+                fast_retina_global_sector_distance = retina_global_sector_distance_kernel
         except Exception:
             fast_retina_single = None
             fast_retina_fullbody = None
@@ -875,6 +914,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             fast_retina_batch_fullbody = None
             fast_retina_batch_sector = None
             fast_retina_batch_sector_distance = None
+            fast_retina_global_sector = None
+            fast_retina_global_sector_distance = None
 
     def _species_sensor_config(prefix, sensor):
         desired_skip = max(0, int(param_get('retina_skip', sensor.skip)))
@@ -1026,6 +1067,11 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
 
     if vision_mode == RETINA_VISION_MODE_SECTOR:
         remaining_sector_idx = []
+        global_sector_enabled = bool(
+            param_get('retina_high_scale_global_sector', False)
+            and fast_retina_global_sector is not None
+            and fast_retina_global_sector_distance is not None
+        )
         if scene.spatial_hash is not None and fast_retina_batch_sector is not None:
             groups = {}
             for idx in need_update_idx:
@@ -1042,6 +1088,117 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 n_update = len(group_indices)
                 n_eye_rows = n_update * eye_count
                 channel_count = max(1, len(channels))
+                if global_sector_enabled:
+                    type_codes = runtime_configs[group_indices[0]][11]
+                    group_candidates = []
+                    if 0 in type_codes:
+                        group_candidates.extend(scene.entities.get('foods', []))
+                    if 1 in type_codes:
+                        group_candidates.extend(scene.entities.get('bacteria', []))
+                    if 2 in type_codes:
+                        group_candidates.extend(scene.entities.get('predators', []))
+                    if not group_candidates:
+                        for idx in group_indices:
+                            sensor = sensors[idx]
+                            inputs = _empty_retina_inputs(sensor)
+                            _store_retina_inputs(sensor, inputs)
+                            sensor._countdown = sensor.skip
+                            results[idx] = inputs
+                        continue
+
+                    eye_x_arr = np.empty(n_eye_rows, dtype=np.float64)
+                    eye_y_arr = np.empty(n_eye_rows, dtype=np.float64)
+                    owner_ids_arr = np.empty(n_eye_rows, dtype=np.int64)
+                    angle_arr = np.empty(n_eye_rows, dtype=np.float64)
+                    vision_radius_arr = np.empty(n_eye_rows, dtype=np.float64)
+                    half_fov_arr = np.empty(n_eye_rows, dtype=np.float64)
+                    for local_idx, idx in enumerate(group_indices):
+                        agent = agents[idx]
+                        sensor = sensors[idx]
+                        specs = sensor._eye_specs() if hasattr(sensor, "_eye_specs") else [(0.0, 0.0)]
+                        for eye_idx in range(eye_count):
+                            row = local_idx * eye_count + eye_idx
+                            pos_offset, gaze_offset = specs[min(eye_idx, len(specs) - 1)]
+                            position_angle = agent.angle + pos_offset
+                            eye_x_arr[row] = float(agent.x + math.cos(position_angle) * agent.r)
+                            eye_y_arr[row] = float(agent.y + math.sin(position_angle) * agent.r)
+                            owner_ids_arr[row] = int(id(agent))
+                            angle_arr[row] = float(agent.angle + gaze_offset)
+                            vision_radius_arr[row] = float(sensor.vision_radius)
+                            half_fov_arr[row] = math.radians(sensor.fov_degrees / 2.0)
+
+                    cand_x_arr = np.fromiter((float(obj.x) for obj in group_candidates), dtype=np.float64, count=len(group_candidates))
+                    cand_y_arr = np.fromiter((float(obj.y) for obj in group_candidates), dtype=np.float64, count=len(group_candidates))
+                    cand_r_arr = np.fromiter((float(getattr(obj, "r", 0.0)) for obj in group_candidates), dtype=np.float64, count=len(group_candidates))
+                    cand_ids_arr = np.fromiter((int(id(obj)) for obj in group_candidates), dtype=np.int64, count=len(group_candidates))
+                    if channels == ("d",):
+                        out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
+                        ok = fast_retina_global_sector_distance(
+                            eye_x_arr,
+                            eye_y_arr,
+                            owner_ids_arr,
+                            angle_arr,
+                            vision_radius_arr,
+                            half_fov_arr,
+                            cand_x_arr,
+                            cand_y_arr,
+                            cand_r_arr,
+                            cand_ids_arr,
+                            int(retina_count),
+                            out,
+                        )
+                        if ok:
+                            out32 = out.astype(np.float32)
+                            for local_idx, idx in enumerate(group_indices):
+                                sensor = sensors[idx]
+                                start_row = local_idx * eye_count
+                                inputs = out32[start_row:start_row + eye_count].reshape(-1).tolist()
+                                _store_retina_inputs(sensor, inputs, inputs)
+                                sensor._countdown = sensor.skip
+                                results[idx] = inputs
+                            continue
+                    else:
+                        colors = [_object_color01(obj) for obj in group_candidates]
+                        cand_color_r_arr = np.fromiter((rgb[0] for rgb in colors), dtype=np.float64, count=len(colors))
+                        cand_color_g_arr = np.fromiter((rgb[1] for rgb in colors), dtype=np.float64, count=len(colors))
+                        cand_color_b_arr = np.fromiter((rgb[2] for rgb in colors), dtype=np.float64, count=len(colors))
+                        channel_codes = _retina_channel_codes(channels)
+                        out = np.empty((n_eye_rows, retina_count, channel_count), dtype=np.float64)
+                        distance_out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
+                        ok = fast_retina_global_sector(
+                            eye_x_arr,
+                            eye_y_arr,
+                            owner_ids_arr,
+                            angle_arr,
+                            vision_radius_arr,
+                            half_fov_arr,
+                            cand_x_arr,
+                            cand_y_arr,
+                            cand_r_arr,
+                            cand_ids_arr,
+                            cand_color_r_arr,
+                            cand_color_g_arr,
+                            cand_color_b_arr,
+                            channel_codes,
+                            int(retina_count),
+                            out,
+                            distance_out,
+                        )
+                        if ok:
+                            out32 = out.astype(np.float32)
+                            distance32 = distance_out.astype(np.float32)
+                            for local_idx, idx in enumerate(group_indices):
+                                sensor = sensors[idx]
+                                start_row = local_idx * eye_count
+                                inputs = out32[start_row:start_row + eye_count].reshape(-1).tolist()
+                                distances = distance32[start_row:start_row + eye_count].reshape(-1).tolist()
+                                _store_retina_inputs(sensor, inputs, distances)
+                                sensor._countdown = sensor.skip
+                                results[idx] = inputs
+                            continue
+                    remaining_sector_idx.extend(group_indices)
+                    continue
+
                 eye_x_arr = np.empty(n_eye_rows, dtype=np.float64)
                 eye_y_arr = np.empty(n_eye_rows, dtype=np.float64)
                 angle_arr = np.empty(n_eye_rows, dtype=np.float64)
@@ -1057,6 +1214,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 cand_color_g_values = [] if needs_color else None
                 cand_color_b_values = [] if needs_color else None
                 self_values = []
+                cand_index_values = [] if spatial_arrays_enabled else None
+                owner_index_values = [] if spatial_arrays_enabled else None
                 total_candidates = 0
 
                 for local_idx, idx in enumerate(group_indices):
@@ -1085,28 +1244,36 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                         eye_x = agent.x + math.cos(position_angle) * agent.r
                         eye_y = agent.y + math.sin(position_angle) * agent.r
                         search_r = sensor.vision_radius + max_seen_radius
-                        candidates_local = (
-                            scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
-                            if type_codes else ()
-                        )
+                        if spatial_arrays_enabled and type_codes:
+                            candidates_local = scene.spatial_hash.query_ball_filtered_indices_into(
+                                eye_x, eye_y, search_r, type_codes, candidate_buffer
+                            )
+                        else:
+                            candidates_local = (
+                                scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
+                                if type_codes else ()
+                            )
                         eye_x_arr[row] = float(eye_x)
                         eye_y_arr[row] = float(eye_y)
                         angle_arr[row] = float(agent.angle + gaze_offset)
                         vision_radius_arr[row] = float(sensor.vision_radius)
                         half_fov_arr[row] = math.radians(sensor.fov_degrees / 2.0)
                         cand_start[row] = total_candidates
-                        count = 0
-                        for candidate in candidates_local:
-                            cand_x_values.append(float(candidate.x))
-                            cand_y_values.append(float(candidate.y))
-                            cand_r_values.append(float(getattr(candidate, "r", 0.0)))
-                            if needs_color:
-                                cr, cg, cb = _object_color01(candidate)
-                                cand_color_r_values.append(cr)
-                                cand_color_g_values.append(cg)
-                                cand_color_b_values.append(cb)
-                            self_values.append(candidate is agent)
-                            count += 1
+                        count = len(candidates_local)
+                        if spatial_arrays_enabled:
+                            cand_index_values.extend(candidates_local)
+                            owner_index_values.extend([scene.spatial_hash.index_of(agent)] * count)
+                        else:
+                            for candidate in candidates_local:
+                                cand_x_values.append(float(candidate.x))
+                                cand_y_values.append(float(candidate.y))
+                                cand_r_values.append(float(getattr(candidate, "r", 0.0)))
+                                if needs_color:
+                                    cr, cg, cb = _object_color01(candidate)
+                                    cand_color_r_values.append(cr)
+                                    cand_color_g_values.append(cg)
+                                    cand_color_b_values.append(cb)
+                                self_values.append(candidate is agent)
                         cand_count[row] = count
                         total_candidates += count
 
@@ -1119,10 +1286,24 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                         results[idx] = inputs
                     continue
 
-                cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
-                cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
-                cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
-                self_arr = np.asarray(self_values, dtype=bool)
+                if spatial_arrays_enabled:
+                    (
+                        cand_x_arr,
+                        cand_y_arr,
+                        cand_r_arr,
+                        self_arr,
+                        cand_color_r_arr,
+                        cand_color_g_arr,
+                        cand_color_b_arr,
+                    ) = _spatial_numeric_candidate_arrays(cand_index_values, owner_index_values, needs_color)
+                else:
+                    cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
+                    cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
+                    cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
+                    self_arr = np.asarray(self_values, dtype=bool)
+                    cand_color_r_arr = np.asarray(cand_color_r_values or [], dtype=np.float64)
+                    cand_color_g_arr = np.asarray(cand_color_g_values or [], dtype=np.float64)
+                    cand_color_b_arr = np.asarray(cand_color_b_values or [], dtype=np.float64)
                 if channels == ("d",) and fast_retina_batch_sector_distance is not None:
                     out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
                     ok = fast_retina_batch_sector_distance(
@@ -1152,9 +1333,6 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                         continue
                     remaining_sector_idx.extend(group_indices)
                     continue
-                cand_color_r_arr = np.asarray(cand_color_r_values or [], dtype=np.float64)
-                cand_color_g_arr = np.asarray(cand_color_g_values or [], dtype=np.float64)
-                cand_color_b_arr = np.asarray(cand_color_b_values or [], dtype=np.float64)
                 channel_codes = _retina_channel_codes(channels)
                 out = np.empty((n_eye_rows, retina_count, channel_count), dtype=np.float64)
                 distance_out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
@@ -1243,7 +1421,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         normalize_eye_count(getattr(sensors[i], "eye_count", 1)) > 1 for i in need_update_idx
     )
     batch_retina_enabled = (
-        (bool(param_get('use_numba_batch_retina', True)) or multi_eye_batch_candidate)
+        bool(param_get('use_grouped_vision_batches', True))
+        and (bool(param_get('use_numba_batch_retina', False)) or multi_eye_batch_candidate)
         and scene.spatial_hash is not None
         and sum(normalize_eye_count(getattr(sensors[i], "eye_count", 1)) for i in need_update_idx) >= 8
         and all(getattr(sensors[i], "channels", ("d",)) == ("d",) for i in need_update_idx)
@@ -1271,6 +1450,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             cand_y_values = []
             cand_r_values = []
             self_values = []
+            cand_index_values = [] if spatial_arrays_enabled else None
+            owner_index_values = [] if spatial_arrays_enabled else None
             candidate_buffer = set()
             total_candidates = 0
             first_sensor = sensors[need_update_idx[0]]
@@ -1300,23 +1481,31 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     eye_x = agent.x + math.cos(position_angle) * agent.r
                     eye_y = agent.y + math.sin(position_angle) * agent.r
                     search_r = sensor.vision_radius + max_seen_radius
-                    candidates_local = (
-                        scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
-                        if type_codes else ()
-                    )
+                    if spatial_arrays_enabled and type_codes:
+                        candidates_local = scene.spatial_hash.query_ball_filtered_indices_into(
+                            eye_x, eye_y, search_r, type_codes, candidate_buffer
+                        )
+                    else:
+                        candidates_local = (
+                            scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
+                            if type_codes else ()
+                        )
                     eye_x_arr[row] = float(eye_x)
                     eye_y_arr[row] = float(eye_y)
                     angle_arr[row] = float(agent.angle + gaze_offset)
                     vision_radius_arr[row] = float(sensor.vision_radius)
                     half_fov_arr[row] = math.radians(sensor.fov_degrees / 2.0)
                     cand_start[row] = total_candidates
-                    count = 0
-                    for candidate in candidates_local:
-                        cand_x_values.append(float(candidate.x))
-                        cand_y_values.append(float(candidate.y))
-                        cand_r_values.append(float(getattr(candidate, 'r', 0.0)))
-                        self_values.append(candidate is agent)
-                        count += 1
+                    count = len(candidates_local)
+                    if spatial_arrays_enabled:
+                        cand_index_values.extend(candidates_local)
+                        owner_index_values.extend([scene.spatial_hash.index_of(agent)] * count)
+                    else:
+                        for candidate in candidates_local:
+                            cand_x_values.append(float(candidate.x))
+                            cand_y_values.append(float(candidate.y))
+                            cand_r_values.append(float(getattr(candidate, 'r', 0.0)))
+                            self_values.append(candidate is agent)
                     cand_count[row] = count
                     total_candidates += count
 
@@ -1329,11 +1518,16 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     results[idx] = inputs
                 return results  # type: ignore
 
-            cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
-            cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
-            cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
+            if spatial_arrays_enabled:
+                cand_x_arr, cand_y_arr, cand_r_arr, self_arr, _, _, _ = _spatial_numeric_candidate_arrays(
+                    cand_index_values, owner_index_values, False
+                )
+            else:
+                cand_x_arr = np.asarray(cand_x_values, dtype=np.float64)
+                cand_y_arr = np.asarray(cand_y_values, dtype=np.float64)
+                cand_r_arr = np.asarray(cand_r_values, dtype=np.float64)
+                self_arr = np.asarray(self_values, dtype=bool)
             cand_type_arr = np.zeros(total_candidates, dtype=np.int8)
-            self_arr = np.asarray(self_values, dtype=bool)
             out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
             if vision_mode == 'fullbody' and fast_retina_batch_fullbody is not None:
                 ok = fast_retina_batch_fullbody(

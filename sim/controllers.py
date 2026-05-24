@@ -51,8 +51,17 @@ class Params:
             'render_resolution_scale': 1.0,
             'use_numba_kernels': True,
             'use_numba_batch_retina': False,
+            'use_grouped_vision_batches': True,
+            'use_persistent_perception_arrays': False,
+            # Optional semantic tradeoff: sector vision keeps retina direction
+            # but avoids body/ray intersections when groups become very large.
+            'retina_high_scale_auto_sector': False,
+            'retina_high_scale_sector_min_agents': 800,
+            'retina_high_scale_global_sector': False,
             'use_numba_locomotion_energy': False,
-            'brain_cache_disable': True,
+            'brain_cache_disable': False,
+            'use_numba_brain_forward': False,
+            'numba_brain_forward_min_batch': 256,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -314,7 +323,7 @@ class Params:
             return max(0.0, min(1.0, float(value)))
         elif key in ['time_scale', 'fps']:
             return max(0.1, float(value))
-        elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame']:
+        elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame', 'retina_high_scale_sector_min_agents', 'numba_brain_forward_min_batch']:
             return max(1, int(float(value)))
         elif key == 'max_physics_backlog_seconds':
             return max(0.0, float(value))

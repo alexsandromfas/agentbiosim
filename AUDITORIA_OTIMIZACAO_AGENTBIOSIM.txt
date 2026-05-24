@@ -223,6 +223,76 @@ Conclusao desta etapa:
 - Antes da retina RGB, o proximo alvo mais promissor continua sendo reduzir
   copias/alocacoes no sensoriamento e estruturar arrays persistentes de estado.
 
+Atualizacao de execucao - percepcao/cerebro em escala 2026-05-22
+---------------------------------------------------------------
+Status: FEITO, TESTADO E MEDIDO; somente o ganho seguro virou padrao.
+
+Checkpoint antes desta rodada:
+- Branch: V2.1.0_Desenvolvimento_2026
+- Commit/push de seguranca: 22c3a43
+
+Alteracoes mantidas:
+- tests/benchmark_headless.py aceita `--set chave=valor` para comparar
+  variacoes de custo no mesmo cenario.
+- sim/spatial.py ganhou indice numerico opcional e snapshot preguiçoso da
+  cena para percepcao em lote. O custo so existe quando a opcao nova e ligada.
+- sim/sensors.py ganhou switches para buffers persistentes, visao por grupos,
+  auto setor em grupos grandes e setor global experimental.
+- sim/fast_kernels.py ganhou kernels setoriais globais opcionais que recebem
+  um snapshot compartilhado do grupo em vez de montar candidatos por olho.
+- Engine/UI passaram a expor o cache de pesos por grupo e os caminhos Numba
+  de cerebro/movimento em Preferencias > Novas mudancas.
+
+Decisao do passo compilado:
+- Continuar em Numba/NumPy nesta rodada. Migrar somente cerebro para C++ nao
+  remove o gargalo medido de percepcao/preparacao de dados e adicionaria uma
+  fronteira de copia nova no loop.
+- Cache de pesos do cerebro por grupo virou padrao porque preserva os pesos
+  individuais e reduz empilhamento repetido de arrays.
+- Forward Numba do cerebro e locomocao/energia Numba continuam opt-in porque
+  pioraram o tempo total nestes benchmarks.
+
+Benchmarks principais desta rodada:
+- Baseline aquecido de custo sintetico, 10 s, 100 organismos:
+  pre_arrays_profile_warm_20260522: wall 2.072 s; agent_sensor 1.133 s.
+- Final padrao com cache de cerebro, 10 s, 100 organismos:
+  final_default_brain_cache_20260522: wall 1.792 s;
+  agent_sensor 1.0761 s; agent_brain_forward 0.0631 s.
+- Escala 600, single legado, 5 s:
+  scale600_single_legacy_20260522: wall 6.333 s;
+  agent_sensor 3.2745 s; agent_brain_forward 1.0198 s.
+- Escala 600 com cache de cerebro:
+  scale600_brain_cache_20260522: wall 5.499 s;
+  agent_sensor 3.2935 s; agent_brain_forward 0.1601 s.
+  Ganho total medido: ~13.2%; ganho no forward do cerebro: ~84.3%.
+
+Tentativas mantidas somente como opcionais:
+- Retina Numba em lote/snapshot numerico no perfil de 100 organismos:
+  sequential_legacy_path_20260522: wall 2.058 s.
+  sequential_batch_no_arrays_20260522: wall 3.525 s.
+  sequential_batch_arrays_20260522: wall 3.895 s.
+  Motivo: montar lotes e candidatos ainda custa mais que a retina Numba por
+  agente no caminho padrao.
+- Setor por grupos em 600 organismos:
+  scale600_sector_grouped_20260522: wall 12.419 s.
+- Setor global experimental, 600 organismos, aquecido:
+  scale600_sector_global_warm_20260522: sensor caiu para 2.0968 s, mas wall
+  ficou 6.806 s. O kernel reduz a percepcao, mas o paralelismo global ainda
+  nao melhora o loop completo neste motor.
+
+Validacao executada nesta rodada:
+- python -m py_compile sim\spatial.py sim\sensors.py sim\controllers.py
+  sim\engine.py sim\ui.py sim\fast_kernels.py tests\benchmark_headless.py
+- python -m pytest tests\unit\test_retina_channels.py
+  tests\unit\test_fast_kernels.py tests\unit\test_locomotion.py
+- python -m pytest tests\unit -q
+- python tests\benchmark_substrate_dynamics.py --seconds 2 --fps 60
+  --sample-interval 1 --label final_brain_cache_substrate_20260522
+  --neural-sample 16
+- Resultado final: testes unitarios completos passaram; benchmark real
+  20260522_132201_final_brain_cache_substrate_20260522 concluiu com
+  0.019631 ms/agente/step.
+
 Diagnostico por area
 --------------------
 

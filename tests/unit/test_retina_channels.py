@@ -269,3 +269,49 @@ def test_batch_sector_retina_supports_two_eyes_and_color_channels():
         assert row[1] > 0.0
         assert row[2] > 0.0
         assert row[3] > 0.0
+
+
+def test_global_sector_retina_uses_shared_snapshot_when_enabled():
+    params = Params()
+    params.set("use_spatial", True, validate=False)
+    params.set("use_numba_kernels", True, validate=False)
+    params.set("retina_vision_mode", "sector", validate=False)
+    params.set("retina_high_scale_global_sector", True, validate=False)
+
+    agents = []
+    foods = []
+    for idx in range(4):
+        sensor = RetinaSensor(
+            retina_count=3,
+            vision_radius=80.0,
+            fov_degrees=60.0,
+            channels=("d",),
+        )
+        agent = Bacteria(
+            40.0 + idx * 100.0,
+            50.0,
+            4.0,
+            NeuralNet([3, 2]),
+            sensor,
+            Locomotion(),
+            EnergyModel(),
+            angle=0.0,
+        )
+        food = Food(agent.x + 24.0, agent.y, 2.0)
+        foods.append(food)
+        agents.append(agent)
+
+    spatial = SpatialHash(20.0, 500.0, 120.0)
+    for food in foods:
+        spatial.insert(food, food.x, food.y, food.r)
+    for agent in agents:
+        spatial.insert(agent, agent.x, agent.y, agent.r)
+    scene = SceneQuery(spatial, {"foods": foods, "bacteria": agents, "predators": []}, params)
+
+    values = batch_retina_sense(agents, scene, params)
+
+    assert len(values) == len(agents)
+    for row in values:
+        assert row[1] > 0.0
+        assert row[0] == pytest.approx(0.0)
+        assert row[2] == pytest.approx(0.0)

@@ -168,7 +168,9 @@ class Engine:
             configure_multi_brain_cache(max_entries=self.params.get('brain_cache_max_entries', 32),
                                         max_mb=self.params.get('brain_cache_max_mb', 512),
                                         disable=self.params.get('brain_cache_disable', True),
-                                        log=self.params.get('brain_cache_log', False))
+                                        log=self.params.get('brain_cache_log', False),
+                                        numba_forward=self.params.get('use_numba_brain_forward', False),
+                                        numba_min_batch=self.params.get('numba_brain_forward_min_batch', 256))
             clear_multi_brain_cache(verbose=True)
         except Exception:
             pass
@@ -1263,12 +1265,20 @@ class Engine:
             abs(self.spatial_hash.width - bounds_w) < 1e-6 and
             abs(self.spatial_hash.height - bounds_h) < 1e-6 and
             abs(getattr(self.spatial_hash, 'min_x', 0.0) - min_x) < 1e-6 and
-            abs(getattr(self.spatial_hash, 'min_y', 0.0) - min_y) < 1e-6):
+            abs(getattr(self.spatial_hash, 'min_y', 0.0) - min_y) < 1e-6 and
+            bool(getattr(self.spatial_hash, 'numeric_index_enabled', False)) == bool(self.params.get('use_persistent_perception_arrays', False))):
             # Reutiliza: apenas limpa e reinsere
             self.spatial_hash.clear()
         else:
             # Recria
-            self.spatial_hash = SpatialHash(cell_size, bounds_w, bounds_h, min_x=min_x, min_y=min_y)
+            self.spatial_hash = SpatialHash(
+                cell_size,
+                bounds_w,
+                bounds_h,
+                min_x=min_x,
+                min_y=min_y,
+                numeric_index_enabled=bool(self.params.get('use_persistent_perception_arrays', False)),
+            )
         
         # Insere todas as entidades
         for food in self.entities['foods']:

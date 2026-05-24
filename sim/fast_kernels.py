@@ -839,6 +839,176 @@ if NUMBA_AVAILABLE:  # pragma: no cover - requires optional dependency
                     out[agent_idx, r_idx] = act
 
     @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_global_sector_distance_kernel_numba(
+        eye_x,
+        eye_y,
+        owner_ids,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_x,
+        cand_y,
+        cand_r,
+        cand_ids,
+        retina_count,
+        out,
+    ):
+        for eye_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                out[eye_idx, r_idx] = 0.0
+            hf = half_fov[eye_idx]
+            vr = vision_radius[eye_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+            ex = eye_x[eye_idx]
+            ey = eye_y[eye_idx]
+            aa = agent_angle[eye_idx]
+            owner_id = owner_ids[eye_idx]
+            for cand_idx in range(cand_x.shape[0]):
+                if cand_ids[cand_idx] == owner_id:
+                    continue
+                dx = cand_x[cand_idx] - ex
+                dy = cand_y[cand_idx] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[cand_idx]
+                if dist - cr > vr:
+                    continue
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(ang) > hf:
+                    continue
+                eff_dist = dist - cr
+                if eff_dist < 0.0:
+                    eff_dist = 0.0
+                elif eff_dist > vr:
+                    eff_dist = vr
+                if retina_count > 1:
+                    rel = (ang + hf) / (2.0 * hf) * (retina_count - 1)
+                    ray_idx = int(math.floor(rel + 0.5))
+                    if ray_idx < 0:
+                        ray_idx = 0
+                    elif ray_idx >= retina_count:
+                        ray_idx = retina_count - 1
+                else:
+                    ray_idx = 0
+                if eff_dist < ray_best[ray_idx]:
+                    ray_best[ray_idx] = eff_dist
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if math.isfinite(best):
+                    act = (vr - best) / vr
+                    if act < 0.0:
+                        act = 0.0
+                    elif act > 1.0:
+                        act = 1.0
+                    out[eye_idx, r_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
+    def _retina_global_sector_kernel_numba(
+        eye_x,
+        eye_y,
+        owner_ids,
+        agent_angle,
+        vision_radius,
+        half_fov,
+        cand_x,
+        cand_y,
+        cand_r,
+        cand_ids,
+        cand_color_r,
+        cand_color_g,
+        cand_color_b,
+        channel_codes,
+        retina_count,
+        out,
+        distance_out,
+    ):
+        channel_count = channel_codes.shape[0]
+        for eye_idx in prange(eye_x.shape[0]):
+            for r_idx in range(retina_count):
+                distance_out[eye_idx, r_idx] = 0.0
+                for ch_idx in range(channel_count):
+                    out[eye_idx, r_idx, ch_idx] = 0.0
+            hf = half_fov[eye_idx]
+            vr = vision_radius[eye_idx]
+            if retina_count <= 0 or hf <= 0.0 or vr <= 0.0:
+                continue
+            ray_best = np.empty(retina_count, dtype=np.float64)
+            ray_r = np.empty(retina_count, dtype=np.float64)
+            ray_g = np.empty(retina_count, dtype=np.float64)
+            ray_b = np.empty(retina_count, dtype=np.float64)
+            for r_idx in range(retina_count):
+                ray_best[r_idx] = np.inf
+                ray_r[r_idx] = 0.0
+                ray_g[r_idx] = 0.0
+                ray_b[r_idx] = 0.0
+            ex = eye_x[eye_idx]
+            ey = eye_y[eye_idx]
+            aa = agent_angle[eye_idx]
+            owner_id = owner_ids[eye_idx]
+            for cand_idx in range(cand_x.shape[0]):
+                if cand_ids[cand_idx] == owner_id:
+                    continue
+                dx = cand_x[cand_idx] - ex
+                dy = cand_y[cand_idx] - ey
+                dist = math.sqrt(dx * dx + dy * dy)
+                cr = cand_r[cand_idx]
+                if dist - cr > vr:
+                    continue
+                obj_angle = math.atan2(dy, dx)
+                ang = (obj_angle - aa + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(ang) > hf:
+                    continue
+                eff_dist = dist - cr
+                if eff_dist < 0.0:
+                    eff_dist = 0.0
+                elif eff_dist > vr:
+                    eff_dist = vr
+                if retina_count > 1:
+                    rel = (ang + hf) / (2.0 * hf) * (retina_count - 1)
+                    ray_idx = int(math.floor(rel + 0.5))
+                    if ray_idx < 0:
+                        ray_idx = 0
+                    elif ray_idx >= retina_count:
+                        ray_idx = retina_count - 1
+                else:
+                    ray_idx = 0
+                if eff_dist < ray_best[ray_idx]:
+                    ray_best[ray_idx] = eff_dist
+                    ray_r[ray_idx] = cand_color_r[cand_idx]
+                    ray_g[ray_idx] = cand_color_g[cand_idx]
+                    ray_b[ray_idx] = cand_color_b[cand_idx]
+            for r_idx in range(retina_count):
+                best = ray_best[r_idx]
+                if not math.isfinite(best):
+                    continue
+                act = (vr - best) / vr
+                if act < 0.0:
+                    act = 0.0
+                elif act > 1.0:
+                    act = 1.0
+                distance_out[eye_idx, r_idx] = act
+                for ch_idx in range(channel_count):
+                    code = channel_codes[ch_idx]
+                    if code == 1:
+                        out[eye_idx, r_idx, ch_idx] = ray_r[r_idx]
+                    elif code == 2:
+                        out[eye_idx, r_idx, ch_idx] = ray_g[r_idx]
+                    elif code == 3:
+                        out[eye_idx, r_idx, ch_idx] = ray_b[r_idx]
+                    elif code == 4:
+                        out[eye_idx, r_idx, ch_idx] = act * ray_r[r_idx]
+                    elif code == 5:
+                        out[eye_idx, r_idx, ch_idx] = act * ray_g[r_idx]
+                    elif code == 6:
+                        out[eye_idx, r_idx, ch_idx] = act * ray_b[r_idx]
+                    else:
+                        out[eye_idx, r_idx, ch_idx] = act
+
+    @njit(cache=True, fastmath=True, parallel=True)
     def _retina_batch_fullbody_kernel_numba(
         eye_x,
         eye_y,
@@ -1222,6 +1392,70 @@ def retina_batch_sector_distance_kernel(
             eye_x, eye_y, agent_angle, vision_radius, half_fov,
             cand_start, cand_count, cand_x, cand_y, cand_r, self_flags,
             int(retina_count), out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_global_sector_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    owner_ids: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    cand_ids: np.ndarray,
+    cand_color_r: np.ndarray,
+    cand_color_g: np.ndarray,
+    cand_color_b: np.ndarray,
+    channel_codes: np.ndarray,
+    retina_count: int,
+    out: np.ndarray,
+    distance_out: np.ndarray,
+) -> bool:
+    """Fill sector retina outputs against one shared candidate snapshot."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - optional dependency
+        return False
+    try:  # pragma: no cover - optional dependency
+        _retina_global_sector_kernel_numba(
+            eye_x, eye_y, owner_ids, agent_angle, vision_radius, half_fov,
+            cand_x, cand_y, cand_r, cand_ids, cand_color_r, cand_color_g,
+            cand_color_b, channel_codes, int(retina_count), out, distance_out,
+        )
+        return True
+    except Exception:
+        _NUMBA_RUNTIME_FAILED = True
+        return False
+
+
+def retina_global_sector_distance_kernel(
+    eye_x: np.ndarray,
+    eye_y: np.ndarray,
+    owner_ids: np.ndarray,
+    agent_angle: np.ndarray,
+    vision_radius: np.ndarray,
+    half_fov: np.ndarray,
+    cand_x: np.ndarray,
+    cand_y: np.ndarray,
+    cand_r: np.ndarray,
+    cand_ids: np.ndarray,
+    retina_count: int,
+    out: np.ndarray,
+) -> bool:
+    """Fill distance-only sector outputs against one candidate snapshot."""
+    global _NUMBA_RUNTIME_FAILED
+    if not (NUMBA_AVAILABLE and not _NUMBA_RUNTIME_FAILED):  # pragma: no cover - optional dependency
+        return False
+    try:  # pragma: no cover - optional dependency
+        _retina_global_sector_distance_kernel_numba(
+            eye_x, eye_y, owner_ids, agent_angle, vision_radius, half_fov,
+            cand_x, cand_y, cand_r, cand_ids, int(retina_count), out,
         )
         return True
     except Exception:
