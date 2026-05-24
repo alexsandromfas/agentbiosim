@@ -837,6 +837,7 @@ class SimulationUI(QMainWindow):
 
         add_detail_group("Identidade", [
             ('species', 'Tipo'),
+            ('brain_type', 'Rede neural'),
             ('selected_count', 'Selecionados'),
             ('age', 'Idade'),
             ('position', 'Posicao'),
@@ -1140,6 +1141,7 @@ class SimulationUI(QMainWindow):
 
         labels = self._agent_detail_labels
         labels['species'].setText("Organismo legado" if getattr(agent, 'is_predator', False) else "Organismo")
+        labels['brain_type'].setText(str(getattr(brain, 'display_name', getattr(brain, 'brain_type', 'MLP padrao')) if brain is not None else "-"))
         labels['selected_count'].setText(str(selected_count or 1))
         labels['energy'].setText(self._short_float(getattr(agent, 'energy', 0.0), 2))
         labels['speed'].setText(self._short_float(speed, 2))
@@ -1410,6 +1412,7 @@ class SimulationUI(QMainWindow):
         self._add_bool_menu_action(view_menu, "Mostrar visao dos organismos", 'bacteria_show_vision')
         self._add_bool_menu_action(view_menu, "Mostrar visao de organismos legados", 'predator_show_vision')
         self._add_bool_menu_action(view_menu, "Ver spatial hash", 'show_spatial_hash')
+        self._add_bool_menu_action(view_menu, "Rastrear agente selecionado", 'camera_follow_selected_agent')
         neural_layout_menu = view_menu.addMenu("Layout da rede neural")
         self._build_neural_layout_menu(neural_layout_menu)
 
@@ -1429,6 +1432,9 @@ class SimulationUI(QMainWindow):
         act_vision_system = QAction("Sistema de Visao", self)
         act_vision_system.triggered.connect(self.open_vision_system_window)
         pref_menu.addAction(act_vision_system)
+        act_neural_networks = QAction("Redes neurais", self)
+        act_neural_networks.triggered.connect(self.open_neural_network_window)
+        pref_menu.addAction(act_neural_networks)
         chart_menu = pref_menu.addMenu("Grafico")
         self._build_chart_sampling_menu(chart_menu)
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
@@ -1840,6 +1846,122 @@ class SimulationUI(QMainWindow):
         layout.addStretch(1)
         dlg.show()
 
+    def open_neural_network_window(self):
+        created = self._make_preferences_dialog('_neural_network_dialog', "Redes neurais", 640)
+        if created is None:
+            return
+        dlg, layout = created
+        card_style = self._card_style()
+
+        g_mode = QGroupBox("Tipo de cerebro")
+        g_mode.setStyleSheet(card_style)
+        grid = QGridLayout(g_mode)
+        row = 0
+        combo = QComboBox()
+        options = [
+            ("MLP padrao", "mlp"),
+            ("MLP com gates", "gated_mlp"),
+            ("MLP com atalho entrada -> saida", "shortcut_mlp"),
+            ("MLP modulada (gates + atalho)", "modulated_mlp"),
+            ("RNN simples com memoria curta", "simple_rnn"),
+        ]
+        for label, value in options:
+            combo.addItem(label, value)
+        idx = combo.findData(str(self.params.get('neural_network_type', 'mlp')))
+        combo.setCurrentIndex(max(0, idx))
+        row = self._add_grid_param(grid, row, "Rede neural:", 'neural_network_type', combo)
+        layout.addWidget(g_mode)
+
+        stack = QStackedWidget()
+        self._neural_network_stack = stack
+
+        def add_panel(title: str, rows: list[tuple[str, str, QWidget]], note: str):
+            box = QGroupBox(title)
+            box.setStyleSheet(card_style)
+            inner = QVBoxLayout(box)
+            form = QGridLayout()
+            r = 0
+            for label, name, widget in rows:
+                r = self._add_grid_param(form, r, label, name, widget)
+            inner.addLayout(form)
+            if note:
+                hint = QLabel(note)
+                hint.setWordWrap(True)
+                hint.setStyleSheet("color:#9fb1c4;")
+                inner.addWidget(hint)
+            stack.addWidget(box)
+
+        add_panel(
+            "MLP padrao",
+            [],
+            "Rede feedforward atual. Usa as camadas e neuronios definidos no editor genetico e serve como linha de base para comparar os outros cerebros.",
+        )
+
+        rows = []
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_init', 1.0)); rows.append(("Gate inicial:", 'neural_gate_init', w))
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_min', 0.0)); rows.append(("Gate minimo:", 'neural_gate_min', w))
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_max', 2.0)); rows.append(("Gate maximo:", 'neural_gate_max', w))
+        w = _spin_double(-1.0, 1.0, 0.001, 3); w.setValue(self.params.get('neural_gate_mutation_rate', -1.0)); rows.append(("Taxa mutacao gates (-1 usa geral):", 'neural_gate_mutation_rate', w))
+        w = _spin_double(-1.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_gate_mutation_strength', -1.0)); rows.append(("Forca mutacao gates (-1 usa geral):", 'neural_gate_mutation_strength', w))
+        add_panel(
+            "MLP com gates",
+            rows,
+            "Cada neuronio oculto ganha um modulador multiplicativo. Isso permite vias quase desligadas ou amplificadas sem mudar a arquitetura retangular.",
+        )
+
+        rows = []
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_shortcut_init_std', 0.05)); rows.append(("Inicializacao atalho:", 'neural_shortcut_init_std', w))
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_shortcut_scale', 0.25)); rows.append(("Escala do atalho:", 'neural_shortcut_scale', w))
+        w = _spin_double(-1.0, 1.0, 0.001, 3); w.setValue(self.params.get('neural_shortcut_mutation_rate', -1.0)); rows.append(("Taxa mutacao atalho (-1 usa geral):", 'neural_shortcut_mutation_rate', w))
+        w = _spin_double(-1.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_shortcut_mutation_strength', -1.0)); rows.append(("Forca mutacao atalho (-1 usa geral):", 'neural_shortcut_mutation_strength', w))
+        add_panel(
+            "MLP com atalho",
+            rows,
+            "Adiciona conexoes diretas da entrada para a saida. Funciona como reflexo rapido sem remover a rede profunda.",
+        )
+
+        rows = []
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_init', 1.0)); rows.append(("Gate inicial:", 'neural_gate_init', w))
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_min', 0.0)); rows.append(("Gate minimo:", 'neural_gate_min', w))
+        w = _spin_double(0.0, 10.0, 0.05, 3); w.setValue(self.params.get('neural_gate_max', 2.0)); rows.append(("Gate maximo:", 'neural_gate_max', w))
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_shortcut_init_std', 0.05)); rows.append(("Inicializacao atalho:", 'neural_shortcut_init_std', w))
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_shortcut_scale', 0.25)); rows.append(("Escala do atalho:", 'neural_shortcut_scale', w))
+        add_panel(
+            "MLP modulada",
+            rows,
+            "Combina gates e atalho entrada->saida. E o melhor candidato inicial para mais expressividade mantendo batch e custo controlado.",
+        )
+
+        rows = []
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_rnn_recurrent_init_std', 0.08)); rows.append(("Inicializacao recorrente:", 'neural_rnn_recurrent_init_std', w))
+        w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_rnn_recurrent_scale', 0.35)); rows.append(("Escala recorrente:", 'neural_rnn_recurrent_scale', w))
+        w = _spin_double(0.0, 0.999, 0.01, 3); w.setValue(self.params.get('neural_rnn_memory_decay', 0.6)); rows.append(("Decaimento da memoria:", 'neural_rnn_memory_decay', w))
+        w = _spin_double(0.01, 10.0, 0.05, 3); w.setValue(self.params.get('neural_rnn_state_clip', 1.0)); rows.append(("Limite do estado:", 'neural_rnn_state_clip', w))
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('neural_rnn_reset_state_on_copy', True))); rows.append(("Resetar memoria no filho:", 'neural_rnn_reset_state_on_copy', cb))
+        w = _spin_double(-1.0, 1.0, 0.001, 3); w.setValue(self.params.get('neural_rnn_mutation_rate', -1.0)); rows.append(("Taxa mutacao recorrente (-1 usa geral):", 'neural_rnn_mutation_rate', w))
+        w = _spin_double(-1.0, 10.0, 0.01, 3); w.setValue(self.params.get('neural_rnn_mutation_strength', -1.0)); rows.append(("Forca mutacao recorrente (-1 usa geral):", 'neural_rnn_mutation_strength', w))
+        add_panel(
+            "RNN simples",
+            rows,
+            "Usa a primeira camada oculta como memoria curta. O visualizador mostra essa camada de forma simplificada como camada recorrente.",
+        )
+
+        def sync_stack():
+            index = max(0, combo.currentIndex())
+            stack.setCurrentIndex(index)
+        combo.currentIndexChanged.connect(lambda _idx: sync_stack())
+        sync_stack()
+        layout.addWidget(stack)
+
+        actions = QHBoxLayout()
+        btn_apply = QPushButton("Aplicar rede neural")
+        btn_apply.clicked.connect(self.apply_simulation_params)
+        actions.addWidget(btn_apply)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        layout.addStretch(1)
+        dlg.show()
+
     def open_new_changes_window(self):
         created = self._make_preferences_dialog('_new_changes_dialog', "Novas mudancas", 580)
         if created is None:
@@ -2068,6 +2190,23 @@ class SimulationUI(QMainWindow):
             'retina_bins_projection': 'Define quantos setores um objeto ativa. Centro apenas usa o centro; Centro + bordas considera as bordas angulares; Tamanho aparente espalha objetos grandes ou proximos.',
             'retina_bins_candidate_limit': 'Limita quantos objetos proximos cada organismo avalia no modo bins. Zero significa ilimitado. Valores baixos evitam travamentos, mas podem ignorar objetos relevantes.',
             'retina_bins_obstacles_block_vision': 'No modo bins, obstaculos podem bloquear objetos atras deles. E mais realista, mas custa mais processamento.',
+            'neural_network_type': 'Escolhe o tipo de cerebro usado ao criar ou recriar redes neurais. A arquitetura basica continua vindo do editor genetico.',
+            'neural_gate_init': 'Valor inicial dos gates. 1.0 preserva a intensidade normal; perto de 0 silencia neuronios; acima de 1 amplifica.',
+            'neural_gate_min': 'Limite inferior dos gates apos mutacoes.',
+            'neural_gate_max': 'Limite superior dos gates apos mutacoes.',
+            'neural_gate_mutation_rate': 'Taxa de mutacao dos gates. Use -1 para reutilizar a taxa geral do editor genetico.',
+            'neural_gate_mutation_strength': 'Forca da mutacao dos gates. Use -1 para reutilizar a forca geral do editor genetico.',
+            'neural_shortcut_init_std': 'Escala inicial dos pesos do atalho direto entrada->saida.',
+            'neural_shortcut_scale': 'Multiplicador global do atalho entrada->saida. Valores baixos criam reflexos sem dominar a rede profunda.',
+            'neural_shortcut_mutation_rate': 'Taxa de mutacao dos pesos do atalho. Use -1 para reutilizar a taxa geral.',
+            'neural_shortcut_mutation_strength': 'Forca de mutacao dos pesos do atalho. Use -1 para reutilizar a forca geral.',
+            'neural_rnn_recurrent_init_std': 'Escala inicial dos pesos recorrentes da RNN simples.',
+            'neural_rnn_recurrent_scale': 'Quanto o estado anterior influencia a primeira camada oculta.',
+            'neural_rnn_memory_decay': 'Quanto da memoria anterior permanece a cada passo. Maior = memoria mais lenta.',
+            'neural_rnn_state_clip': 'Limite numerico do estado interno da RNN para evitar explosao.',
+            'neural_rnn_reset_state_on_copy': 'Quando um filho nasce, zera a memoria momentanea em vez de herdar o estado instantaneo do pai.',
+            'neural_rnn_mutation_rate': 'Taxa de mutacao dos pesos recorrentes. Use -1 para reutilizar a taxa geral.',
+            'neural_rnn_mutation_strength': 'Forca de mutacao dos pesos recorrentes. Use -1 para reutilizar a forca geral.',
             'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
@@ -2098,6 +2237,7 @@ class SimulationUI(QMainWindow):
             'reproduction_min_age': 'Idade minima para um agente poder reproduzir. Ajuda a evitar reproducao imediata de recem-nascidos.',
             'reproduction_cooldown': 'Tempo minimo entre duas reproducoes do mesmo agente.',
             'show_selected_details': 'Mostra o painel lateral do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
+            'camera_follow_selected_agent': 'Quando existe um unico agente selecionado, a camera acompanha esse organismo mantendo o zoom e a posicao de tela escolhida por pan.',
             'enable_brain_activations': 'Habilita calculo e exibicao das ativacoes neurais do agente selecionado. E util para diagnostico, mas tem custo extra.',
             'debug_tracebacks': 'Mostra tracebacks completos em erros da UI. Use para depurar; desligado deixa mensagens mais curtas.',
             'auto_export_substrate': 'Ativa autosave de projeto .biosim completo em intervalos regulares.',
@@ -3902,6 +4042,15 @@ class SimulationUI(QMainWindow):
             'retina_bins_distance_distribution', 'retina_bins_distance_falloff',
             'retina_bins_projection', 'retina_bins_candidate_limit',
             'retina_bins_obstacles_block_vision',
+            'neural_network_type', 'neural_gate_init', 'neural_gate_min',
+            'neural_gate_max', 'neural_gate_mutation_rate',
+            'neural_gate_mutation_strength', 'neural_shortcut_init_std',
+            'neural_shortcut_scale', 'neural_shortcut_mutation_rate',
+            'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std',
+            'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay',
+            'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy',
+            'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength',
+            'camera_follow_selected_agent',
         }
 
     def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
@@ -3959,7 +4108,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'neural_network_type', 'neural_gate_init', 'neural_gate_min', 'neural_gate_max', 'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_init_std', 'neural_shortcut_scale', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std', 'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay', 'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'render_enabled', 'simple_render', 'show_spatial_hash', 'camera_follow_selected_agent', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -4026,6 +4175,15 @@ class SimulationUI(QMainWindow):
                 self.params.set(name, value)
             if name == 'simple_render':
                 self.engine.send_command('change_renderer', simple=bool(value))
+            if name.startswith('neural_'):
+                try:
+                    from .brain import clear_multi_brain_cache
+                    clear_multi_brain_cache()
+                except Exception:
+                    pass
+                viewer = getattr(self, '_agent_neural_view', None)
+                if viewer is not None:
+                    viewer.set_agent(getattr(self.engine, 'selected_agent', None))
             self._schedule_ui_params_save()
         except Exception as e:
             self._log_exception(f"Erro callback {name}", e)
@@ -4077,7 +4235,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','neural_network_type','neural_gate_init','neural_gate_min','neural_gate_max','neural_gate_mutation_rate','neural_gate_mutation_strength','neural_shortcut_init_std','neural_shortcut_scale','neural_shortcut_mutation_rate','neural_shortcut_mutation_strength','neural_rnn_recurrent_init_std','neural_rnn_recurrent_scale','neural_rnn_memory_decay','neural_rnn_state_clip','neural_rnn_reset_state_on_copy','neural_rnn_mutation_rate','neural_rnn_mutation_strength','render_enabled','simple_render','show_spatial_hash','camera_follow_selected_agent','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -4399,10 +4557,15 @@ class SimulationUI(QMainWindow):
             if not (set(param_names) & structural_names):
                 return []
         desired = self._desired_agent_brain_sizes(species)
+        desired_brain_type = str(self.params.get('neural_network_type', 'mlp'))
         changed = []
         for agent in agents:
             brain = getattr(agent, 'brain', None)
             current = tuple(getattr(brain, 'sizes', ()) or ())
+            current_type = str(getattr(brain, 'brain_type', 'mlp') or 'mlp')
+            if current_type != desired_brain_type:
+                changed.append(agent)
+                continue
             can_resize_input = (
                 brain is not None
                 and len(current) == len(desired)
@@ -4525,11 +4688,21 @@ class SimulationUI(QMainWindow):
 
             brain = getattr(agent, 'brain', None)
             current_sizes = tuple(getattr(brain, 'sizes', ()) or ())
-            if apply_brain and current_sizes != desired_sizes:
+            current_type = str(getattr(brain, 'brain_type', 'mlp') or 'mlp')
+            desired_type = str(self.params.get('neural_network_type', 'mlp'))
+            type_changed = current_type != desired_type
+            if apply_brain and (current_sizes != desired_sizes or type_changed):
                 if brain is not None and len(current_sizes) == len(desired_sizes) and current_sizes[1:] == desired_sizes[1:] and hasattr(brain, 'resize_input'):
-                    brain.resize_input(desired_sizes[0])
-                    brain.version = int(getattr(brain, 'version', 0)) + 1
-                    stats['brains_resized'] += 1
+                    if type_changed:
+                        if rebuild_brain:
+                            agent.brain = helpers['brain'](self.params)
+                            stats['brains_rebuilt'] += 1
+                        else:
+                            stats['brains_kept'] += 1
+                    else:
+                        brain.resize_input(desired_sizes[0])
+                        brain.version = int(getattr(brain, 'version', 0)) + 1
+                        stats['brains_resized'] += 1
                 elif rebuild_brain:
                     agent.brain = helpers['brain'](self.params)
                     stats['brains_rebuilt'] += 1
@@ -4898,7 +5071,7 @@ class SimulationUI(QMainWindow):
                 }
                 for param_name, default in bool_params.items():
                     rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
-                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision', 'neural_view_dense_layout']:
+                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision', 'camera_follow_selected_agent', 'neural_view_dense_layout']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, True if menu_param == 'render_enabled' else False)}
                 rows_by_name['render_resolution_scale'] = {
                     'name': 'render_resolution_scale',
@@ -4935,6 +5108,23 @@ class SimulationUI(QMainWindow):
                     'brain_cache_disable': False,
                     'use_numba_brain_forward': False,
                     'numba_brain_forward_min_batch': 256,
+                    'neural_network_type': 'mlp',
+                    'neural_gate_init': 1.0,
+                    'neural_gate_min': 0.0,
+                    'neural_gate_max': 2.0,
+                    'neural_gate_mutation_rate': -1.0,
+                    'neural_gate_mutation_strength': -1.0,
+                    'neural_shortcut_init_std': 0.05,
+                    'neural_shortcut_scale': 0.25,
+                    'neural_shortcut_mutation_rate': -1.0,
+                    'neural_shortcut_mutation_strength': -1.0,
+                    'neural_rnn_recurrent_init_std': 0.08,
+                    'neural_rnn_recurrent_scale': 0.35,
+                    'neural_rnn_memory_decay': 0.6,
+                    'neural_rnn_state_clip': 1.0,
+                    'neural_rnn_reset_state_on_copy': True,
+                    'neural_rnn_mutation_rate': -1.0,
+                    'neural_rnn_mutation_strength': -1.0,
                     'use_numba_locomotion_energy': False,
                     'agents_inertia': 1.0,
                     'smooth_locomotion_enabled': False,
@@ -5208,6 +5398,17 @@ class SimulationUI(QMainWindow):
         except Exception:
             pass
         if brain is not None and hasattr(brain,'sizes'):
+            try:
+                from .brain import brain_to_data
+                brain_data = brain_to_data(brain)
+                add('brain_type', brain_data.get('brain_type', 'mlp'))
+                add('brain_type_label', brain_data.get('brain_type_label', 'MLP padrao'))
+                for extra_key, extra_value in brain_data.items():
+                    if extra_key in {'brain_type', 'brain_type_label', 'brain_sizes', 'brain_weights', 'brain_biases', 'brain_version'}:
+                        continue
+                    add(extra_key, json.dumps(extra_value) if isinstance(extra_value, (list, dict)) else extra_value)
+            except Exception:
+                pass
             add('brain_sizes', json.dumps(brain.sizes)); add('brain_version', getattr(brain,'version',0))
             for idx,(W,B) in enumerate(zip(brain.weights, brain.biases)):
                 try:
@@ -5338,6 +5539,8 @@ class SimulationUI(QMainWindow):
                 self._set_widget_value(name, value)
 
         set_param('agent_template_name', str(pick('agent_name', default=fallback_name) or fallback_name))
+        if pick('brain_type', default=None):
+            set_param('neural_network_type', str(pick('brain_type', default='mlp') or 'mlp'))
         set_param('bacteria_body_size', as_float(pick('r', default=self.params.get('bacteria_body_size', 9.0)), 9.0))
         set_param('bacteria_initial_energy', as_float(pick('energy', default=self.params.get('bacteria_initial_energy', 100.0)), 100.0))
         set_param('bacteria_death_energy', as_float(pick('energy_death_energy', 'death_energy', default=self.params.get('bacteria_death_energy', 50.0)), 50.0))
@@ -5584,6 +5787,15 @@ class SimulationUI(QMainWindow):
                 except Exception:
                     pass
                 if brain and hasattr(brain,'sizes'):
+                    try:
+                        from .brain import brain_to_data
+                        brain_data = brain_to_data(brain)
+                        for extra_key, extra_value in brain_data.items():
+                            if extra_key in {'brain_sizes', 'brain_weights', 'brain_biases', 'brain_version'}:
+                                continue
+                            ad[extra_key] = extra_value
+                    except Exception:
+                        pass
                     ad['brain_sizes'] = list(brain.sizes); ad['brain_version'] = getattr(brain,'version',0)
                     try:
                         ad['brain_weights'] = [w.tolist() if hasattr(w,'tolist') else list(w) for w in brain.weights]
@@ -5807,7 +6019,7 @@ class SimulationUI(QMainWindow):
                     food = create_random_food(self.engine.entities['foods'], self.params, world.width, world.height)
                     if food is not None and self.engine.can_place_circle(food.x, food.y, food.r):
                         self.engine.entities['foods'].append(food)
-            from .brain import NeuralNet
+            from .brain import brain_from_data
             from .sensors import RetinaSensor
             from .actuators import Locomotion, EnergyModel
             from .entities import Bacteria, Predator
@@ -5815,13 +6027,7 @@ class SimulationUI(QMainWindow):
                 sizes = ad.get('brain_sizes') or []
                 brain = None
                 if sizes:
-                    brain = NeuralNet(list(sizes), init_std=0.01)
-                    try:
-                        bw = ad.get('brain_weights', []); bb = ad.get('brain_biases', [])
-                        if bw and bb and len(bw)==len(bb):
-                            brain.weights = bw; brain.biases = bb
-                        brain.version = int(ad.get('brain_version', getattr(brain, 'version', 0)))
-                    except Exception: pass
+                    brain = brain_from_data(ad, params=self.params, init_std=0.01)
                 raw_channels = ad.get('sensor_channels', ('d',))
                 if isinstance(raw_channels, str):
                     try:

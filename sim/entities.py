@@ -685,7 +685,7 @@ def create_random_bacteria(existing_entities: list, params: 'Params',
                           world_w: float, world_h: float,
                           at: Optional[tuple] = None) -> Bacteria:
     """Cria bactéria aleatória evitando sobreposições."""
-    from .brain import NeuralNet
+    from .brain import create_brain
     from .sensors import retina_input_size
     from .sensors import RetinaSensor, active_retina_channels
     from .actuators import Locomotion, EnergyModel
@@ -738,7 +738,7 @@ def create_random_predator(existing_entities: list, params: 'Params',
                           world_w: float, world_h: float,
                           at: Optional[tuple] = None) -> Predator:
     """Cria predador aleatório evitando sobreposições."""
-    from .brain import NeuralNet
+    from .brain import create_brain
     from .sensors import RetinaSensor, active_retina_channels
     from .actuators import Locomotion, EnergyModel
     
@@ -842,7 +842,7 @@ def create_random_food(existing_food: list, params: 'Params',
 # Helper functions para criar componentes
 def _create_bacteria_brain(params: 'Params'):
     """Cria cérebro para bactéria baseado nos parâmetros."""
-    from .brain import NeuralNet
+    from .brain import create_brain
     
     from .sensors import retina_input_size
     input_size = retina_input_size(params, 'bacteria', params.get('bacteria_retina_count', 18))
@@ -860,7 +860,7 @@ def _create_bacteria_brain(params: 'Params'):
     
     layer_sizes.append(_brain_output_size(params, 'bacteria'))
     
-    return NeuralNet(layer_sizes, init_std=1.0)
+    return create_brain(layer_sizes, params=params, init_std=1.0)
 
 
 def _create_bacteria_sensor(params: 'Params'):
@@ -916,7 +916,7 @@ def _create_bacteria_energy_model(params: 'Params'):
 
 def _create_predator_brain(params: 'Params'):
     """Cria cérebro para predador.""" 
-    from .brain import NeuralNet
+    from .brain import create_brain
     
     from .sensors import retina_input_size
     input_size = retina_input_size(params, 'predator', params.get('predator_retina_count', 18))
@@ -934,7 +934,7 @@ def _create_predator_brain(params: 'Params'):
     
     layer_sizes.append(_brain_output_size(params, 'predator'))
     
-    return NeuralNet(layer_sizes, init_std=1.0)
+    return create_brain(layer_sizes, params=params, init_std=1.0)
 
 
 def _create_predator_sensor(params: 'Params'):

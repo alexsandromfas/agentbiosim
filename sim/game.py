@@ -41,6 +41,8 @@ class PygameView:
         self.selection_drag_tool = None
         self.selection_start_world = None
         self.selection_lasso_points = []
+        self._follow_agent = None
+        self._follow_screen_pos: tuple[float, float] | None = None
         
         # Pygame
         self.screen: Optional[pygame.Surface] = None
@@ -147,9 +149,11 @@ class PygameView:
             state_lock = getattr(self.engine, 'state_lock', None)
             if state_lock is None:
                 self.engine.step(real_dt)
+                self._update_camera_follow()
             else:
                 with state_lock:
                     self.engine.step(real_dt)
+                    self._update_camera_follow()
             
             # Renderiza
             if self.screen and bool(self.engine.params.get('render_enabled', True)):
@@ -229,6 +233,7 @@ class PygameView:
         # Aplica zoom na posição do mouse
         mouse_x, mouse_y = pygame.mouse.get_pos()
         self.engine.camera.zoom_at(mouse_x, mouse_y, zoom_factor)
+        self._capture_follow_anchor()
     
     def _handle_mouse_down(self, event):
         """Trata clique do mouse."""
@@ -322,6 +327,7 @@ class PygameView:
             
             self.engine.camera.move(world_dx, world_dy)
             self.drag_last_pos = event.pos
+            self._capture_follow_anchor()
         elif self.drawing_obstacle and self.active_tool == 'draw':
             world_x, world_y = self.engine.camera.screen_to_world(event.pos[0], event.pos[1])
             last_x, last_y = self.last_brush_world_pos or (world_x, world_y)
@@ -362,6 +368,7 @@ class PygameView:
         elif event.key == pygame.K_f:
             # Fit world in view
             self.engine.camera.fit_world(self.engine.world, self.screen_width, self.screen_height)
+            self._capture_follow_anchor()
         
         elif event.key == pygame.K_t:
             # Toggle renderer
@@ -392,12 +399,55 @@ class PygameView:
         
         if keys[pygame.K_w] or keys[pygame.K_UP]:
             self.engine.camera.move(0, -move_speed / 60.0)  # Por frame
+            self._capture_follow_anchor()
         if keys[pygame.K_s] or keys[pygame.K_DOWN]:
             self.engine.camera.move(0, move_speed / 60.0)
+            self._capture_follow_anchor()
         if keys[pygame.K_a] or keys[pygame.K_LEFT]:
             self.engine.camera.move(-move_speed / 60.0, 0)
+            self._capture_follow_anchor()
         if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
             self.engine.camera.move(move_speed / 60.0, 0)
+            self._capture_follow_anchor()
+
+    def _selected_single_agent(self):
+        selected = getattr(self.engine, 'selected_agents', set()) or set()
+        agent = getattr(self.engine, 'selected_agent', None)
+        if agent is not None and len(selected) <= 1 and agent in getattr(self.engine, 'all_agents', []):
+            return agent
+        if len(selected) == 1:
+            only = next(iter(selected))
+            if only in getattr(self.engine, 'all_agents', []):
+                return only
+        return None
+
+    def _capture_follow_anchor(self):
+        if self._follow_agent is None:
+            return
+        if self._follow_agent not in getattr(self.engine, 'all_agents', []):
+            self._follow_agent = None
+            self._follow_screen_pos = None
+            return
+        sx, sy = self.engine.camera.world_to_screen(self._follow_agent.x, self._follow_agent.y)
+        self._follow_screen_pos = (float(sx), float(sy))
+
+    def _update_camera_follow(self):
+        if not bool(self.engine.params.get('camera_follow_selected_agent', True)):
+            self._follow_agent = None
+            self._follow_screen_pos = None
+            return
+        agent = self._selected_single_agent()
+        if agent is None:
+            self._follow_agent = None
+            self._follow_screen_pos = None
+            return
+        if agent is not self._follow_agent or self._follow_screen_pos is None:
+            self._follow_agent = agent
+            self._follow_screen_pos = (self.screen_width * 0.5, self.screen_height * 0.5)
+        zoom = max(1e-9, float(self.engine.camera.zoom))
+        sx, sy = self._follow_screen_pos
+        self.engine.camera.x = float(agent.x) - float(sx) / zoom
+        self.engine.camera.y = float(agent.y) - float(sy) / zoom
 
 
 def bootstrap_pygame_simulation(params: Params, width: int = 1000, height: int = 700,

@@ -606,7 +606,7 @@ class Engine:
     def reset_label_brains(self, label_id: int) -> int:
         """Reinicializa pesos e biases dos agentes vivos de uma label."""
         try:
-            from .brain import NeuralNet, clear_multi_brain_cache
+            from .brain import create_brain, clear_multi_brain_cache
         except Exception:
             return 0
 
@@ -619,7 +619,12 @@ class Engine:
                 sizes = list(getattr(brain, 'sizes', []) or [])
                 if len(sizes) < 2:
                     continue
-                agent.brain = NeuralNet(sizes, init_std=1.0)
+                agent.brain = create_brain(
+                    sizes,
+                    params=self.params,
+                    init_std=1.0,
+                    brain_type=getattr(brain, 'brain_type', self.params.get('neural_network_type', 'mlp')),
+                )
                 agent.last_brain_output = []
                 agent.last_brain_activations = []
                 reset_count += 1
@@ -1072,9 +1077,14 @@ class Engine:
                         round(float(getattr(energy_model, 'vmax_ref', 0.0) or 0.0), 6),
                         round(float(getattr(energy_model, 'energy_cap', 0.0) or 0.0), 6),
                     )
+                brain = getattr(agent, 'brain', None)
+                brain_key = brain.batch_key() if hasattr(brain, 'batch_key') else (
+                    getattr(brain, 'brain_type', 'mlp'),
+                    tuple(getattr(brain, 'sizes', ()) or ()),
+                )
                 key = (
                     type(agent),
-                    tuple(agent.brain.sizes) if hasattr(agent.brain, 'sizes') else None,
+                    brain_key,
                     sensor_key,
                     locomotion_key,
                     energy_key,
@@ -1403,7 +1413,7 @@ class Engine:
         """Cria e insere um agente a partir de um dicionário de dados carregados."""
         try:
             agent_type = data.get('type','bacteria')
-            from .brain import NeuralNet
+            from .brain import brain_from_data
             from .sensors import RetinaSensor
             from .actuators import Locomotion, EnergyModel
             from .entities import Bacteria, Predator
@@ -1411,14 +1421,17 @@ class Engine:
             import math as _math
             # Cérebro
             sizes = _json.loads(data.get('brain_sizes','[]'))
-            brain = NeuralNet(sizes if sizes else [1,2], init_std=0.01)
+            brain_data = dict(data)
+            brain_data['brain_sizes'] = sizes if sizes else [1, 2]
             weights=[]; biases=[]; idx=0
             while True:
                 w_key=f'brain_weight_{idx}'; b_key=f'brain_bias_{idx}'
                 if w_key not in data or b_key not in data: break
                 weights.append(_json.loads(data[w_key])); biases.append(_json.loads(data[b_key])); idx+=1
             if weights and biases:
-                brain.weights = weights; brain.biases = biases
+                brain_data['brain_weights'] = weights
+                brain_data['brain_biases'] = biases
+            brain = brain_from_data(brain_data, params=self.params, init_std=0.01)
             # Sensor
             def _f(k, default=0.0):
                 try: return float(data.get(k, default))
@@ -1573,6 +1586,17 @@ class Engine:
 
         brain = getattr(agent, 'brain', None)
         if brain is not None and hasattr(brain, 'sizes'):
+            try:
+                from .brain import brain_to_data
+                brain_data = brain_to_data(brain)
+                data['brain_type'] = str(brain_data.get('brain_type', 'mlp'))
+                data['brain_type_label'] = str(brain_data.get('brain_type_label', 'MLP padrao'))
+                for extra_key, extra_value in brain_data.items():
+                    if extra_key in {'brain_type', 'brain_type_label', 'brain_sizes', 'brain_weights', 'brain_biases', 'brain_version'}:
+                        continue
+                    data[extra_key] = json.dumps(extra_value) if isinstance(extra_value, (list, dict)) else str(extra_value)
+            except Exception:
+                pass
             data['brain_sizes'] = json.dumps(list(getattr(brain, 'sizes', [])))
             add('brain_version', getattr(brain, 'version', 0))
             for idx, (weights, biases) in enumerate(zip(getattr(brain, 'weights', []), getattr(brain, 'biases', []))):

@@ -104,10 +104,14 @@ class NeuralViewConfig:
     retina_groups: int
     channel_slots: tuple[ChannelSlot, ...]
     dense_layout: str = "fixed"
+    brain_type: str = "mlp"
+    brain_label: str = "MLP padrao"
 
     @classmethod
     def from_agent(cls, agent: Any, dense_layout: str = "fixed") -> "NeuralViewConfig":
         brain = getattr(agent, "brain", None)
+        brain_type = str(getattr(brain, "brain_type", "mlp") or "mlp")
+        brain_label = str(getattr(brain, "display_name", brain_type) or brain_type)
         sizes = tuple(max(1, int(size)) for size in (getattr(brain, "sizes", []) or []))
         if len(sizes) < 2:
             sizes = (1, 1)
@@ -127,7 +131,14 @@ class NeuralViewConfig:
             else:
                 ray_count = sizes[0]
                 slots = (ChannelSlot(raw="input", label="I", source_offset=0),)
-        return cls(layer_sizes=sizes, retina_groups=ray_count, channel_slots=slots, dense_layout=_dense_layout(dense_layout))
+        return cls(
+            layer_sizes=sizes,
+            retina_groups=ray_count,
+            channel_slots=slots,
+            dense_layout=_dense_layout(dense_layout),
+            brain_type=brain_type,
+            brain_label=brain_label,
+        )
 
     @property
     def input_size(self) -> int:
@@ -172,6 +183,7 @@ class NeuronItem(QGraphicsEllipseItem):
         self.value_index = int(value_index)
         self.channel = channel
         self.activation = 0.0
+        self.gate_value: float | None = None
         self.accent_color = _channel_color(channel) if role == "retina" else CYAN
         self.setZValue(5)
         self.setAcceptHoverEvents(True)
@@ -205,6 +217,10 @@ class NeuronItem(QGraphicsEllipseItem):
         self._position_texts()
         self.update()
 
+    def set_gate(self, value: float | None):
+        self.gate_value = None if value is None else float(value)
+        self.update()
+
     def paint(self, painter: QPainter, option, widget=None):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         mag = abs(self.activation)
@@ -221,6 +237,12 @@ class NeuronItem(QGraphicsEllipseItem):
         painter.setPen(QPen(QColor(220, 236, 247, int(120 + 110 * mag)), 1.4))
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(self.rect().adjusted(2, 2, -2, -2))
+        if self.gate_value is not None and self.role == "hidden":
+            gate_mag = _clamp(float(self.gate_value) / 2.0, 0.0, 1.0)
+            gate_color = _mix(RED, GREEN, gate_mag)
+            gate_color.setAlpha(170)
+            painter.setPen(QPen(gate_color, 2.2))
+            painter.drawEllipse(self.rect().adjusted(-4, -4, 4, 4))
 
 
 class WeightItem(QGraphicsPathItem):
@@ -302,6 +324,7 @@ class AgentNeuralNetworkView(QGraphicsView):
             tuple(config.layer_sizes),
             config.retina_groups,
             tuple((slot.raw, slot.source_offset) for slot in config.channel_slots),
+            config.brain_type,
             int(getattr(brain, "version", 0) or 0),
             config.dense_layout,
         )
@@ -417,7 +440,7 @@ class AgentNeuralNetworkView(QGraphicsView):
         legend.setPos(inner_left + 4, 72)
         self.scene.addItem(legend)
         channel_text = " / ".join(slot.label for slot in self.config.channel_slots)
-        meta = QGraphicsSimpleTextItem(f"{self.config.retina_groups} retinas x {len(self.config.channel_slots)} canais ({channel_text}) = {self.config.input_size} entradas")
+        meta = QGraphicsSimpleTextItem(f"{self.config.brain_label} | {self.config.retina_groups} retinas x {len(self.config.channel_slots)} canais ({channel_text}) = {self.config.input_size} entradas")
         meta.setFont(QFont("Segoe UI", 9))
         meta.setBrush(QColor(154, 184, 204))
         meta.setPos(width - meta.boundingRect().width() - 50, 52)
@@ -432,7 +455,14 @@ class AgentNeuralNetworkView(QGraphicsView):
             y = self._layer_y(layer_index, len(self.config.layer_sizes))
             height_px = 104 if role == "retina" else 58
             self.scene.addItem(RoundedPanelItem(QRectF(inner_left, y - height_px * 0.5, inner_width, height_px), PANEL if layer_index % 2 == 0 else PANEL_2, QColor(40, 55, 70)))
-            row_title = "RETINAS" if role == "retina" else ("SAIDA" if role == "output" else f"CAMADA {layer_index}")
+            if role == "retina":
+                row_title = "RETINAS"
+            elif role == "output":
+                row_title = "SAIDA"
+            elif self.config.brain_type == "simple_rnn" and layer_index == 1:
+                row_title = "CAMADA RECORRENTE"
+            else:
+                row_title = f"CAMADA {layer_index}"
             label = QGraphicsSimpleTextItem(row_title)
             label.setFont(QFont("Segoe UI Semibold", 8))
             label.setBrush(QColor(140, 160, 178))
@@ -455,10 +485,17 @@ class AgentNeuralNetworkView(QGraphicsView):
             else:
                 for index, x in enumerate(self._dense_positions(count, content_left, content_right)):
                     layer.append(NeuronItem(x, y, radius, f"{prefix}.{index + 1}", role, index))
+                if self.config.brain_type == "simple_rnn" and layer_index == 1:
+                    note = QGraphicsSimpleTextItem("memoria curta")
+                    note.setFont(QFont("Segoe UI", 7))
+                    note.setBrush(QColor(111, 171, 210))
+                    note.setPos(inner_left + 16, y + height_px * 0.5 - 20)
+                    self.scene.addItem(note)
             for neuron in layer:
                 self.scene.addItem(neuron)
             self.neuron_layers.append(layer)
         self._build_weights(getattr(agent, "brain", None))
+        self._apply_static_brain_marks(getattr(agent, "brain", None))
         self._fit_pending = True
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
@@ -489,6 +526,44 @@ class AgentNeuralNetworkView(QGraphicsView):
                 edge = WeightItem(source, target, weight)
                 self.scene.addItem(edge)
                 self.weight_items.append(edge)
+        self._build_shortcut_weights(brain)
+
+    def _build_shortcut_weights(self, brain: Any):
+        if not hasattr(brain, "shortcut_weights") or len(self.neuron_layers) < 2:
+            return
+        source_layer = self.neuron_layers[0]
+        target_layer = self.neuron_layers[-1]
+        matrix = getattr(brain, "shortcut_weights", None)
+        edges = []
+        for source in source_layer:
+            for target in target_layer:
+                try:
+                    weight = float(matrix[target.value_index][source.value_index])
+                except Exception:
+                    continue
+                edges.append((abs(weight), source, target, weight))
+        if len(edges) > 90:
+            edges.sort(reverse=True, key=lambda item: item[0])
+            edges = edges[:90]
+        for _mag, source, target, weight in edges:
+            edge = WeightItem(source, target, weight)
+            edge.setToolTip(f"atalho entrada->saida: {weight:+.4f}")
+            self.scene.addItem(edge)
+            self.weight_items.append(edge)
+
+    def _apply_static_brain_marks(self, brain: Any):
+        if brain is None:
+            return
+        gates = getattr(brain, "gates", None)
+        if gates:
+            for gate_layer_idx, values in enumerate(gates, start=1):
+                if gate_layer_idx >= len(self.neuron_layers):
+                    break
+                layer = self.neuron_layers[gate_layer_idx]
+                flat = _flatten(values)
+                for neuron in layer:
+                    if 0 <= neuron.value_index < len(flat):
+                        neuron.set_gate(flat[neuron.value_index])
 
     def _update_activations(self, agent: Any):
         if not self.neuron_layers:
@@ -503,4 +578,3 @@ class AgentNeuralNetworkView(QGraphicsView):
                 neuron.set_activation(values[neuron.value_index] if 0 <= neuron.value_index < len(values) else 0.0)
         for edge in self.weight_items:
             edge.update_activity()
-

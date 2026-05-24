@@ -43,6 +43,8 @@ class NeuralNet:
     """
     def __init__(self, sizes: List[int], init_std: float = 1.0, random_biases: bool = True):
         """sizes: [input, hidden..., output]; init_std controla escala inicial."""
+        self.brain_type = "mlp"
+        self.display_name = "MLP padrao"
         self.sizes = list(sizes)
         self.version = 0  # incrementado em mutações/alterações estruturais
         self.weights: List[np.ndarray] = []
@@ -162,6 +164,18 @@ class NeuralNet:
         new_net.weights = new_weights
         new_net.biases = new_biases
         return new_net
+
+    def batch_key(self) -> tuple:
+        """Chave leve para agrupar cerebros compativeis em forward em lote."""
+        return (getattr(self, "brain_type", "mlp"), tuple(self.sizes))
+
+    def extra_state_dict(self) -> dict:
+        """Dados extras para persistencia. MLP padrao nao possui extras."""
+        return {}
+
+    def reset_runtime_state(self):
+        """Zera estado temporal quando a rede possui memoria. MLP padrao nao usa."""
+        return None
 
     def resize_input(self, new_input_size: int):
         """Redimensiona dinamicamente o tamanho da camada de entrada.
@@ -328,6 +342,736 @@ class NeuralNet:
             self.weights[next_weight_layer_idx] = new_next_weights
         # Alteração estrutural implica nova versão
         self.version += 1
+
+# ============================================================
+# Brain variants
+# ============================================================
+
+BRAIN_TYPE_MLP = "mlp"
+BRAIN_TYPE_GATED_MLP = "gated_mlp"
+BRAIN_TYPE_SHORTCUT_MLP = "shortcut_mlp"
+BRAIN_TYPE_MODULATED_MLP = "modulated_mlp"
+BRAIN_TYPE_SIMPLE_RNN = "simple_rnn"
+
+_BRAIN_TYPE_ALIASES = {
+    "mlp": BRAIN_TYPE_MLP,
+    "padrao": BRAIN_TYPE_MLP,
+    "standard": BRAIN_TYPE_MLP,
+    "gated": BRAIN_TYPE_GATED_MLP,
+    "gates": BRAIN_TYPE_GATED_MLP,
+    "mlp_gates": BRAIN_TYPE_GATED_MLP,
+    "gated_mlp": BRAIN_TYPE_GATED_MLP,
+    "shortcut": BRAIN_TYPE_SHORTCUT_MLP,
+    "atalho": BRAIN_TYPE_SHORTCUT_MLP,
+    "shortcut_mlp": BRAIN_TYPE_SHORTCUT_MLP,
+    "modulated": BRAIN_TYPE_MODULATED_MLP,
+    "modulada": BRAIN_TYPE_MODULATED_MLP,
+    "modulated_mlp": BRAIN_TYPE_MODULATED_MLP,
+    "rnn": BRAIN_TYPE_SIMPLE_RNN,
+    "simple_rnn": BRAIN_TYPE_SIMPLE_RNN,
+}
+
+
+def normalize_brain_type(value: object) -> str:
+    key = str(value or BRAIN_TYPE_MLP).strip().lower().replace(" ", "_").replace("-", "_")
+    return _BRAIN_TYPE_ALIASES.get(key, BRAIN_TYPE_MLP)
+
+
+def brain_type_label(value: object) -> str:
+    return {
+        BRAIN_TYPE_MLP: "MLP padrao",
+        BRAIN_TYPE_GATED_MLP: "MLP com gates",
+        BRAIN_TYPE_SHORTCUT_MLP: "MLP com atalho",
+        BRAIN_TYPE_MODULATED_MLP: "MLP modulada",
+        BRAIN_TYPE_SIMPLE_RNN: "RNN simples",
+    }.get(normalize_brain_type(value), "MLP padrao")
+
+
+def _param_float(params, key: str, default: float) -> float:
+    try:
+        return float(params.get(key, default)) if params is not None else float(default)
+    except Exception:
+        return float(default)
+
+
+def _param_bool(params, key: str, default: bool) -> bool:
+    try:
+        return bool(params.get(key, default)) if params is not None else bool(default)
+    except Exception:
+        return bool(default)
+
+
+def _optional_param_float(params, key: str):
+    value = _param_float(params, key, -1.0)
+    return value if value >= 0.0 else None
+
+
+def _ensure_arrays_for(net: NeuralNet):
+    for i, W in enumerate(net.weights):
+        if not isinstance(W, np.ndarray):
+            net.weights[i] = np.asarray(W, dtype=np.float32)
+    for i, b in enumerate(net.biases):
+        if not isinstance(b, np.ndarray):
+            net.biases[i] = np.asarray(b, dtype=np.float32)
+
+
+def _copy_base_layers(source: NeuralNet, target: NeuralNet):
+    target.version = int(getattr(source, "version", 0))
+    target.weights = [np.asarray(layer, dtype=np.float32).copy() for layer in getattr(source, "weights", [])]
+    target.biases = [np.asarray(layer, dtype=np.float32).copy() for layer in getattr(source, "biases", [])]
+
+
+def _mutate_array_inplace(arr: np.ndarray, rate: float, strength: float) -> bool:
+    rate = max(0.0, min(1.0, float(rate)))
+    strength = max(0.0, float(strength))
+    if rate <= 0.0 or strength <= 0.0 or arr.size <= 0:
+        return False
+    mask = np.random.random(arr.shape) < rate
+    count = int(mask.sum())
+    if count <= 0:
+        return False
+    arr[mask] += np.random.normal(0.0, strength, count).astype(np.float32)
+    return True
+
+
+class GatedNeuralNet(NeuralNet):
+    """MLP com moduladores escalares por neuronio oculto."""
+
+    def __init__(
+        self,
+        sizes: List[int],
+        init_std: float = 1.0,
+        random_biases: bool = True,
+        gate_init: float = 1.0,
+        gate_min: float = 0.0,
+        gate_max: float = 2.0,
+        gate_mutation_rate: float | None = None,
+        gate_mutation_strength: float | None = None,
+    ):
+        super().__init__(sizes, init_std=init_std, random_biases=random_biases)
+        self.brain_type = BRAIN_TYPE_GATED_MLP
+        self.display_name = "MLP com gates"
+        self.gate_min = float(gate_min)
+        self.gate_max = max(self.gate_min, float(gate_max))
+        self.gate_mutation_rate = gate_mutation_rate
+        self.gate_mutation_strength = gate_mutation_strength
+        self.gates: List[np.ndarray] = [
+            np.full((max(1, int(size)),), float(gate_init), dtype=np.float32)
+            for size in self.sizes[1:-1]
+        ]
+        self._clamp_gates()
+
+    def _clamp_gates(self):
+        for i, gate in enumerate(getattr(self, "gates", []) or []):
+            self.gates[i] = np.clip(np.asarray(gate, dtype=np.float32), self.gate_min, self.gate_max)
+
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        _ensure_arrays_for(self)
+        x = np.asarray(inputs, dtype=np.float32)
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+                if layer_idx < len(self.gates):
+                    x = x * self.gates[layer_idx]
+        return x.tolist()
+
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        _ensure_arrays_for(self)
+        acts = []
+        x = np.asarray(inputs, dtype=np.float32)
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+                if layer_idx < len(self.gates):
+                    x = x * self.gates[layer_idx]
+            acts.append(x.tolist())
+        return acts
+
+    def copy(self) -> 'GatedNeuralNet':
+        new_net = GatedNeuralNet(
+            self.sizes,
+            init_std=0.01,
+            gate_min=self.gate_min,
+            gate_max=self.gate_max,
+            gate_mutation_rate=self.gate_mutation_rate,
+            gate_mutation_strength=self.gate_mutation_strength,
+        )
+        _copy_base_layers(self, new_net)
+        new_net.gates = [np.asarray(g, dtype=np.float32).copy() for g in self.gates]
+        return new_net
+
+    def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
+        super().mutate(rate=rate, strength=strength, structural_jitter=structural_jitter)
+        gate_rate = rate if self.gate_mutation_rate is None else self.gate_mutation_rate
+        gate_strength = strength if self.gate_mutation_strength is None else self.gate_mutation_strength
+        changed = False
+        for gate in self.gates:
+            changed = _mutate_array_inplace(gate, gate_rate, gate_strength) or changed
+        if changed:
+            self._clamp_gates()
+            self.version += 1
+
+    def _resize_layer(self, layer_idx: int, new_size: int):
+        old_size = self.sizes[layer_idx]
+        super()._resize_layer(layer_idx, new_size)
+        hidden_index = layer_idx - 1
+        if 0 <= hidden_index < len(self.gates):
+            old_gate = np.asarray(self.gates[hidden_index], dtype=np.float32)
+            new_gate = np.full((new_size,), 1.0, dtype=np.float32)
+            kept = min(old_size, new_size, old_gate.shape[0])
+            if kept:
+                new_gate[:kept] = old_gate[:kept]
+            self.gates[hidden_index] = np.clip(new_gate, self.gate_min, self.gate_max)
+
+    def batch_key(self) -> tuple:
+        return (self.brain_type, tuple(self.sizes), round(self.gate_min, 6), round(self.gate_max, 6))
+
+    def extra_state_dict(self) -> dict:
+        return {
+            "brain_gate_min": self.gate_min,
+            "brain_gate_max": self.gate_max,
+            "brain_gate_mutation_rate": self.gate_mutation_rate,
+            "brain_gate_mutation_strength": self.gate_mutation_strength,
+            "brain_gates": [g.tolist() for g in self.gates],
+        }
+
+
+class ShortcutNeuralNet(NeuralNet):
+    """MLP com atalho direto da entrada para a saida."""
+
+    def __init__(
+        self,
+        sizes: List[int],
+        init_std: float = 1.0,
+        random_biases: bool = True,
+        shortcut_init_std: float = 0.05,
+        shortcut_scale: float = 0.25,
+        shortcut_mutation_rate: float | None = None,
+        shortcut_mutation_strength: float | None = None,
+    ):
+        super().__init__(sizes, init_std=init_std, random_biases=random_biases)
+        self.brain_type = BRAIN_TYPE_SHORTCUT_MLP
+        self.display_name = "MLP com atalho"
+        self.shortcut_scale = float(shortcut_scale)
+        self.shortcut_mutation_rate = shortcut_mutation_rate
+        self.shortcut_mutation_strength = shortcut_mutation_strength
+        output_size = int(self.sizes[-1]) if self.sizes else 1
+        input_size = int(self.sizes[0]) if self.sizes else 1
+        std = max(0.0, float(shortcut_init_std)) / math.sqrt(max(1, input_size))
+        self.shortcut_weights = np.random.normal(0.0, std, (output_size, input_size)).astype(np.float32)
+        self.shortcut_bias = np.zeros((output_size,), dtype=np.float32)
+
+    def _shortcut(self, input_vec: np.ndarray) -> np.ndarray:
+        return self.shortcut_scale * (self.shortcut_weights @ input_vec + self.shortcut_bias)
+
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        _ensure_arrays_for(self)
+        input_vec = np.asarray(inputs, dtype=np.float32)
+        x = input_vec
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+        x = x + self._shortcut(input_vec)
+        return x.tolist()
+
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        _ensure_arrays_for(self)
+        input_vec = np.asarray(inputs, dtype=np.float32)
+        acts = []
+        x = input_vec
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+            else:
+                x = x + self._shortcut(input_vec)
+            acts.append(x.tolist())
+        return acts
+
+    def copy(self) -> 'ShortcutNeuralNet':
+        new_net = ShortcutNeuralNet(
+            self.sizes,
+            init_std=0.01,
+            shortcut_init_std=0.0,
+            shortcut_scale=self.shortcut_scale,
+            shortcut_mutation_rate=self.shortcut_mutation_rate,
+            shortcut_mutation_strength=self.shortcut_mutation_strength,
+        )
+        _copy_base_layers(self, new_net)
+        new_net.shortcut_weights = np.asarray(self.shortcut_weights, dtype=np.float32).copy()
+        new_net.shortcut_bias = np.asarray(self.shortcut_bias, dtype=np.float32).copy()
+        return new_net
+
+    def resize_input(self, new_input_size: int):
+        old_input = int(self.sizes[0]) if self.sizes else 0
+        super().resize_input(new_input_size)
+        if new_input_size <= 0 or new_input_size == old_input:
+            return
+        output_size = int(self.sizes[-1]) if self.sizes else 1
+        old = np.asarray(self.shortcut_weights, dtype=np.float32)
+        new = np.zeros((output_size, new_input_size), dtype=np.float32)
+        kept = min(old.shape[1] if old.ndim == 2 else 0, new_input_size)
+        if kept:
+            new[:, :kept] = old[:, :kept]
+        if new_input_size > kept:
+            std = 0.05 / math.sqrt(max(1, new_input_size))
+            new[:, kept:] = np.random.normal(0.0, std, (output_size, new_input_size - kept)).astype(np.float32)
+        self.shortcut_weights = new
+
+    def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
+        super().mutate(rate=rate, strength=strength, structural_jitter=structural_jitter)
+        s_rate = rate if self.shortcut_mutation_rate is None else self.shortcut_mutation_rate
+        s_strength = strength if self.shortcut_mutation_strength is None else self.shortcut_mutation_strength
+        changed = _mutate_array_inplace(self.shortcut_weights, s_rate, s_strength)
+        changed = _mutate_array_inplace(self.shortcut_bias, s_rate, s_strength) or changed
+        if changed:
+            self.version += 1
+
+    def batch_key(self) -> tuple:
+        return (self.brain_type, tuple(self.sizes), round(self.shortcut_scale, 6))
+
+    def extra_state_dict(self) -> dict:
+        return {
+            "brain_shortcut_scale": self.shortcut_scale,
+            "brain_shortcut_mutation_rate": self.shortcut_mutation_rate,
+            "brain_shortcut_mutation_strength": self.shortcut_mutation_strength,
+            "brain_shortcut_weights": self.shortcut_weights.tolist(),
+            "brain_shortcut_bias": self.shortcut_bias.tolist(),
+        }
+
+
+class ModulatedNeuralNet(GatedNeuralNet):
+    """MLP com gates e atalho entrada->saida."""
+
+    def __init__(
+        self,
+        sizes: List[int],
+        init_std: float = 1.0,
+        random_biases: bool = True,
+        gate_init: float = 1.0,
+        gate_min: float = 0.0,
+        gate_max: float = 2.0,
+        gate_mutation_rate: float | None = None,
+        gate_mutation_strength: float | None = None,
+        shortcut_init_std: float = 0.05,
+        shortcut_scale: float = 0.25,
+        shortcut_mutation_rate: float | None = None,
+        shortcut_mutation_strength: float | None = None,
+    ):
+        super().__init__(
+            sizes,
+            init_std=init_std,
+            random_biases=random_biases,
+            gate_init=gate_init,
+            gate_min=gate_min,
+            gate_max=gate_max,
+            gate_mutation_rate=gate_mutation_rate,
+            gate_mutation_strength=gate_mutation_strength,
+        )
+        self.brain_type = BRAIN_TYPE_MODULATED_MLP
+        self.display_name = "MLP modulada"
+        self.shortcut_scale = float(shortcut_scale)
+        self.shortcut_mutation_rate = shortcut_mutation_rate
+        self.shortcut_mutation_strength = shortcut_mutation_strength
+        output_size = int(self.sizes[-1]) if self.sizes else 1
+        input_size = int(self.sizes[0]) if self.sizes else 1
+        std = max(0.0, float(shortcut_init_std)) / math.sqrt(max(1, input_size))
+        self.shortcut_weights = np.random.normal(0.0, std, (output_size, input_size)).astype(np.float32)
+        self.shortcut_bias = np.zeros((output_size,), dtype=np.float32)
+
+    def _shortcut(self, input_vec: np.ndarray) -> np.ndarray:
+        return self.shortcut_scale * (self.shortcut_weights @ input_vec + self.shortcut_bias)
+
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        _ensure_arrays_for(self)
+        input_vec = np.asarray(inputs, dtype=np.float32)
+        x = input_vec
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+                if layer_idx < len(self.gates):
+                    x = x * self.gates[layer_idx]
+        x = x + self._shortcut(input_vec)
+        return x.tolist()
+
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        _ensure_arrays_for(self)
+        input_vec = np.asarray(inputs, dtype=np.float32)
+        acts = []
+        x = input_vec
+        for layer_idx in range(len(self.weights)):
+            x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+            if layer_idx < len(self.weights) - 1:
+                x = np.tanh(x)
+                if layer_idx < len(self.gates):
+                    x = x * self.gates[layer_idx]
+            else:
+                x = x + self._shortcut(input_vec)
+            acts.append(x.tolist())
+        return acts
+
+    def copy(self) -> 'ModulatedNeuralNet':
+        new_net = ModulatedNeuralNet(
+            self.sizes,
+            init_std=0.01,
+            gate_min=self.gate_min,
+            gate_max=self.gate_max,
+            gate_mutation_rate=self.gate_mutation_rate,
+            gate_mutation_strength=self.gate_mutation_strength,
+            shortcut_init_std=0.0,
+            shortcut_scale=self.shortcut_scale,
+            shortcut_mutation_rate=self.shortcut_mutation_rate,
+            shortcut_mutation_strength=self.shortcut_mutation_strength,
+        )
+        _copy_base_layers(self, new_net)
+        new_net.gates = [np.asarray(g, dtype=np.float32).copy() for g in self.gates]
+        new_net.shortcut_weights = np.asarray(self.shortcut_weights, dtype=np.float32).copy()
+        new_net.shortcut_bias = np.asarray(self.shortcut_bias, dtype=np.float32).copy()
+        return new_net
+
+    def resize_input(self, new_input_size: int):
+        old_input = int(self.sizes[0]) if self.sizes else 0
+        GatedNeuralNet.resize_input(self, new_input_size)
+        if new_input_size <= 0 or new_input_size == old_input:
+            return
+        output_size = int(self.sizes[-1]) if self.sizes else 1
+        old = np.asarray(self.shortcut_weights, dtype=np.float32)
+        new = np.zeros((output_size, new_input_size), dtype=np.float32)
+        kept = min(old.shape[1] if old.ndim == 2 else 0, new_input_size)
+        if kept:
+            new[:, :kept] = old[:, :kept]
+        if new_input_size > kept:
+            std = 0.05 / math.sqrt(max(1, new_input_size))
+            new[:, kept:] = np.random.normal(0.0, std, (output_size, new_input_size - kept)).astype(np.float32)
+        self.shortcut_weights = new
+
+    def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
+        GatedNeuralNet.mutate(self, rate=rate, strength=strength, structural_jitter=structural_jitter)
+        s_rate = rate if self.shortcut_mutation_rate is None else self.shortcut_mutation_rate
+        s_strength = strength if self.shortcut_mutation_strength is None else self.shortcut_mutation_strength
+        changed = _mutate_array_inplace(self.shortcut_weights, s_rate, s_strength)
+        changed = _mutate_array_inplace(self.shortcut_bias, s_rate, s_strength) or changed
+        if changed:
+            self.version += 1
+
+    def batch_key(self) -> tuple:
+        return (self.brain_type, tuple(self.sizes), round(self.gate_min, 6), round(self.gate_max, 6), round(self.shortcut_scale, 6))
+
+    def extra_state_dict(self) -> dict:
+        data = GatedNeuralNet.extra_state_dict(self)
+        data.update({
+            "brain_shortcut_scale": self.shortcut_scale,
+            "brain_shortcut_mutation_rate": self.shortcut_mutation_rate,
+            "brain_shortcut_mutation_strength": self.shortcut_mutation_strength,
+            "brain_shortcut_weights": self.shortcut_weights.tolist(),
+            "brain_shortcut_bias": self.shortcut_bias.tolist(),
+        })
+        return data
+
+
+class SimpleRNNBrain(NeuralNet):
+    """RNN simples: a primeira camada oculta recebe estado anterior curto."""
+
+    def __init__(
+        self,
+        sizes: List[int],
+        init_std: float = 1.0,
+        random_biases: bool = True,
+        recurrent_init_std: float = 0.08,
+        recurrent_scale: float = 0.35,
+        memory_decay: float = 0.6,
+        state_clip: float = 1.0,
+        reset_state_on_copy: bool = True,
+        recurrent_mutation_rate: float | None = None,
+        recurrent_mutation_strength: float | None = None,
+    ):
+        super().__init__(sizes, init_std=init_std, random_biases=random_biases)
+        self.brain_type = BRAIN_TYPE_SIMPLE_RNN
+        self.display_name = "RNN simples"
+        self.recurrent_scale = float(recurrent_scale)
+        self.memory_decay = max(0.0, min(0.999, float(memory_decay)))
+        self.state_clip = max(0.01, float(state_clip))
+        self.reset_state_on_copy = bool(reset_state_on_copy)
+        self.recurrent_mutation_rate = recurrent_mutation_rate
+        self.recurrent_mutation_strength = recurrent_mutation_strength
+        state_size = int(self.sizes[1]) if len(self.sizes) > 2 else 0
+        std = max(0.0, float(recurrent_init_std)) / math.sqrt(max(1, state_size))
+        self.recurrent_weights = np.random.normal(0.0, std, (state_size, state_size)).astype(np.float32) if state_size > 0 else np.zeros((0, 0), dtype=np.float32)
+        self.state = np.zeros((state_size,), dtype=np.float32)
+
+    def _first_hidden(self, input_vec: np.ndarray, update_state: bool = True) -> np.ndarray:
+        rec = self.recurrent_weights @ self.state if self.state.size else 0.0
+        hidden = np.tanh(self.weights[0] @ input_vec + self.biases[0] + self.recurrent_scale * rec)
+        if update_state and self.state.size:
+            self.state = np.clip(self.memory_decay * self.state + (1.0 - self.memory_decay) * hidden, -self.state_clip, self.state_clip).astype(np.float32)
+        return hidden
+
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        _ensure_arrays_for(self)
+        x = np.asarray(inputs, dtype=np.float32)
+        if len(self.weights) > 1:
+            x = self._first_hidden(x, update_state=True)
+            for layer_idx in range(1, len(self.weights)):
+                x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+                if layer_idx < len(self.weights) - 1:
+                    x = np.tanh(x)
+        else:
+            x = self.weights[0] @ x + self.biases[0]
+        return x.tolist()
+
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        _ensure_arrays_for(self)
+        acts = []
+        x = np.asarray(inputs, dtype=np.float32)
+        if len(self.weights) > 1:
+            x = self._first_hidden(x, update_state=False)
+            acts.append(x.tolist())
+            for layer_idx in range(1, len(self.weights)):
+                x = self.weights[layer_idx] @ x + self.biases[layer_idx]
+                if layer_idx < len(self.weights) - 1:
+                    x = np.tanh(x)
+                acts.append(x.tolist())
+        else:
+            x = self.weights[0] @ x + self.biases[0]
+            acts.append(x.tolist())
+        return acts
+
+    def copy(self) -> 'SimpleRNNBrain':
+        new_net = SimpleRNNBrain(
+            self.sizes,
+            init_std=0.01,
+            recurrent_init_std=0.0,
+            recurrent_scale=self.recurrent_scale,
+            memory_decay=self.memory_decay,
+            state_clip=self.state_clip,
+            reset_state_on_copy=self.reset_state_on_copy,
+            recurrent_mutation_rate=self.recurrent_mutation_rate,
+            recurrent_mutation_strength=self.recurrent_mutation_strength,
+        )
+        _copy_base_layers(self, new_net)
+        new_net.recurrent_weights = np.asarray(self.recurrent_weights, dtype=np.float32).copy()
+        new_net.state = np.zeros_like(self.state) if self.reset_state_on_copy else np.asarray(self.state, dtype=np.float32).copy()
+        return new_net
+
+    def reset_runtime_state(self):
+        self.state = np.zeros_like(np.asarray(self.state, dtype=np.float32))
+
+    def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
+        super().mutate(rate=rate, strength=strength, structural_jitter=structural_jitter)
+        r_rate = rate if self.recurrent_mutation_rate is None else self.recurrent_mutation_rate
+        r_strength = strength if self.recurrent_mutation_strength is None else self.recurrent_mutation_strength
+        if _mutate_array_inplace(self.recurrent_weights, r_rate, r_strength):
+            self.version += 1
+
+    def _resize_layer(self, layer_idx: int, new_size: int):
+        super()._resize_layer(layer_idx, new_size)
+        if layer_idx == 1:
+            old = np.asarray(self.recurrent_weights, dtype=np.float32)
+            new = np.zeros((new_size, new_size), dtype=np.float32)
+            kept = min(old.shape[0] if old.ndim == 2 else 0, new_size)
+            if kept:
+                new[:kept, :kept] = old[:kept, :kept]
+            self.recurrent_weights = new
+            self.state = np.zeros((new_size,), dtype=np.float32)
+
+    def batch_key(self) -> tuple:
+        return (self.brain_type, tuple(self.sizes), round(self.recurrent_scale, 6), round(self.memory_decay, 6), round(self.state_clip, 6))
+
+    def extra_state_dict(self) -> dict:
+        return {
+            "brain_recurrent_scale": self.recurrent_scale,
+            "brain_memory_decay": self.memory_decay,
+            "brain_state_clip": self.state_clip,
+            "brain_reset_state_on_copy": self.reset_state_on_copy,
+            "brain_recurrent_mutation_rate": self.recurrent_mutation_rate,
+            "brain_recurrent_mutation_strength": self.recurrent_mutation_strength,
+            "brain_recurrent_weights": self.recurrent_weights.tolist(),
+            "brain_state": self.state.tolist(),
+        }
+
+
+def create_brain(sizes: List[int], params=None, init_std: float = 1.0, brain_type: object | None = None) -> NeuralNet:
+    sizes = [max(1, int(v)) for v in (sizes or [1, 2])]
+    raw_kind = brain_type
+    if raw_kind is None and params is not None and hasattr(params, "get"):
+        raw_kind = params.get("neural_network_type", BRAIN_TYPE_MLP)
+    kind = normalize_brain_type(raw_kind)
+    if kind == BRAIN_TYPE_GATED_MLP:
+        return GatedNeuralNet(
+            sizes,
+            init_std=init_std,
+            gate_init=_param_float(params, "neural_gate_init", 1.0),
+            gate_min=_param_float(params, "neural_gate_min", 0.0),
+            gate_max=_param_float(params, "neural_gate_max", 2.0),
+            gate_mutation_rate=_optional_param_float(params, "neural_gate_mutation_rate"),
+            gate_mutation_strength=_optional_param_float(params, "neural_gate_mutation_strength"),
+        )
+    if kind == BRAIN_TYPE_SHORTCUT_MLP:
+        return ShortcutNeuralNet(
+            sizes,
+            init_std=init_std,
+            shortcut_init_std=_param_float(params, "neural_shortcut_init_std", 0.05),
+            shortcut_scale=_param_float(params, "neural_shortcut_scale", 0.25),
+            shortcut_mutation_rate=_optional_param_float(params, "neural_shortcut_mutation_rate"),
+            shortcut_mutation_strength=_optional_param_float(params, "neural_shortcut_mutation_strength"),
+        )
+    if kind == BRAIN_TYPE_MODULATED_MLP:
+        return ModulatedNeuralNet(
+            sizes,
+            init_std=init_std,
+            gate_init=_param_float(params, "neural_gate_init", 1.0),
+            gate_min=_param_float(params, "neural_gate_min", 0.0),
+            gate_max=_param_float(params, "neural_gate_max", 2.0),
+            gate_mutation_rate=_optional_param_float(params, "neural_gate_mutation_rate"),
+            gate_mutation_strength=_optional_param_float(params, "neural_gate_mutation_strength"),
+            shortcut_init_std=_param_float(params, "neural_shortcut_init_std", 0.05),
+            shortcut_scale=_param_float(params, "neural_shortcut_scale", 0.25),
+            shortcut_mutation_rate=_optional_param_float(params, "neural_shortcut_mutation_rate"),
+            shortcut_mutation_strength=_optional_param_float(params, "neural_shortcut_mutation_strength"),
+        )
+    if kind == BRAIN_TYPE_SIMPLE_RNN:
+        return SimpleRNNBrain(
+            sizes,
+            init_std=init_std,
+            recurrent_init_std=_param_float(params, "neural_rnn_recurrent_init_std", 0.08),
+            recurrent_scale=_param_float(params, "neural_rnn_recurrent_scale", 0.35),
+            memory_decay=_param_float(params, "neural_rnn_memory_decay", 0.6),
+            state_clip=_param_float(params, "neural_rnn_state_clip", 1.0),
+            reset_state_on_copy=_param_bool(params, "neural_rnn_reset_state_on_copy", True),
+            recurrent_mutation_rate=_optional_param_float(params, "neural_rnn_mutation_rate"),
+            recurrent_mutation_strength=_optional_param_float(params, "neural_rnn_mutation_strength"),
+        )
+    return NeuralNet(sizes, init_std=init_std)
+
+
+def _load_jsonish(value):
+    if isinstance(value, str):
+        try:
+            import json as _json
+            return _json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+def _coerce_extra_array(value, shape=None) -> np.ndarray | None:
+    value = _load_jsonish(value)
+    if value is None:
+        return None
+    try:
+        arr = np.asarray(value, dtype=np.float32)
+        if shape is not None and tuple(arr.shape) != tuple(shape):
+            return None
+        return arr
+    except Exception:
+        return None
+
+
+def restore_brain_extras(brain: NeuralNet, data: dict):
+    kind = normalize_brain_type(getattr(brain, "brain_type", data.get("brain_type", "mlp")))
+    if kind in {BRAIN_TYPE_GATED_MLP, BRAIN_TYPE_MODULATED_MLP} and hasattr(brain, "gates"):
+        try:
+            if data.get("brain_gate_min", None) is not None:
+                brain.gate_min = float(data.get("brain_gate_min"))
+            if data.get("brain_gate_max", None) is not None:
+                brain.gate_max = float(data.get("brain_gate_max"))
+            if data.get("brain_gate_mutation_rate", None) not in (None, "", "None"):
+                brain.gate_mutation_rate = float(data.get("brain_gate_mutation_rate"))
+            if data.get("brain_gate_mutation_strength", None) not in (None, "", "None"):
+                brain.gate_mutation_strength = float(data.get("brain_gate_mutation_strength"))
+            raw = _load_jsonish(data.get("brain_gates"))
+            if isinstance(raw, (list, tuple)):
+                gates = []
+                for i, values in enumerate(raw):
+                    if i >= len(brain.gates):
+                        break
+                    arr = np.asarray(values, dtype=np.float32)
+                    gates.append(arr if arr.shape == brain.gates[i].shape else brain.gates[i])
+                if len(gates) == len(brain.gates):
+                    brain.gates = gates
+            brain._clamp_gates()
+        except Exception:
+            pass
+    if kind in {BRAIN_TYPE_SHORTCUT_MLP, BRAIN_TYPE_MODULATED_MLP} and hasattr(brain, "shortcut_weights"):
+        try:
+            if data.get("brain_shortcut_scale", None) is not None:
+                brain.shortcut_scale = float(data.get("brain_shortcut_scale"))
+            if data.get("brain_shortcut_mutation_rate", None) not in (None, "", "None"):
+                brain.shortcut_mutation_rate = float(data.get("brain_shortcut_mutation_rate"))
+            if data.get("brain_shortcut_mutation_strength", None) not in (None, "", "None"):
+                brain.shortcut_mutation_strength = float(data.get("brain_shortcut_mutation_strength"))
+            arr = _coerce_extra_array(data.get("brain_shortcut_weights"), brain.shortcut_weights.shape)
+            if arr is not None:
+                brain.shortcut_weights = arr
+            arr = _coerce_extra_array(data.get("brain_shortcut_bias"), brain.shortcut_bias.shape)
+            if arr is not None:
+                brain.shortcut_bias = arr
+        except Exception:
+            pass
+    if kind == BRAIN_TYPE_SIMPLE_RNN and hasattr(brain, "recurrent_weights"):
+        try:
+            if data.get("brain_recurrent_scale", None) is not None:
+                brain.recurrent_scale = float(data.get("brain_recurrent_scale"))
+            if data.get("brain_memory_decay", None) is not None:
+                brain.memory_decay = max(0.0, min(0.999, float(data.get("brain_memory_decay"))))
+            if data.get("brain_state_clip", None) is not None:
+                brain.state_clip = max(0.01, float(data.get("brain_state_clip")))
+            if data.get("brain_reset_state_on_copy", None) not in (None, ""):
+                brain.reset_state_on_copy = str(data.get("brain_reset_state_on_copy")).lower() in {"1", "true", "yes", "sim"}
+            if data.get("brain_recurrent_mutation_rate", None) not in (None, "", "None"):
+                brain.recurrent_mutation_rate = float(data.get("brain_recurrent_mutation_rate"))
+            if data.get("brain_recurrent_mutation_strength", None) not in (None, "", "None"):
+                brain.recurrent_mutation_strength = float(data.get("brain_recurrent_mutation_strength"))
+            arr = _coerce_extra_array(data.get("brain_recurrent_weights"), brain.recurrent_weights.shape)
+            if arr is not None:
+                brain.recurrent_weights = arr
+            arr = _coerce_extra_array(data.get("brain_state"), brain.state.shape)
+            if arr is not None:
+                brain.state = np.clip(arr, -brain.state_clip, brain.state_clip).astype(np.float32)
+        except Exception:
+            pass
+
+
+def brain_from_data(data: dict, params=None, init_std: float = 0.01) -> NeuralNet:
+    sizes = _load_jsonish(data.get("brain_sizes") or [])
+    if not isinstance(sizes, list):
+        sizes = []
+    brain = create_brain(list(sizes) if sizes else [1, 2], params=params, init_std=init_std, brain_type=data.get("brain_type", BRAIN_TYPE_MLP))
+    try:
+        bw = _load_jsonish(data.get("brain_weights", []))
+        bb = _load_jsonish(data.get("brain_biases", []))
+        if bw and bb and len(bw) == len(bb):
+            brain.weights = [np.asarray(w, dtype=np.float32) for w in bw]
+            brain.biases = [np.asarray(b, dtype=np.float32) for b in bb]
+    except Exception:
+        pass
+    restore_brain_extras(brain, data)
+    try:
+        brain.version = int(data.get("brain_version", getattr(brain, "version", 0)))
+    except Exception:
+        pass
+    return brain
+
+
+def brain_to_data(brain: NeuralNet) -> dict:
+    data = {
+        "brain_type": normalize_brain_type(getattr(brain, "brain_type", "mlp")),
+        "brain_type_label": brain_type_label(getattr(brain, "brain_type", "mlp")),
+        "brain_sizes": list(getattr(brain, "sizes", []) or []),
+        "brain_version": int(getattr(brain, "version", 0) or 0),
+        "brain_weights": [np.asarray(w, dtype=np.float32).tolist() for w in getattr(brain, "weights", [])],
+        "brain_biases": [np.asarray(b, dtype=np.float32).tolist() for b in getattr(brain, "biases", [])],
+    }
+    try:
+        data.update(brain.extra_state_dict())
+    except Exception:
+        pass
+    return data
+
 
 # ============================================================
 # Multi-brain batching utilities
@@ -557,6 +1301,82 @@ def activations_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> 
             x = np.tanh(x)
         activations.append(x.copy())
     return activations
+
+
+# Override compativel com variantes. Mantido abaixo do helper historico para
+# preservar imports existentes sem reescrever a funcao original em arquivos com
+# encoding legado.
+def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.ndarray:
+    """Executa forward para varios cerebros compativeis em lote."""
+    if not brains:
+        return np.empty((0, 0), dtype=np.float32)
+    base_sizes = brains[0].sizes
+    base_kind = normalize_brain_type(getattr(brains[0], "brain_type", "mlp"))
+    base_key = brains[0].batch_key() if hasattr(brains[0], "batch_key") else (base_kind, tuple(base_sizes))
+    for b in brains[1:]:
+        key = b.batch_key() if hasattr(b, "batch_key") else (normalize_brain_type(getattr(b, "brain_type", "mlp")), tuple(getattr(b, "sizes", [])))
+        if b.sizes != base_sizes or key != base_key:
+            outputs = [brain.forward(inp) for brain, inp in zip(brains, inputs)]
+            return np.array(outputs, dtype=np.float32)
+
+    weight_stacks, bias_stacks = _build_stacks(brains)
+    if base_kind == BRAIN_TYPE_MLP:
+        numba_result = _forward_many_brains_numba(weight_stacks, bias_stacks, inputs)
+        if numba_result is not None:
+            return numba_result
+
+    x = np.asarray(inputs, dtype=np.float32)
+    input_x = x
+    num_layers = len(weight_stacks)
+    start_layer = 0
+
+    if base_kind == BRAIN_TYPE_SIMPLE_RNN and num_layers > 1:
+        W = weight_stacks[0]
+        b = bias_stacks[0]
+        state_size = int(W.shape[1])
+        states = np.stack([
+            np.asarray(getattr(br, "state", np.zeros((state_size,), dtype=np.float32)), dtype=np.float32)
+            for br in brains
+        ], axis=0)
+        rec_w = np.stack([
+            np.asarray(getattr(br, "recurrent_weights", np.zeros((state_size, state_size), dtype=np.float32)), dtype=np.float32)
+            for br in brains
+        ], axis=0)
+        rec = np.einsum('boi,bi->bo', rec_w, states)
+        scale = float(getattr(brains[0], "recurrent_scale", 0.35))
+        decay = float(getattr(brains[0], "memory_decay", 0.6))
+        clip = float(getattr(brains[0], "state_clip", 1.0))
+        x = np.tanh(np.einsum('boi,bi->bo', W, x) + b + scale * rec)
+        new_states = np.clip(decay * states + (1.0 - decay) * x, -clip, clip).astype(np.float32)
+        for br, st in zip(brains, new_states):
+            br.state = st
+        start_layer = 1
+
+    for layer_idx in range(num_layers):
+        if layer_idx < start_layer:
+            continue
+        W = weight_stacks[layer_idx]
+        b = bias_stacks[layer_idx]
+        x = np.einsum('boi,bi->bo', W, x) + b
+        if layer_idx < num_layers - 1:
+            x = np.tanh(x)
+            if base_kind in {BRAIN_TYPE_GATED_MLP, BRAIN_TYPE_MODULATED_MLP}:
+                try:
+                    gates = np.stack([np.asarray(br.gates[layer_idx], dtype=np.float32) for br in brains], axis=0)
+                    x = x * gates
+                except Exception:
+                    pass
+
+    if base_kind in {BRAIN_TYPE_SHORTCUT_MLP, BRAIN_TYPE_MODULATED_MLP}:
+        try:
+            sw = np.stack([np.asarray(br.shortcut_weights, dtype=np.float32) for br in brains], axis=0)
+            sb = np.stack([np.asarray(br.shortcut_bias, dtype=np.float32) for br in brains], axis=0)
+            scale = float(getattr(brains[0], "shortcut_scale", 0.25))
+            x = x + scale * (np.einsum('boi,bi->bo', sw, input_x) + sb)
+        except Exception:
+            outputs = [brain.forward(inp) for brain, inp in zip(brains, inputs)]
+            return np.array(outputs, dtype=np.float32)
+    return x
 
 # ============================================================
 # Debug / Memory inspection helpers

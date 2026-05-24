@@ -71,6 +71,23 @@ class Params:
             'brain_cache_disable': False,
             'use_numba_brain_forward': False,
             'numba_brain_forward_min_batch': 256,
+            'neural_network_type': 'mlp',
+            'neural_gate_init': 1.0,
+            'neural_gate_min': 0.0,
+            'neural_gate_max': 2.0,
+            'neural_gate_mutation_rate': -1.0,
+            'neural_gate_mutation_strength': -1.0,
+            'neural_shortcut_init_std': 0.05,
+            'neural_shortcut_scale': 0.25,
+            'neural_shortcut_mutation_rate': -1.0,
+            'neural_shortcut_mutation_strength': -1.0,
+            'neural_rnn_recurrent_init_std': 0.08,
+            'neural_rnn_recurrent_scale': 0.35,
+            'neural_rnn_memory_decay': 0.6,
+            'neural_rnn_state_clip': 1.0,
+            'neural_rnn_reset_state_on_copy': True,
+            'neural_rnn_mutation_rate': -1.0,
+            'neural_rnn_mutation_strength': -1.0,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -246,6 +263,7 @@ class Params:
             'show_selected_details': True,
             'show_metrics_chart': False,
             'neural_view_dense_layout': 'fixed',
+            'camera_follow_selected_agent': True,
             'metrics_chart_sample_seconds': 5,
             'debug_tracebacks': False,
             'diagnostic_heartbeat_minutes': 1.0,
@@ -330,6 +348,9 @@ class Params:
         if key == 'retina_bins_projection':
             value = str(value)
             return value if value in {'center', 'center_edges', 'apparent_size'} else 'center'
+        if key == 'neural_network_type':
+            value = str(value)
+            return value if value in {'mlp', 'gated_mlp', 'shortcut_mlp', 'modulated_mlp', 'simple_rnn'} else 'mlp'
         if key in {'food_bite_seconds'}:
             return max(0.05, float(value))
         if key in {'food_piece_particle_radius', 'food_piece_cluster_radius', 'food_piece_particle_spacing'}:
@@ -358,8 +379,20 @@ class Params:
             'smooth_linear_drag',
             'smooth_max_angular_accel',
             'smooth_angular_drag',
+            'neural_gate_init',
+            'neural_gate_min',
+            'neural_gate_max',
+            'neural_shortcut_init_std',
+            'neural_shortcut_scale',
+            'neural_rnn_recurrent_init_std',
+            'neural_rnn_recurrent_scale',
+            'neural_rnn_state_clip',
         }:
             return max(0.0, float(value))
+        elif key in {'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength'}:
+            return max(-1.0, float(value))
+        elif key == 'neural_rnn_memory_decay':
+            return max(0.0, min(0.999, float(value)))
         elif key == 'render_resolution_scale':
             return max(1.0, min(3.0, float(value)))
         elif key.endswith('_fov_degrees'):

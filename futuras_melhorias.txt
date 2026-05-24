@@ -1,7 +1,295 @@
-Melhorias futuras
+Melhorias futuras — versão mesclada revisada
 
-1) Principais pontos:
+Este documento reúne as ideias dos dois arquivos de melhorias futuras, mantendo todos os pontos presentes em ambos e organizando-os por temas para facilitar a implementação futura. Esta versão revisada foi conferida contra os dois arquivos originais para evitar perda de ideias.
 
+
+============================================================
+0) Prioridade futura de redes neurais
+============================================================
+
+- Prioridade futura de redes neurais: estudar NEAT, Spiking Neural Network, CTRNN e Transformer/attention somente depois que MLP modulada/RNN simples estiverem maduras e medidas em benchmark.
+
+============================================================
+1) Correções, ajustes imediatos e dúvidas técnicas
+============================================================
+
+- Ver por que a ré não está funcionando.
+- Ver por que o comportamento de ficar rodando acontece; talvez testar outras arquiteturas de redes neurais.
+- Corrigir fator de inteligência.
+- Verificar se a pipeta está funcionando.
+- Entender o que é a opção "abrir aba experimento" nas preferências.
+- Entender o que são "tracebacks de debug" e mover isso para suporte ou desenvolvedor.
+- Permitir visualizar obstáculos.
+- Permitir que agentes possam andar para trás se a rede neural assim decidir.
+
+============================================================
+2) Interface, menus e usabilidade
+============================================================
+
+- Colocar os botões Play, Pause e Stop na parte superior, centralizados.
+- Fazer as abas de menus virarem botões laterais.
+- Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
+- Coisas que são de superusuário devem ir para o menu superior, como autoexport e funções avançadas.
+- Editor de genoma vai crescer; trabalhar bem mais nisso.
+- Adicionar seletor de cores.
+- Salvar background e criar presets.
+- Suporte a múltiplos cenários/substratos carregáveis via UI para facilitar experimentos.
+- Acrescentar opção de deixar a simulação rodando sem renderização para ganhar desempenho durante a noite, durante o treinamento.
+
+============================================================
+3) Ambiente, substrato, obstáculos e ferramentas de edição
+============================================================
+
+- Criar obstáculos que podem ser desenhados.
+- Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
+- Criar esconderijo para presas usando obstáculos.
+- Permitir visualizar obstáculos.
+- Acrescentar menu ou ferramenta para importação de substratos predefinidos.
+- Salvar background e criar presets.
+
+============================================================
+4) Alimentação, energia e recursos
+============================================================
+
+- Criar novo tipo de comida, que leva mais tempo para comer.
+- Introduzir alimentos com diferentes valores nutricionais; comida mais nutritiva pode alterar o comportamento de competição.
+- Avaliar alternativa: remover variação de tamanho e introduzir energia interna, como uma bateria fixa por indivíduo; divisões ocorreriam por acúmulo de energia.
+- Avaliar também aumentar o custo de energia quanto maior for o tamanho do agente.
+- Criar sistema futuro para recursos como água, umidade ou absorção de umidade, caso isso seja incorporado à lógica ecológica.
+
+============================================================
+5) Visão, sensores e percepção
+============================================================
+
+- Acrescentar a opção de distância * cor em um único canal.
+- Criar um VisionBackend com vários modos de visão: atual, exato otimizado, campo de densidade e visão experimental.
+- Fazer a visão enxergar canais diferentes: comida, predador, bactéria, obstáculo, cor, tamanho e movimento.
+- Criar retina com centro mais detalhado e periferia mais barata, como uma fóvea biológica.
+- Permitir que número de retinas, campo visual, alcance e sensibilidade sejam genes.
+- A quantidade de retinas pode ser mutável e cada retina pode ter um custo.
+- Criar cones de visão por cor, permitindo comunicação visual e reconhecimento de linhagens.
+- Implementar oclusão: objetos grandes ou obstáculos bloqueiam objetos atrás.
+- Criar memória visual curta: o agente lembra por alguns segundos onde viu comida ou perigo.
+- Criar sistema de custos sensoriais: visão melhor consome mais energia, então evoluir olhos melhores tem preço.
+- Criar modo benchmark de visão: medir quantos ms/agente/step cada sistema de visão custa antes de liberar no uso normal.
+- Criar mapa de calor de visão/alimentação para saber se alguma região do substrato está ficando invisível ou morta.
+
+============================================================
+6) Movimento, corpo e morfologia
+============================================================
+
+- Criar um organismo com propulsor dos dois lados.
+- Criar outro tipo de indivíduo que possa ter duas nadadeiras laterais.
+- O ângulo máximo de rotação também deve ser definido por mutação.
+- Permitir diferentes formas de fazer curva.
+- Criar organismos que se movem em todas as direções, que podem não ter rotação e sim apenas translação.
+- Criar opção de organismo amorfo, que varia sua forma por mutação genética e evolução.
+
+============================================================
+7) Genética, mutação, reprodução e evolução
+============================================================
+
+- Mutação por reprodução sexual.
+- Criar mutações genéticas além dos pesos neurais, por exemplo: arquitetura de rede e idade da morte.
+- Criar sistema de mutação que pode mutar a estrutura da rede, não apenas os pesos.
+- Fazer com que a porcentagem de mutação e a força de mutação também sejam definidas pela própria mutação.
+- Permitir que nasça um indivíduo cujo nível de mutação seja maior do que outros; nesse caso, a mutação dele pode ser grande demais, podendo fazer com que ele morra ou não consiga passar seus genes adiante.
+- A cor do corpo deve poder ser definida por mutação.
+- Alteração genética de cores para possibilitar diferenciação visual e formação de tribos.
+- Tentar simular a proximidade por parentescos.
+- Criar banco de linhagens com estatísticas comparáveis: arquitetura neural, visão, metabolismo, idade, descendentes e desempenho.
+- Criar arena de competição controlada entre linhagens antigas e novas, preservando genes originais sem forçar nova arquitetura.
+
+============================================================
+8) Ecologia, predação, agressividade e relações entre organismos
+============================================================
+
+- Criar esconderijo para presas usando obstáculos.
+- Dar opção na UI para que predadores exijam múltiplos impactos para matar uma presa, por exemplo 3 impactos configuráveis.
+- Permitir comportamentos agressivos adicionais, como bactérias atacando bactérias e predadores atacando outros predadores.
+- Tentar inserir três tipos de indivíduos que encontrem um equilíbrio do tipo pedra, papel e tesoura.
+- Tentar criar uma forma de simulação que desenvolva indivíduos capazes de se autocooperar, como em uma simbiose, mas em que ambos recebam algo em troca.
+- Criar proximidade por parentesco para observar cooperação, formação de grupos ou favorecimento entre indivíduos aparentados.
+
+============================================================
+9) Comunicação por cor, som e sinais
+============================================================
+
+- Criar comunicação por cores.
+- Comunicação por cor ou por som, sendo possível ouvir o som quando chegar perto.
+- Criar cones de visão por cor para permitir comunicação visual e reconhecimento de linhagens.
+- Tentar criar um sintetizador de áudio para cada organismo.
+- Esse áudio poderia ser ouvido apenas por eles, ou talvez pudesse ser ligado pelo usuário.
+- O sintetizador de áudio seria controlado pela rede neural, de forma que os organismos aprendam com o tempo a se comunicar.
+- Criar música ambiente e sons dos organismos.
+- Criar sons quando o organismo come.
+- Criar sons quando nasce outro organismo.
+
+============================================================
+10) Experimentos, observação, análise e exportação
+============================================================
+
+- Criar um ambiente de testes onde seja possível inserir um determinado organismo e simular ele individualmente.
+- Criar modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
+- Criar modo observador científico: selecionar um agente e ver exatamente quais objetos ativaram cada retina.
+- Snapshot por agente: exportar genomas e estatísticas.
+- Criar catálogo de genomas navegável na UI.
+- Exportar genoma selecionado.
+- Criar arena de competição controlada entre linhagens antigas e novas.
+- Gráficos em tempo real na UI, como população, média de massa e energia média.
+- Criar mapa de calor de visão/alimentação para saber se alguma região do substrato está ficando invisível ou morta.
+- Modo replay: reproduzir simulação a partir de logs. Recurso opcional e de alto custo computacional; ativar apenas quando necessário.
+
+============================================================
+11) Performance, persistência e infraestrutura
+============================================================
+
+- Checkpoints periódicos, com persistência incremental, para reduzir perda de progresso em simulações longas.
+- Avaliar aceleração de trechos pesados com Numba, paralelização ou offload para GPU, especialmente raycasts e sensores.
+- Implementar integrador/colisão opcional mais estável, por exemplo semi-implícito ou Verlet, para maior robustez física.
+- Criar modo performance visual: renderizar menos detalhes sem alterar a simulação interna.
+- Criar modo benchmark de visão para medir o custo de cada sistema de visão antes de liberar no uso normal.
+- Criar opção de deixar a simulação rodando sem renderização para ganhar desempenho à noite durante o treinamento.
+- Criar modo headless/CLI: execução da simulação sem UI, apenas com o Engine, para rodar experimentos em lote, varreduras de parâmetros e coleta de métricas em servidores ou VMs.
+
+============================================================
+12) Melhorias recomendadas pelo Copilot e já aprovadas
+============================================================
+
+- Checkpoints periódicos, com persistência incremental, para reduzir perda de progresso em simulações longas.
+- Suporte a múltiplos cenários/substratos carregáveis via UI para facilitar experimentos.
+- Modo replay, para reproduzir simulação a partir de logs. Recurso opcional e de alto custo computacional; ativar apenas quando necessário.
+- Snapshot por agente, com exportação de genomas e estatísticas.
+- Catálogo de genomas navegável na UI.
+- Avaliar aceleração de trechos pesados com Numba, paralelização ou offload para GPU, especialmente raycasts e sensores.
+- Gráficos em tempo real na UI, como população, média de massa e energia média.
+- Implementar integrador/colisão opcional mais estável, como semi-implícito ou Verlet, para maior robustez física.
+- Modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
+
+Observação: os itens acima foram mantidos sem remover as melhorias originais indicadas nos dois arquivos.
+
+============================================================
+13) Sugestões do Copilot que ainda devem ser estudadas
+============================================================
+
+- Testes automatizados.
+  - Servem para validar comportamento de componentes críticos, por exemplo `NeuralNet`, `SpatialHash` e sistemas principais.
+  - Ajudam a prevenir regressões.
+  - Recomenda-se usar `pytest` e cobrir caminhos principais e casos de borda.
+
+- Modo headless / CLI.
+  - Execução da simulação sem UI, apenas com `Engine`.
+  - Útil para rodar experimentos em lote, varreduras de parâmetros e coleta de métricas em servidores ou VMs.
+
+- Throttling / adaptive timestep.
+  - Ajusta dinamicamente o timestep ou o número de substeps quando a simulação fica sobrecarregada.
+  - Pode preservar estabilidade numérica.
+  - Pode afetar determinismo; usar com cuidado em experimentos controlados.
+
+- Paralelização de partes do Engine.
+  - Permite executar tarefas independentes, como sensoriamento de agentes e raycasts, em workers ou threads.
+  - Em Python, avaliar multiprocessing, Numba ou offload para GPU, pois o GIL limita threads em tarefas CPU-bound.
+  - Requer reorganização para minimizar estados compartilhados e pontos de sincronização.
+
+- Sistema de eventos/hooks.
+  - Observers ou hooks que emitem eventos, como nascimento, morte, reprodução e checkpoint.
+  - Útil para logging, UI, gravação de replays ou integração externa.
+  - Deve ser desativável para não penalizar desempenho.
+
+============================================================
+14) Ideias novas depois da auditoria de otimização
+============================================================
+
+- Criar um VisionBackend com vários modos de visão: atual, exato otimizado, campo de densidade e visão experimental.
+- Fazer a visão enxergar canais diferentes: comida, predador, bactéria, obstáculo, cor, tamanho e movimento.
+- Criar retina com centro mais detalhado e periferia mais barata, como uma fóvea biológica.
+- Permitir que número de retinas, campo visual, alcance e sensibilidade sejam genes.
+- Criar cones de visão por cor, permitindo comunicação visual e reconhecimento de linhagens.
+- Implementar oclusão: objetos grandes ou obstáculos bloqueiam objetos atrás.
+- Criar memória visual curta: o agente lembra por alguns segundos onde viu comida ou perigo.
+- Criar modo observador científico: selecionar um agente e ver exatamente quais objetos ativaram cada retina.
+- Criar mapa de calor de visão/alimentação para saber se alguma região do substrato está ficando invisível ou morta.
+- Criar sistema de custos sensoriais: visão melhor consome mais energia, então evoluir olhos melhores tem preço.
+- Criar banco de linhagens com estatísticas comparáveis: arquitetura neural, visão, metabolismo, idade, descendentes e desempenho.
+- Criar arena de competição controlada entre linhagens antigas e novas, preservando genes originais sem forçar nova arquitetura.
+- Criar modo performance visual: renderizar menos detalhes sem alterar a simulação interna.
+- Criar modo benchmark de visão: medir quantos ms/agente/step cada sistema de visão custa antes de liberar no uso normal.
+
+
+============================================================
+15) Anexo de segurança — conferência literal dos arquivos originais
+============================================================
+
+Esta seção foi adicionada para garantir que nenhuma ideia dos arquivos originais seja perdida.
+Ela mantém, em forma literal, os pontos extraídos dos dois arquivos de origem, mesmo quando eles já aparecem organizados nas seções anteriores.
+
+Arquivo original 1 — futuras_melhorias copy(1).txt
+--------------------------------------------------
+
+- acrescentar aquela opção de distancia*cor em um unico canal.
+- ver pq a ré não está funcionando.
+- criar um organismo com proprulsor dos dois lados.
+- criar esconderijo para presas usando obstáculos.
+- permitir vizualizar obstáculos.
+- ver pq esse comportamento de ficar rodando acontece. talvez testar outras arquiteturas de redesneurais.
+- comunicação por cor ou por som. ser possível ouvir o som quando chegar perto.
+- criar musica ambiente e sons dos organismos. sons quando come, sons quando nasce outro.
+- criar mutações genéticas além dos pesos neurais (ex: arquitetura de rede, idade da morte).
+- novo tipo de comida, que leva mais tempo para comer.
+- Criar um ambiente de testes onde eu consiga inserir uma um determinado organismo e simular ele individualmente
+- a cor do corpo por mutação.
+- Fazer com que a porcentagem de mutação e a força de mutação também seja definido pela própria mutação ou seja vai nascer um indivíduo que um indivíduo que cujo nível de mutação é maior do que outros mas a mutação dele vai ser muito grande então ele também pode morrer ele pode sofrer mutações tão grandes que ele não vai passar o seu Gene para frente
+- verificar se pipeta está funcionando.
+- O que é esse abrir aba experimento lá nas preferencias?
+- O que é tracebacks de debug? colocar isso em suporte ou desenvolvedor.
+- Corrigir fator de inteligencia.
+- colocar os play, pause stop la emcima, centralizado.
+- fazer as abas de menus virarem botões laterais.
+- Editor de genoma vai crescer, trabalhar bem mais nisso.
+- Coisas que são de superusuário jogar no menu lá de cima. (autoexport, essas coisas)
+- Salvar background, criar presets.
+- opção de deixar a simulação rodando sem renderização para ganhar desempenho a noite durante o treinamento.
+- opção de organismo amorfo que varia sua forma por mutação genetica e evolução.
+- quantidade de retina pode ser mutável e cada uma ter um custo.
+- diferentes formas de fazer curva. organismos que se movem em todas as direções, que pode não ter rotação e sim só translação.
+-
+- Mutação por reprodução sexual
+- Tentar simular a proximidade por parentescos
+- Criar a comunicação por cores
+- Tentar inserir três tipos de indivíduos que encontrem um equilíbrio do tipo pedra papel e tesoura
+- Tentar criar uma forma de simulação que desenvolva indivíduos capazes de se auto cooperar como se fosse uma simbiose mas que ambos recebam algo em troca
+- Tentar criar um sintetizador de áudio para cada um deles um áudio que somente eles podem ouvir ou talvez eu possa ligar mas que seja controlado pela rede neural neural de forma que eles aprendem com o tempo a se comunicar
+- O ângulo máximo de rotação também deve ser definido por mutação
+- criar outro tipo de individuo que possa ter duas nadadeiras laterais.
+- criar sistema de mutação que pode mutar a estrutura da rede, não apenas os pesos.
+- Permitir que agentes possam andar para trás se a rede neural assim decidir.
+- Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
+- Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
+- Avaliar alternativa: remover variação de tamanho e introduzir energia interna (bateria) fixa por indivíduo; divisões ocorrem por acúmulo de energia. Ou talvez aumentar o custo de energia quanto maior o tamanho do agente.
+- Introduzir alimentos com diferentes valores nutricionais (comida mais nutritiva altera comportamento de competição).
+- Dar opção no UI para que predadores exijam múltiplos impactos para matar uma presa (ex.: 3 impactos configuráveis).
+- Permitir comportamentos agressivos adicionais (bactérias atacando bactérias; predadores atacando outros predadores).
+- Alteração genética de cores para possibilitar diferenciação visual e formação de tribos.
+- Checkpoints periódicos (persistência incremental) para reduzir perda de progresso em simulações longas.
+- Modo replay (reproduzir simulação a partir de logs) — recurso opcional e de alto custo computacional; ativar apenas quando necessário.
+- Snapshot por agente (exportar genomas e estatísticas) e catálogo de genomas navegável na UI.
+- Avaliar aceleração de trechos pesados com Numba / paralelização ou offload para GPU (raycasts / sensores).
+- Gráficos em tempo real na UI (população, média de massa, energia média) para monitoramento.
+- Implementar integrador/colisão opcional mais estável (ex.: semi-implícito ou Verlet) para maior robustez física.
+- Modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
+- Testes automatizados (item 3 da lista original sugerida)
+  - Servem para validar comportamento de componentes críticos (p.ex. `NeuralNet`, `SpatialHash`, sistemas) e prevenir regressões. Recomenda-se usar `pytest` e cobrir caminhos principais mais casos de borda.
+- Throttling / adaptive timestep (item 8)
+  - Ajusta dinamicamente o timestep ou o número de substeps quando a simulação fica sobrecarregada, preservando estabilidade numérica. Pode afetar determinismo; usar com cuidado em experimentos controlados.
+- Paralelização de partes do Engine (item 9)
+  - Permite executar tarefas independentes (sensoriamento de agentes, raycasts) em workers/threads. Em Python, avaliar multiprocessing, Numba ou offload para GPU (GIL limita threads em CPU-bound). Requer reorganização para minimizar estados compartilhados e pontos de sincronização.
+- Sistema de eventos/hooks (item 18)
+  - Observers (hooks) que emitem eventos (nascimento, morte, reprodução, checkpoint) para logging, UI, gravação de replays ou integração externa. Deve ser desativável para não penalizar desempenho.
+
+Arquivo original 2 — futuras_melhorias(2).txt
+---------------------------------------------
+
+Prioridade futura de redes neurais: estudar NEAT, Spiking Neural Network, CTRNN e Transformer/attention somente depois que MLP modulada/RNN simples estiverem maduras e medidas em benchmark.
 - Mutação por reprodução sexual
 - novo tipo de comida, que leva mais tempo para comer.
  - seletor de cores.
@@ -16,9 +304,8 @@ Melhorias futuras
 - Fazer com que a porcentagem de mutação e a força de mutação também seja definido pela própria mutação ou seja vai nascer um indivíduo que um indivíduo que cujo nível de mutação é maior do que outros mas a mutação dele vai ser muito grande então ele também pode morrer ele pode sofrer mutações tão grandes que ele não vai passar o seu Gene para frente
 - O ângulo máximo de rotação também deve ser definido por mutação
 - a cor do corpo por mutação.
-- criar outro tipo de individuo que possa ter duas nadadeiras laterais. 
+- criar outro tipo de individuo que possa ter duas nadadeiras laterais.
 - criar sistema de mutação que pode mutar a estrutura da rede, não apenas os pesos.
-
 - Permitir que agentes possam andar para trás se a rede neural assim decidir.
 - Acrescentar menu superior com exportação de genoma selecionado, aba de ajuda e importação de substratos predefinidos.
 - Adicionar ferramenta para pintar obstáculos com o mouse no substrato.
@@ -27,9 +314,6 @@ Melhorias futuras
 - Dar opção no UI para que predadores exijam múltiplos impactos para matar uma presa (ex.: 3 impactos configuráveis).
 - Permitir comportamentos agressivos adicionais (bactérias atacando bactérias; predadores atacando outros predadores).
 - Alteração genética de cores para possibilitar diferenciação visual e formação de tribos.
-
-2) Melhorias recomendadas pelo Copilot e já aprovadas:
-
 - Checkpoints periódicos (persistência incremental) para reduzir perda de progresso em simulações longas.
 - Suporte a múltiplos cenários/substratos carregáveis via UI para facilitar experimentos.
 - Modo replay (reproduzir simulação a partir de logs) — recurso opcional e de alto custo computacional; ativar apenas quando necessário.
@@ -38,30 +322,16 @@ Melhorias futuras
 - Gráficos em tempo real na UI (população, média de massa, energia média) para monitoramento.
 - Implementar integrador/colisão opcional mais estável (ex.: semi-implícito ou Verlet) para maior robustez física.
 - Modo observador que fixa a câmera em um agente e grava vídeo/frames para análise detalhada.
-
-Observação: os itens acima foram adicionados sem remover as melhorias originais que você indicou.
-
-Sugestões do Copilot, mas que ainda devem ser estudadas:
-
 - Testes automatizados (item 3 da lista original sugerida)
   - Servem para validar comportamento de componentes críticos (p.ex. `NeuralNet`, `SpatialHash`, sistemas) e prevenir regressões. Recomenda-se usar `pytest` e cobrir caminhos principais mais casos de borda.
-
 - Modo headless / CLI (item 4)
   - Execução da simulação sem UI (apenas `Engine`) para rodar experimentos em lote, varreduras de parâmetros e coleta de métricas em servidores/VMs.
-
 - Throttling / adaptive timestep (item 8)
   - Ajusta dinamicamente o timestep ou o número de substeps quando a simulação fica sobrecarregada, preservando estabilidade numérica. Pode afetar determinismo; usar com cuidado em experimentos controlados.
-
 - Paralelização de partes do Engine (item 9)
   - Permite executar tarefas independentes (sensoriamento de agentes, raycasts) em workers/threads. Em Python, avaliar multiprocessing, Numba ou offload para GPU (GIL limita threads em CPU-bound). Requer reorganização para minimizar estados compartilhados e pontos de sincronização.
-
 - Sistema de eventos/hooks (item 18)
   - Observers (hooks) que emitem eventos (nascimento, morte, reprodução, checkpoint) para logging, UI, gravação de replays ou integração externa. Deve ser desativável para não penalizar desempenho.
-
-============================================================
-3) IDEIAS NOVAS - depois da auditoria de otimizacao
-============================================================
-
 - Criar um VisionBackend com varios modos de visao: atual, exato otimizado, campo de densidade e visao experimental.
 - Fazer a visao enxergar canais diferentes: comida, predador, bacteria, obstaculo, cor, tamanho e movimento.
 - Criar retina com centro mais detalhado e periferia mais barata, como uma fovea biologica.
@@ -76,3 +346,4 @@ Sugestões do Copilot, mas que ainda devem ser estudadas:
 - Criar arena de competicao controlada entre linhagens antigas e novas, preservando genes originais sem forcar nova arquitetura.
 - Criar modo performance visual: renderizar menos detalhes sem alterar a simulacao interna.
 - Criar modo benchmark de visao: medir quantos ms/agente/step cada sistema de visao custa antes de liberar no uso normal.
+
