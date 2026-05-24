@@ -199,6 +199,9 @@ def normalize_retina_vision_mode(value: Any) -> str:
             "setorial": RETINA_VISION_MODE_SECTOR,
             "sectorial": RETINA_VISION_MODE_SECTOR,
             "fast_sector": RETINA_VISION_MODE_SECTOR,
+            "bins": RETINA_VISION_MODE_SECTOR,
+            "angular_bins": RETINA_VISION_MODE_SECTOR,
+            "bins_angulares": RETINA_VISION_MODE_SECTOR,
             "visao_setorial": RETINA_VISION_MODE_SECTOR,
             "visão_setorial": RETINA_VISION_MODE_SECTOR,
         }
@@ -315,12 +318,180 @@ def _channel_value(channel: str, activation: float, color: tuple[float, float, f
     return activation
 
 
+def _param_get(params: Any, name: str, default: Any = None) -> Any:
+    if params is None:
+        return default
+    getter = params.get if hasattr(params, "get") else None
+    if getter is None:
+        return default
+    return getter(name, default)
+
+
+def _normalize_bins_mode(value: Any) -> str:
+    value = str(value or "nearest").strip().lower()
+    aliases = {
+        "mais_proximo": "nearest",
+        "mais próximo": "nearest",
+        "nearest": "nearest",
+        "closest": "nearest",
+        "mais_forte": "strongest",
+        "strongest": "strongest",
+        "max": "strongest",
+        "soma": "sum_saturating",
+        "sum": "sum_saturating",
+        "sum_saturating": "sum_saturating",
+        "soma_saturada": "sum_saturating",
+        "media": "weighted_average",
+        "media_ponderada": "weighted_average",
+        "weighted_average": "weighted_average",
+    }
+    return aliases.get(value, "nearest")
+
+
+def _normalize_bins_distribution(value: Any) -> str:
+    value = str(value or "near_detail").strip().lower()
+    return value if value in {"linear", "near_detail"} else "near_detail"
+
+
+def _normalize_bins_falloff(value: Any) -> str:
+    value = str(value or "linear").strip().lower()
+    return value if value in {"linear", "quadratic", "step", "none"} else "linear"
+
+
+def _normalize_bins_projection(value: Any) -> str:
+    value = str(value or "center").strip().lower()
+    return value if value in {"center", "center_edges", "apparent_size"} else "center"
+
+
+def _bins_options(params: Any) -> dict[str, Any]:
+    try:
+        subdivisions = int(float(_param_get(params, "retina_bins_distance_subdivisions", 5)))
+    except (TypeError, ValueError):
+        subdivisions = 5
+    try:
+        limit = int(float(_param_get(params, "retina_bins_candidate_limit", 128)))
+    except (TypeError, ValueError):
+        limit = 128
+    return {
+        "mode": _normalize_bins_mode(_param_get(params, "retina_bins_mode", "nearest")),
+        "subdivisions": max(1, min(99, subdivisions)),
+        "distribution": _normalize_bins_distribution(_param_get(params, "retina_bins_distance_distribution", "near_detail")),
+        "falloff": _normalize_bins_falloff(_param_get(params, "retina_bins_distance_falloff", "linear")),
+        "projection": _normalize_bins_projection(_param_get(params, "retina_bins_projection", "center")),
+        "candidate_limit": max(0, limit),
+        "block_obstacles": bool(_param_get(params, "retina_bins_obstacles_block_vision", False)),
+    }
+
+
+def _bins_options_are_basic(params: Any) -> bool:
+    """Return True when the old fast sector kernels still match the settings."""
+    options = _bins_options(params)
+    return (
+        options["mode"] == "nearest"
+        and options["subdivisions"] == 1
+        and options["distribution"] == "linear"
+        and options["falloff"] == "linear"
+        and options["projection"] == "center"
+        and options["candidate_limit"] == 0
+        and not options["block_obstacles"]
+    )
+
+
+def _bins_mode_code(value: Any) -> int:
+    mode = _normalize_bins_mode(value)
+    return {"nearest": 0, "strongest": 1, "sum_saturating": 2, "weighted_average": 3}.get(mode, 0)
+
+
+def _bins_distribution_code(value: Any) -> int:
+    return 1 if _normalize_bins_distribution(value) == "near_detail" else 0
+
+
+def _bins_falloff_code(value: Any) -> int:
+    return {"linear": 0, "quadratic": 1, "step": 2, "none": 3}.get(_normalize_bins_falloff(value), 0)
+
+
+def _bins_projection_code(value: Any) -> int:
+    return {"center": 0, "center_edges": 1, "apparent_size": 2}.get(_normalize_bins_projection(value), 0)
+
+
+def _distance_bin_activation(distance: float, vision_radius: float, options: dict[str, Any]) -> float:
+    if vision_radius <= 1e-12:
+        return 0.0
+    norm = max(0.0, min(1.0, float(distance) / float(vision_radius)))
+    subdivisions = max(1, int(options.get("subdivisions", 1)))
+    falloff = str(options.get("falloff", "linear"))
+    if falloff == "none":
+        return 1.0
+    if subdivisions <= 1:
+        representative = norm
+        band = 0
+    else:
+        distribution = str(options.get("distribution", "linear"))
+        if distribution == "near_detail":
+            band = int(math.floor(math.sqrt(norm) * subdivisions))
+            band = max(0, min(subdivisions - 1, band))
+            left = (band / subdivisions) ** 2
+            right = ((band + 1) / subdivisions) ** 2
+            representative = (left + right) * 0.5
+        else:
+            band = int(math.floor(norm * subdivisions))
+            band = max(0, min(subdivisions - 1, band))
+            representative = (band + 0.5) / subdivisions
+    if falloff == "step":
+        return max(0.0, min(1.0, (subdivisions - band) / subdivisions))
+    value = max(0.0, min(1.0, 1.0 - representative))
+    if falloff == "quadratic":
+        value *= value
+    return value
+
+
+def _candidate_sector_indices(rel_angle: float, obj_radius: float, center_dist: float,
+                              half_fov: float, retina_count: int, projection: str) -> list[int]:
+    if retina_count <= 1:
+        return [0]
+    span = 0.0
+    if projection in {"center_edges", "apparent_size"} and center_dist > 1e-9 and obj_radius > 0.0:
+        ratio = max(0.0, min(1.0, float(obj_radius) / float(center_dist)))
+        span = math.asin(ratio)
+    if projection == "center_edges":
+        angles = [rel_angle]
+        if span > 1e-9:
+            angles.extend([rel_angle - span, rel_angle + span])
+        indices = []
+        for angle in angles:
+            if abs(angle) > half_fov:
+                continue
+            rel = (angle + half_fov) / (2.0 * half_fov) * retina_count
+            idx = max(0, min(retina_count - 1, int(math.floor(rel))))
+            if idx not in indices:
+                indices.append(idx)
+        return indices or []
+    if projection == "apparent_size" and span > 1e-9:
+        left = max(-half_fov, rel_angle - span)
+        right = min(half_fov, rel_angle + span)
+        if left > right:
+            return []
+        start = int(math.floor((left + half_fov) / (2.0 * half_fov) * retina_count))
+        end = int(math.floor((right + half_fov) / (2.0 * half_fov) * retina_count))
+        start = max(0, min(retina_count - 1, start))
+        end = max(0, min(retina_count - 1, end))
+        if end < start:
+            start, end = end, start
+        return list(range(start, end + 1))
+    if abs(rel_angle) > half_fov:
+        return []
+    rel = (rel_angle + half_fov) / (2.0 * half_fov) * retina_count
+    return [max(0, min(retina_count - 1, int(math.floor(rel))))]
+
+
 def _sector_retina_from_candidates(
     sensor: 'RetinaSensor',
     agent: Any,
     candidates,
     type_codes: Sequence[int] | None = None,
     spatial_filtered: bool = True,
+    params: Any = None,
+    blocker_candidates=None,
 ) -> tuple[list[float], list[float]]:
     """Fast angular-sector retina mapping for one agent.
 
@@ -335,10 +506,25 @@ def _sector_retina_from_candidates(
     total_rays = retina_count * eye_count
     inputs = [0.0] * (total_rays * stride)
     distance_inputs = [0.0] * total_rays
+    options = _bins_options(params)
+    try:
+        sensor.last_bins_options = dict(options)
+    except Exception:
+        pass
     vision_radius = max(1e-9, float(getattr(sensor, "vision_radius", 0.0)))
     half_fov = math.radians(float(getattr(sensor, "fov_degrees", 0.0)) * 0.5)
     if half_fov <= 0.0 or not candidates:
         return inputs, distance_inputs
+    try:
+        candidates = list(candidates)
+    except TypeError:
+        candidates = []
+    candidate_limit = int(options.get("candidate_limit", 0) or 0)
+    if candidate_limit > 0 and len(candidates) > candidate_limit:
+        ax = float(getattr(agent, "x", 0.0))
+        ay = float(getattr(agent, "y", 0.0))
+        candidates.sort(key=lambda obj: (float(getattr(obj, "x", 0.0)) - ax) ** 2 + (float(getattr(obj, "y", 0.0)) - ay) ** 2)
+        candidates = candidates[:candidate_limit]
 
     type_code_set = set(type_codes or ())
     specs = sensor._eye_specs() if hasattr(sensor, "_eye_specs") else [(0.0, 0.0)]
@@ -349,7 +535,32 @@ def _sector_retina_from_candidates(
         eye_y = float(getattr(agent, "y", 0.0)) + math.sin(position_angle) * float(getattr(agent, "r", 0.0))
         gaze_angle = float(getattr(agent, "angle", 0.0)) + gaze_offset
         best_dist = [math.inf] * retina_count
+        best_score = [-math.inf] * retina_count
         best_color = [(0.0, 0.0, 0.0)] * retina_count
+        sum_values = [0.0] * (retina_count * stride)
+        weighted_values = [0.0] * (retina_count * stride)
+        weights = [0.0] * retina_count
+        blocker_dist = [math.inf] * retina_count
+
+        if blocker_candidates:
+            for obj in blocker_candidates:
+                if obj is agent:
+                    continue
+                dx = float(getattr(obj, "x", 0.0)) - eye_x
+                dy = float(getattr(obj, "y", 0.0)) - eye_y
+                center_dist = math.hypot(dx, dy)
+                obj_r = max(0.0, float(getattr(obj, "r", 0.0)))
+                eff_dist = max(0.0, center_dist - obj_r)
+                if eff_dist > vision_radius:
+                    continue
+                rel_angle = (math.atan2(dy, dx) - gaze_angle + math.pi) % (2.0 * math.pi) - math.pi
+                if abs(rel_angle) > half_fov + (math.asin(max(0.0, min(1.0, obj_r / center_dist))) if center_dist > obj_r and obj_r > 0 else 0.0):
+                    continue
+                for sector_idx in _candidate_sector_indices(
+                    rel_angle, obj_r, center_dist, half_fov, retina_count, str(options.get("projection", "center"))
+                ):
+                    if eff_dist < blocker_dist[sector_idx]:
+                        blocker_dist[sector_idx] = eff_dist
 
         for obj in candidates:
             if obj is agent:
@@ -369,26 +580,54 @@ def _sector_retina_from_candidates(
                 continue
             if eff_dist < 0.0:
                 eff_dist = 0.0
-            if retina_count > 1:
-                rel = (rel_angle + half_fov) / (2.0 * half_fov) * (retina_count - 1)
-                ray_idx = max(0, min(retina_count - 1, int(math.floor(rel + 0.5))))
-            else:
-                ray_idx = 0
-            if eff_dist < best_dist[ray_idx]:
-                best_dist[ray_idx] = eff_dist
-                best_color[ray_idx] = _object_color01(obj)
+            activation = _distance_bin_activation(eff_dist, vision_radius, options)
+            color = _object_color01(obj)
+            channel_values = [_channel_value(channel, activation, color) for channel in channels]
+            mode = str(options.get("mode", "nearest"))
+            projection = str(options.get("projection", "center"))
+            for ray_idx in _candidate_sector_indices(rel_angle, obj_r, center_dist, half_fov, retina_count, projection):
+                if eff_dist > blocker_dist[ray_idx]:
+                    continue
+                start = ray_idx * stride
+                if mode == "sum_saturating":
+                    for channel_idx, value in enumerate(channel_values):
+                        sum_values[start + channel_idx] = min(1.0, sum_values[start + channel_idx] + float(value))
+                    distance_inputs[eye_idx * retina_count + ray_idx] = max(distance_inputs[eye_idx * retina_count + ray_idx], activation)
+                    continue
+                if mode == "weighted_average":
+                    weight = max(1e-9, activation)
+                    for channel_idx, value in enumerate(channel_values):
+                        weighted_values[start + channel_idx] += float(value) * weight
+                    weights[ray_idx] += weight
+                    distance_inputs[eye_idx * retina_count + ray_idx] = max(distance_inputs[eye_idx * retina_count + ray_idx], activation)
+                    continue
+                score = activation * max(color) if mode == "strongest" else -eff_dist
+                if (mode == "strongest" and score > best_score[ray_idx]) or (mode != "strongest" and eff_dist < best_dist[ray_idx]):
+                    best_score[ray_idx] = score
+                    best_dist[ray_idx] = eff_dist
+                    best_color[ray_idx] = color
 
         for local_idx in range(retina_count):
             ray_idx = eye_idx * retina_count + local_idx
+            start = ray_idx * stride
+            if options.get("mode") == "sum_saturating":
+                for channel_idx in range(stride):
+                    inputs[start + channel_idx] = sum_values[local_idx * stride + channel_idx]
+                continue
+            if options.get("mode") == "weighted_average":
+                weight = weights[local_idx]
+                if weight > 0.0:
+                    for channel_idx in range(stride):
+                        inputs[start + channel_idx] = weighted_values[local_idx * stride + channel_idx] / weight
+                continue
             dist = best_dist[local_idx]
             if math.isfinite(dist):
-                activation = max(0.0, min(1.0, (vision_radius - dist) / vision_radius))
+                activation = _distance_bin_activation(dist, vision_radius, options)
                 color = best_color[local_idx]
             else:
                 activation = 0.0
                 color = (0.0, 0.0, 0.0)
             distance_inputs[ray_idx] = activation
-            start = ray_idx * stride
             for channel_idx, channel in enumerate(channels):
                 inputs[start + channel_idx] = _channel_value(channel, activation, color)
     return inputs, distance_inputs
@@ -581,6 +820,8 @@ class RetinaSensor:
         self._countdown = 0
         self.last_inputs: List[float] = []
         self.last_distance_inputs: List[float] = []
+        self.last_vision_mode: str = RETINA_VISION_MODE_SINGLE
+        self.last_bins_options: dict[str, Any] = _bins_options(None)
 
     def total_ray_count(self) -> int:
         return max(1, int(self.retina_count)) * normalize_eye_count(getattr(self, "eye_count", 1))
@@ -704,7 +945,8 @@ class RetinaSensor:
 
         obstacle_candidates = []
         obstacles = getattr(scene, "obstacles", None)
-        if (see_obstacles or not see_through_walls) and getattr(obstacles, "has_obstacles", False):
+        bins_block_obstacles = bool(params.get('retina_bins_obstacles_block_vision', False))
+        if (see_obstacles or not see_through_walls or bins_block_obstacles) and getattr(obstacles, "has_obstacles", False):
             obstacle_radius = float(self.vision_radius) + float(getattr(agent, 'r', 0.0)) + max(1.0, float(params.get('food_max_r', 5.0)))
             obstacle_candidates = [obstacles.stamps[i] for i in obstacles.query_indices(agent.x, agent.y, obstacle_radius)]
             if see_obstacles:
@@ -714,16 +956,20 @@ class RetinaSensor:
                 if 3 not in type_codes:
                     type_codes.append(3)
         
-        if normalize_retina_vision_mode(params.get('retina_vision_mode', RETINA_VISION_MODE_SINGLE)) == RETINA_VISION_MODE_SECTOR and see_through_walls:
+        vision_mode = normalize_retina_vision_mode(params.get('retina_vision_mode', RETINA_VISION_MODE_SINGLE))
+        if vision_mode == RETINA_VISION_MODE_SECTOR:
             inputs, distance_inputs = _sector_retina_from_candidates(
                 self,
                 agent,
                 candidates,
                 type_codes=tuple(type_codes),
                 spatial_filtered=scene.spatial_hash is not None,
+                params=params,
+                blocker_candidates=obstacle_candidates if (bins_block_obstacles or not see_through_walls) else None,
             )
             self.last_inputs = list(inputs)
             self.last_distance_inputs = list(distance_inputs)
+            self.last_vision_mode = vision_mode
             self._countdown = self.skip
             return inputs
 
@@ -779,6 +1025,7 @@ class RetinaSensor:
         # Atualiza estado e countdown
         self.last_inputs = list(inputs)
         self.last_distance_inputs = list(distance_inputs)
+        self.last_vision_mode = vision_mode
         self._countdown = self.skip
         
         return inputs
@@ -833,7 +1080,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         bool(getattr(s, "see_all", False)) or
         not bool(getattr(s, "see_through_walls", True))
         for s in sensors
-    ):
+    ) or bool((params.get if hasattr(params, "get") else lambda _k, d=None: d)('retina_bins_obstacles_block_vision', False)):
         return [a.sensor.sense(a, scene, params) for a in agents]
 
     # Atualiza parâmetros dinâmicos e determina quais precisam recalcular
@@ -844,6 +1091,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
         and len(agents) >= max(1, int(param_get('retina_high_scale_sector_min_agents', 800)))
     ):
         vision_mode = RETINA_VISION_MODE_SECTOR
+    bins_basic_fast_path = _bins_options_are_basic(params)
     spatial_arrays_enabled = bool(
         param_get('use_persistent_perception_arrays', False)
         and scene.spatial_hash is not None
@@ -880,12 +1128,16 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
     fast_retina_batch_fullbody = None
     fast_retina_batch_sector = None
     fast_retina_batch_sector_distance = None
+    fast_retina_batch_bins = None
+    fast_retina_batch_bins_nearest_center = None
     fast_retina_global_sector = None
     fast_retina_global_sector_distance = None
     if bool(param_get('use_numba_kernels', True)):
         try:
             from .fast_kernels import (
                 has_numba,
+                retina_batch_bins_nearest_center_kernel,
+                retina_batch_bins_kernel,
                 retina_batch_fullbody_kernel,
                 retina_batch_sector_distance_kernel,
                 retina_batch_sector_kernel,
@@ -904,6 +1156,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 fast_retina_batch_fullbody = retina_batch_fullbody_kernel
                 fast_retina_batch_sector = retina_batch_sector_kernel
                 fast_retina_batch_sector_distance = retina_batch_sector_distance_kernel
+                fast_retina_batch_bins = retina_batch_bins_kernel
+                fast_retina_batch_bins_nearest_center = retina_batch_bins_nearest_center_kernel
                 fast_retina_global_sector = retina_global_sector_kernel
                 fast_retina_global_sector_distance = retina_global_sector_distance_kernel
         except Exception:
@@ -914,6 +1168,8 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             fast_retina_batch_fullbody = None
             fast_retina_batch_sector = None
             fast_retina_batch_sector_distance = None
+            fast_retina_batch_bins = None
+            fast_retina_batch_bins_nearest_center = None
             fast_retina_global_sector = None
             fast_retina_global_sector_distance = None
 
@@ -1041,6 +1297,9 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             else:
                 distance_inputs = [0.0] * int(rays)
         sensor.last_distance_inputs = list(distance_inputs)
+        sensor.last_vision_mode = vision_mode
+        if vision_mode == RETINA_VISION_MODE_SECTOR:
+            sensor.last_bins_options = _bins_options(params)
 
     # Preparação para fallback sem spatial hash (global candidates)
     global_candidates = None
@@ -1072,7 +1331,11 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
             and fast_retina_global_sector is not None
             and fast_retina_global_sector_distance is not None
         )
-        if scene.spatial_hash is not None and fast_retina_batch_sector is not None:
+        if (
+            scene.spatial_hash is not None
+            and bool(param_get('use_numba_batch_retina', False))
+            and (fast_retina_batch_sector is not None or fast_retina_batch_bins is not None)
+        ):
             groups = {}
             for idx in need_update_idx:
                 sensor = sensors[idx]
@@ -1084,11 +1347,13 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 groups.setdefault(key, []).append(idx)
 
             candidate_buffer = set()
+            batch_bins_options = _bins_options(params)
+            batch_candidate_limit = int(batch_bins_options.get("candidate_limit", 0) or 0)
             for (retina_count, eye_count, channels), group_indices in groups.items():
                 n_update = len(group_indices)
                 n_eye_rows = n_update * eye_count
                 channel_count = max(1, len(channels))
-                if global_sector_enabled:
+                if global_sector_enabled and bins_basic_fast_path:
                     type_codes = runtime_configs[group_indices[0]][11]
                     group_candidates = []
                     if 0 in type_codes:
@@ -1253,6 +1518,17 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                                 scene.spatial_hash.query_ball_filtered_into(eye_x, eye_y, search_r, type_codes, candidate_buffer)
                                 if type_codes else ()
                             )
+                        if batch_candidate_limit > 0 and len(candidates_local) > batch_candidate_limit:
+                            if spatial_arrays_enabled:
+                                candidates_local = sorted(
+                                    candidates_local,
+                                    key=lambda obj_idx: (float(scene.spatial_hash.numeric_x[obj_idx]) - eye_x) ** 2 + (float(scene.spatial_hash.numeric_y[obj_idx]) - eye_y) ** 2,
+                                )[:batch_candidate_limit]
+                            else:
+                                candidates_local = sorted(
+                                    candidates_local,
+                                    key=lambda obj: (float(getattr(obj, "x", 0.0)) - eye_x) ** 2 + (float(getattr(obj, "y", 0.0)) - eye_y) ** 2,
+                                )[:batch_candidate_limit]
                         eye_x_arr[row] = float(eye_x)
                         eye_y_arr[row] = float(eye_y)
                         angle_arr[row] = float(agent.angle + gaze_offset)
@@ -1304,7 +1580,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     cand_color_r_arr = np.asarray(cand_color_r_values or [], dtype=np.float64)
                     cand_color_g_arr = np.asarray(cand_color_g_values or [], dtype=np.float64)
                     cand_color_b_arr = np.asarray(cand_color_b_values or [], dtype=np.float64)
-                if channels == ("d",) and fast_retina_batch_sector_distance is not None:
+                if bins_basic_fast_path and channels == ("d",) and fast_retina_batch_sector_distance is not None:
                     out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
                     ok = fast_retina_batch_sector_distance(
                         eye_x_arr,
@@ -1336,26 +1612,87 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                 channel_codes = _retina_channel_codes(channels)
                 out = np.empty((n_eye_rows, retina_count, channel_count), dtype=np.float64)
                 distance_out = np.empty((n_eye_rows, retina_count), dtype=np.float64)
-                ok = fast_retina_batch_sector(
-                    eye_x_arr,
-                    eye_y_arr,
-                    angle_arr,
-                    vision_radius_arr,
-                    half_fov_arr,
-                    cand_start,
-                    cand_count,
-                    cand_x_arr,
-                    cand_y_arr,
-                    cand_r_arr,
-                    self_arr,
-                    cand_color_r_arr,
-                    cand_color_g_arr,
-                    cand_color_b_arr,
-                    channel_codes,
-                    int(retina_count),
-                    out,
-                    distance_out,
+                options = batch_bins_options
+                use_nearest_center_fast = (
+                    options.get("mode") == "nearest"
+                    and options.get("projection") == "center"
+                    and fast_retina_batch_bins_nearest_center is not None
                 )
+                if use_nearest_center_fast:
+                    ok = fast_retina_batch_bins_nearest_center(
+                        eye_x_arr,
+                        eye_y_arr,
+                        angle_arr,
+                        vision_radius_arr,
+                        half_fov_arr,
+                        cand_start,
+                        cand_count,
+                        cand_x_arr,
+                        cand_y_arr,
+                        cand_r_arr,
+                        self_arr,
+                        cand_color_r_arr,
+                        cand_color_g_arr,
+                        cand_color_b_arr,
+                        channel_codes,
+                        int(retina_count),
+                        int(options.get("subdivisions", 5)),
+                        _bins_distribution_code(options.get("distribution")),
+                        _bins_falloff_code(options.get("falloff")),
+                        0,
+                        out,
+                        distance_out,
+                    )
+                elif bins_basic_fast_path and fast_retina_batch_sector is not None:
+                    ok = fast_retina_batch_sector(
+                        eye_x_arr,
+                        eye_y_arr,
+                        angle_arr,
+                        vision_radius_arr,
+                        half_fov_arr,
+                        cand_start,
+                        cand_count,
+                        cand_x_arr,
+                        cand_y_arr,
+                        cand_r_arr,
+                        self_arr,
+                        cand_color_r_arr,
+                        cand_color_g_arr,
+                        cand_color_b_arr,
+                        channel_codes,
+                        int(retina_count),
+                        out,
+                        distance_out,
+                    )
+                elif fast_retina_batch_bins is not None:
+                    ok = fast_retina_batch_bins(
+                        eye_x_arr,
+                        eye_y_arr,
+                        angle_arr,
+                        vision_radius_arr,
+                        half_fov_arr,
+                        cand_start,
+                        cand_count,
+                        cand_x_arr,
+                        cand_y_arr,
+                        cand_r_arr,
+                        self_arr,
+                        cand_color_r_arr,
+                        cand_color_g_arr,
+                        cand_color_b_arr,
+                        channel_codes,
+                        int(retina_count),
+                        _bins_mode_code(options.get("mode")),
+                        int(options.get("subdivisions", 5)),
+                        _bins_distribution_code(options.get("distribution")),
+                        _bins_falloff_code(options.get("falloff")),
+                        _bins_projection_code(options.get("projection")),
+                        0,
+                        out,
+                        distance_out,
+                    )
+                else:
+                    ok = False
                 if not ok:
                     remaining_sector_idx.extend(group_indices)
                     continue
@@ -1411,6 +1748,7 @@ def batch_retina_sense(agents: Sequence['Agent'], scene: SceneQuery, params: 'Pa
                     candidates_local,
                     type_codes=type_codes,
                     spatial_filtered=spatial_filtered,
+                    params=params,
                 )
                 _store_retina_inputs(sensor, inputs, distance_inputs)
             sensor._countdown = sensor.skip

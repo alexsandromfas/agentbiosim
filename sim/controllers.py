@@ -58,6 +58,15 @@ class Params:
             'retina_high_scale_auto_sector': False,
             'retina_high_scale_sector_min_agents': 800,
             'retina_high_scale_global_sector': False,
+            # Angular-bin vision controls. These are only used when
+            # retina_vision_mode == 'sector', so the raycast path pays no cost.
+            'retina_bins_mode': 'nearest',  # nearest, strongest, sum_saturating, weighted_average
+            'retina_bins_distance_subdivisions': 5,
+            'retina_bins_distance_distribution': 'near_detail',  # linear, near_detail
+            'retina_bins_distance_falloff': 'linear',  # linear, quadratic, step, none
+            'retina_bins_projection': 'center',  # center, center_edges, apparent_size
+            'retina_bins_candidate_limit': 128,  # 0 = unlimited
+            'retina_bins_obstacles_block_vision': False,
             'use_numba_locomotion_energy': False,
             'brain_cache_disable': False,
             'use_numba_brain_forward': False,
@@ -309,6 +318,18 @@ class Params:
         if key == 'food_piece_replenish_mode':
             value = str(value)
             return value if value in {'spawn_cluster', 'grow_existing', 'grow_particles'} else 'spawn_cluster'
+        if key == 'retina_bins_mode':
+            value = str(value)
+            return value if value in {'nearest', 'strongest', 'sum_saturating', 'weighted_average'} else 'nearest'
+        if key == 'retina_bins_distance_distribution':
+            value = str(value)
+            return value if value in {'linear', 'near_detail'} else 'near_detail'
+        if key == 'retina_bins_distance_falloff':
+            value = str(value)
+            return value if value in {'linear', 'quadratic', 'step', 'none'} else 'linear'
+        if key == 'retina_bins_projection':
+            value = str(value)
+            return value if value in {'center', 'center_edges', 'apparent_size'} else 'center'
         if key in {'food_bite_seconds'}:
             return max(0.05, float(value))
         if key in {'food_piece_particle_radius', 'food_piece_cluster_radius', 'food_piece_particle_spacing'}:
@@ -325,6 +346,10 @@ class Params:
             return max(0.1, float(value))
         elif key in ['physics_steps_per_second', 'max_physics_steps_per_frame', 'retina_high_scale_sector_min_agents', 'numba_brain_forward_min_batch']:
             return max(1, int(float(value)))
+        elif key == 'retina_bins_distance_subdivisions':
+            return max(1, min(99, int(float(value))))
+        elif key == 'retina_bins_candidate_limit':
+            return max(0, int(float(value)))
         elif key == 'max_physics_backlog_seconds':
             return max(0.0, float(value))
         elif key in {

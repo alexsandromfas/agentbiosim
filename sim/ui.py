@@ -1426,6 +1426,9 @@ class SimulationUI(QMainWindow):
         act_appearance = QAction("Aparencia do ambiente", self)
         act_appearance.triggered.connect(self.open_environment_appearance_window)
         pref_menu.addAction(act_appearance)
+        act_vision_system = QAction("Sistema de Visao", self)
+        act_vision_system.triggered.connect(self.open_vision_system_window)
+        pref_menu.addAction(act_vision_system)
         chart_menu = pref_menu.addMenu("Grafico")
         self._build_chart_sampling_menu(chart_menu)
         render_menu = pref_menu.addMenu("Resolucao da renderizacao")
@@ -1693,7 +1696,6 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(self.params.get('use_spatial', True)); row = self._add_grid_param(grid, row, "Spatial Hash:", 'use_spatial', cb)
         w = _spin_int(0, 10); w.setValue(_param_int(self.params, 'retina_skip', 0)); row = self._add_grid_param(grid, row, "Retina skip:", 'retina_skip', w)
         w = _spin_int(-1, 2147483647); w.setValue(_param_int(self.params, 'random_seed', -1)); row = self._add_grid_param(grid, row, "Seed RNG (-1 aleatoria):", 'random_seed', w)
-        mode = QComboBox(); mode.addItems(['single', 'fullbody', 'sector']); mode.setCurrentText(self.params.get('retina_vision_mode', 'single')); row = self._add_grid_param(grid, row, "Visao retinas:", 'retina_vision_mode', mode)
         cb = QCheckBox(); cb.setChecked(self.params.get('reuse_spatial_grid', True)); row = self._add_grid_param(grid, row, "Reutilizar grid espacial:", 'reuse_spatial_grid', cb)
         layout.addWidget(g_perf)
 
@@ -1722,6 +1724,120 @@ class SimulationUI(QMainWindow):
         layout.addWidget(g_actions)
         layout.addStretch(1)
 
+        dlg.show()
+
+    def open_vision_system_window(self):
+        created = self._make_preferences_dialog('_vision_system_dialog', "Sistema de Visao", 620)
+        if created is None:
+            return
+        dlg, layout = created
+        card_style = self._card_style()
+
+        g_mode = QGroupBox("Modo principal")
+        g_mode.setStyleSheet(card_style)
+        grid = QGridLayout(g_mode)
+        row = 0
+        mode = QComboBox()
+        mode.addItem("Raycast rapido - centro do objeto", "single")
+        mode.addItem("Raycast atual - corpo completo", "fullbody")
+        mode.addItem("Bins angulares", "sector")
+        current_mode = str(self.params.get('retina_vision_mode', 'single'))
+        idx = mode.findData(current_mode)
+        if idx < 0:
+            idx = 0
+        mode.setCurrentIndex(idx)
+        row = self._add_grid_param(grid, row, "Modo de visao:", 'retina_vision_mode', mode)
+        layout.addWidget(g_mode)
+
+        g_bins = QGroupBox("Controles dos bins angulares")
+        g_bins.setStyleSheet(card_style)
+        bins_grid = QGridLayout(g_bins)
+        bins_row = 0
+
+        combo = QComboBox()
+        combo.addItem("Mais proximo", "nearest")
+        combo.addItem("Mais forte", "strongest")
+        combo.addItem("Soma saturada", "sum_saturating")
+        combo.addItem("Media ponderada", "weighted_average")
+        idx = combo.findData(str(self.params.get('retina_bins_mode', 'nearest')))
+        combo.setCurrentIndex(max(0, idx))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Modo dos bins:", 'retina_bins_mode', combo)
+
+        w = _spin_int(1, 99)
+        w.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        w.setValue(_param_int(self.params, 'retina_bins_distance_subdivisions', 5))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Subdivisoes de distancia:", 'retina_bins_distance_subdivisions', w)
+
+        combo = QComboBox()
+        combo.addItem("Linear", "linear")
+        combo.addItem("Mais detalhe perto", "near_detail")
+        idx = combo.findData(str(self.params.get('retina_bins_distance_distribution', 'near_detail')))
+        combo.setCurrentIndex(max(0, idx))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Distribuicao das faixas:", 'retina_bins_distance_distribution', combo)
+
+        combo = QComboBox()
+        combo.addItem("Linear", "linear")
+        combo.addItem("Quadratica", "quadratic")
+        combo.addItem("Degrau", "step")
+        combo.addItem("Sem queda", "none")
+        idx = combo.findData(str(self.params.get('retina_bins_distance_falloff', 'linear')))
+        combo.setCurrentIndex(max(0, idx))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Queda por distancia:", 'retina_bins_distance_falloff', combo)
+
+        combo = QComboBox()
+        combo.addItem("Centro apenas", "center")
+        combo.addItem("Centro + bordas", "center_edges")
+        combo.addItem("Espalhar por tamanho aparente", "apparent_size")
+        idx = combo.findData(str(self.params.get('retina_bins_projection', 'center')))
+        combo.setCurrentIndex(max(0, idx))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Projecao do objeto:", 'retina_bins_projection', combo)
+
+        w = _spin_int(0, 10000)
+        w.setValue(_param_int(self.params, 'retina_bins_candidate_limit', 128))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Limite de candidatos:", 'retina_bins_candidate_limit', w)
+
+        cb = QCheckBox()
+        cb.setChecked(bool(self.params.get('retina_bins_obstacles_block_vision', False)))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Obstaculos bloqueiam visao:", 'retina_bins_obstacles_block_vision', cb)
+
+        cb = QCheckBox()
+        cb.setChecked(bool(self.params.get('retina_high_scale_auto_sector', False)))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Usar bins automaticamente:", 'retina_high_scale_auto_sector', cb)
+
+        w = _spin_int(1, 200000)
+        w.setValue(_param_int(self.params, 'retina_high_scale_sector_min_agents', 800))
+        bins_row = self._add_grid_param(bins_grid, bins_row, "Acima de X organismos:", 'retina_high_scale_sector_min_agents', w)
+        layout.addWidget(g_bins)
+
+        hint = QLabel("O raio de visao, FOV, numero de retinas, canais e olhos continuam no editor genetico. Aqui voce escolhe apenas o algoritmo que calcula o sinal dessas retinas.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#9fb1c4;")
+        layout.addWidget(hint)
+
+        def update_enabled():
+            enabled = self._get_widget_value('retina_vision_mode') == 'sector'
+            for name in [
+                'retina_bins_mode',
+                'retina_bins_distance_subdivisions',
+                'retina_bins_distance_distribution',
+                'retina_bins_distance_falloff',
+                'retina_bins_projection',
+                'retina_bins_candidate_limit',
+                'retina_bins_obstacles_block_vision',
+            ]:
+                widget = self.widgets.get(name)
+                if widget is not None:
+                    widget.setEnabled(enabled)
+        mode.currentIndexChanged.connect(lambda _idx: update_enabled())
+        update_enabled()
+
+        actions = QHBoxLayout()
+        btn_apply = QPushButton("Aplicar sistema de visao")
+        btn_apply.clicked.connect(self.apply_simulation_params)
+        actions.addWidget(btn_apply)
+        actions.addStretch(1)
+        layout.addLayout(actions)
+        layout.addStretch(1)
         dlg.show()
 
     def open_new_changes_window(self):
@@ -1944,7 +2060,14 @@ class SimulationUI(QMainWindow):
             'use_spatial': 'Usa uma grade espacial para acelerar buscas de proximidade, colisao, alimentacao e visao em populacoes grandes.',
             'retina_skip': 'Quantidade de frames que cada retina pode reutilizar a leitura anterior. Aumentar melhora desempenho, mas reduz precisao temporal da percepcao.',
             'random_seed': 'Seed do gerador aleatorio. Use -1 para aleatorio; use um numero fixo para repetir experimentos com o mesmo ponto de partida.',
-            'retina_vision_mode': 'Modo de mapeamento da retina. single usa centro do objeto; fullbody considera o corpo inteiro; sector usa setores angulares rapidos para populacoes grandes.',
+            'retina_vision_mode': 'Modo de mapeamento da retina. single usa centro do objeto; fullbody considera o corpo inteiro por raycast; sector usa bins angulares configuraveis.',
+            'retina_bins_mode': 'Define como um setor visual resume varios objetos ao mesmo tempo. Mais proximo usa o objeto mais perto; Mais forte usa o sinal dominante; Soma saturada soma ate 1; Media ponderada suaviza os sinais do setor.',
+            'retina_bins_distance_subdivisions': 'Divide cada setor angular em faixas internas de distancia para calcular melhor a intensidade final. Nao muda o numero de entradas da rede neural.',
+            'retina_bins_distance_distribution': 'Controla o tamanho das faixas internas. Linear usa faixas iguais; Mais detalhe perto usa faixas menores perto do organismo e maiores longe.',
+            'retina_bins_distance_falloff': 'Define como a intensidade visual cai com a distancia. Linear preserva o comportamento simples; Quadratica prioriza perto; Degrau discretiza; Sem queda usa presenca/cor.',
+            'retina_bins_projection': 'Define quantos setores um objeto ativa. Centro apenas usa o centro; Centro + bordas considera as bordas angulares; Tamanho aparente espalha objetos grandes ou proximos.',
+            'retina_bins_candidate_limit': 'Limita quantos objetos proximos cada organismo avalia no modo bins. Zero significa ilimitado. Valores baixos evitam travamentos, mas podem ignorar objetos relevantes.',
+            'retina_bins_obstacles_block_vision': 'No modo bins, obstaculos podem bloquear objetos atras deles. E mais realista, mas custa mais processamento.',
             'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
@@ -3775,6 +3898,10 @@ class SimulationUI(QMainWindow):
             'use_numba_locomotion_energy', 'bacteria_show_vision',
             'predator_show_vision', 'show_selected_details',
             'show_spatial_hash', 'retina_vision_mode',
+            'retina_bins_mode', 'retina_bins_distance_subdivisions',
+            'retina_bins_distance_distribution', 'retina_bins_distance_falloff',
+            'retina_bins_projection', 'retina_bins_candidate_limit',
+            'retina_bins_obstacles_block_vision',
         }
 
     def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
@@ -3832,7 +3959,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'render_enabled', 'simple_render', 'show_spatial_hash', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -3950,7 +4077,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','render_enabled','simple_render','show_spatial_hash','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -4791,6 +4918,13 @@ class SimulationUI(QMainWindow):
                     'retina_skip': 0,
                     'random_seed': -1,
                     'retina_vision_mode': 'single',
+                    'retina_bins_mode': 'nearest',
+                    'retina_bins_distance_subdivisions': 5,
+                    'retina_bins_distance_distribution': 'near_detail',
+                    'retina_bins_distance_falloff': 'linear',
+                    'retina_bins_projection': 'center',
+                    'retina_bins_candidate_limit': 128,
+                    'retina_bins_obstacles_block_vision': False,
                     'reuse_spatial_grid': True,
                     'use_numba_batch_retina': False,
                     'use_grouped_vision_batches': True,

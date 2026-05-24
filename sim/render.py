@@ -125,7 +125,7 @@ class SimpleRenderer(RendererStrategy):
         
         # Desenha raios de visão se solicitado OU se o agente estiver selecionado
         if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
-            self._draw_vision_rays(agent, surface, camera)
+            self._draw_vision_rays(agent, surface, camera, selected=selected)
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo simples."""
@@ -245,12 +245,15 @@ class SimpleRenderer(RendererStrategy):
             surface.blit(self.small_font.render(lines[row], True, (6, 10, 14)), (x + 1, y + 1))
             surface.blit(item, (x, y))
 
-    def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera'):
+    def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera', selected: bool = False):
         """Desenha raios de visão com intensidade proporcional à ativação."""
         if not hasattr(agent, 'sensor'):
             return
         
         sensor = agent.sensor
+        if str(getattr(sensor, 'last_vision_mode', 'single')) == 'sector':
+            self._draw_vision_bins(agent, surface, camera, selected=selected)
+            return
         ray_count = sensor.total_ray_count() if hasattr(sensor, 'total_ray_count') else int(getattr(sensor, 'retina_count', len(sensor.last_inputs)))
         for i in range(int(ray_count)):
             ray_info = sensor.get_ray_info(agent, i)
@@ -277,6 +280,164 @@ class SimpleRenderer(RendererStrategy):
             pygame.draw.line(surface, color, 
                            (int(screen_start[0]), int(screen_start[1])),
                            (int(screen_end[0]), int(screen_end[1])), thickness)
+
+    def _ray_activation(self, sensor, ray_index: int) -> float:
+        distance_values = getattr(sensor, 'last_distance_inputs', None)
+        if distance_values and ray_index < len(distance_values):
+            try:
+                return max(0.0, min(1.0, float(distance_values[ray_index])))
+            except Exception:
+                return 0.0
+        stride = max(1, len(getattr(sensor, 'channels', ('d',))))
+        start = ray_index * stride
+        values = getattr(sensor, 'last_inputs', [])[start:start + stride]
+        if not values:
+            return 0.0
+        try:
+            return max(0.0, min(1.0, max(float(v) for v in values)))
+        except Exception:
+            return 0.0
+
+    def _ray_visual_color(self, sensor, ray_index: int, activation: float) -> tuple[int, int, int]:
+        channels = tuple(getattr(sensor, 'channels', ('d',)))
+        stride = max(1, len(channels))
+        start = ray_index * stride
+        values = getattr(sensor, 'last_inputs', [])[start:start + stride]
+        rgb = [0.0, 0.0, 0.0]
+        has_color = False
+        for channel, value in zip(channels, values):
+            try:
+                v = max(0.0, min(1.0, float(value)))
+            except Exception:
+                v = 0.0
+            if channel == 'r':
+                rgb[0] = max(rgb[0], v); has_color = True
+            elif channel == 'g':
+                rgb[1] = max(rgb[1], v); has_color = True
+            elif channel == 'b':
+                rgb[2] = max(rgb[2], v); has_color = True
+            elif channel == 'rd':
+                rgb[0] = max(rgb[0], v / max(activation, 1e-6)); has_color = True
+            elif channel == 'gd':
+                rgb[1] = max(rgb[1], v / max(activation, 1e-6)); has_color = True
+            elif channel == 'bd':
+                rgb[2] = max(rgb[2], v / max(activation, 1e-6)); has_color = True
+        if has_color:
+            return (
+                int(max(20, min(255, rgb[0] * 255))),
+                int(max(20, min(255, rgb[1] * 255))),
+                int(max(20, min(255, rgb[2] * 255))),
+            )
+        return (255, int(180 + 60 * (1.0 - activation)), 35)
+
+    def _vision_bin_radius_fraction(self, fraction: float, options: dict) -> float:
+        fraction = max(0.0, min(1.0, float(fraction)))
+        if str(options.get('distribution', 'linear')) == 'near_detail':
+            return fraction * fraction
+        return fraction
+
+    def _vision_radius_from_activation(self, activation: float, radius: float, options: dict) -> float:
+        activation = max(0.0, min(1.0, float(activation)))
+        falloff = str(options.get('falloff', 'linear'))
+        if activation <= 0.0:
+            return radius
+        if falloff == 'quadratic':
+            norm = 1.0 - math.sqrt(activation)
+        elif falloff == 'none':
+            norm = 1.0
+        else:
+            norm = 1.0 - activation
+        return max(radius * 0.04, min(radius, radius * norm))
+
+    def _draw_bin_grid(self, surface: pygame.Surface, camera: 'Camera', eye_x: float, eye_y: float,
+                       gaze_angle: float, half_fov: float, radius: float, retina_count: int,
+                       subdivisions: int, options: dict):
+        grid_color = (58, 170, 230, 82)
+        left = gaze_angle - half_fov
+        right = gaze_angle + half_fov
+        # Angular boundaries.
+        for boundary_idx in range(retina_count + 1):
+            angle = left + (boundary_idx / max(1, retina_count)) * (right - left)
+            sx, sy = camera.world_to_screen(eye_x, eye_y)
+            ex, ey = camera.world_to_screen(eye_x + math.cos(angle) * radius, eye_y + math.sin(angle) * radius)
+            pygame.draw.line(surface, grid_color, (int(sx), int(sy)), (int(ex), int(ey)), 1)
+        # Distance subdivision arcs.
+        subdivisions = max(1, int(subdivisions))
+        arc_steps = max(12, min(96, retina_count * 3))
+        for band_idx in range(1, subdivisions):
+            frac = self._vision_bin_radius_fraction(band_idx / subdivisions, options)
+            rr = radius * frac
+            points = []
+            for step in range(arc_steps + 1):
+                angle = left + (step / arc_steps) * (right - left)
+                points.append(camera.world_to_screen(eye_x + math.cos(angle) * rr, eye_y + math.sin(angle) * rr))
+            if len(points) >= 2:
+                pygame.draw.lines(surface, grid_color, False, [(int(x), int(y)) for x, y in points], 1)
+
+    def _draw_vision_bins(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera', selected: bool = False):
+        sensor = getattr(agent, 'sensor', None)
+        if sensor is None or not getattr(sensor, 'last_inputs', None):
+            return
+        count = max(1, int(getattr(sensor, 'retina_count', 1) or 1))
+        total = sensor.total_ray_count() if hasattr(sensor, 'total_ray_count') else count
+        half_fov = math.radians(float(getattr(sensor, 'fov_degrees', 180.0)) * 0.5)
+        radius = float(getattr(sensor, 'vision_radius', 0.0))
+        if half_fov <= 0.0 or radius <= 0.0:
+            return
+        eye_count = max(1, int(total / count))
+        specs = sensor._eye_specs() if hasattr(sensor, '_eye_specs') else [(0.0, 0.0)]
+        overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA) if selected else None
+        grid_overlay = pygame.Surface(surface.get_size(), pygame.SRCALPHA) if selected else None
+        options = getattr(sensor, 'last_bins_options', {}) or {}
+        subdivisions = max(1, int(options.get('subdivisions', 1) or 1))
+        if selected and grid_overlay is not None:
+            for eye_idx in range(eye_count):
+                pos_offset, gaze_offset = specs[min(eye_idx, len(specs) - 1)]
+                position_angle = float(agent.angle) + pos_offset
+                eye_x = float(agent.x) + math.cos(position_angle) * float(agent.r)
+                eye_y = float(agent.y) + math.sin(position_angle) * float(agent.r)
+                gaze_angle = float(agent.angle) + gaze_offset
+                self._draw_bin_grid(grid_overlay, camera, eye_x, eye_y, gaze_angle, half_fov, radius, count, subdivisions, options)
+        for ray_index in range(int(total)):
+            eye_idx = min(eye_count - 1, ray_index // count)
+            local_idx = ray_index % count
+            pos_offset, gaze_offset = specs[min(eye_idx, len(specs) - 1)]
+            position_angle = float(agent.angle) + pos_offset
+            eye_x = float(agent.x) + math.cos(position_angle) * float(agent.r)
+            eye_y = float(agent.y) + math.sin(position_angle) * float(agent.r)
+            gaze_angle = float(agent.angle) + gaze_offset
+            sector_width = (2.0 * half_fov) / count
+            left_angle = gaze_angle - half_fov + local_idx * sector_width
+            right_angle = left_angle + sector_width
+            activation = self._ray_activation(sensor, ray_index)
+            color = self._ray_visual_color(sensor, ray_index, activation)
+            if selected and activation > 0.001 and overlay is not None:
+                arc_steps = max(2, min(10, int(abs(right_angle - left_angle) * max(8.0, radius * camera.zoom) / 36.0) + 1))
+                lit_radius = self._vision_radius_from_activation(activation, radius, options)
+                points = [camera.world_to_screen(eye_x, eye_y)]
+                for step in range(arc_steps + 1):
+                    t = step / arc_steps
+                    angle = left_angle + (right_angle - left_angle) * t
+                    px = eye_x + math.cos(angle) * lit_radius
+                    py = eye_y + math.sin(angle) * lit_radius
+                    points.append(camera.world_to_screen(px, py))
+                alpha = int(28 + 105 * activation)
+                pygame.draw.polygon(overlay, (*color, alpha), [(int(x), int(y)) for x, y in points])
+            if selected or activation > 0.001:
+                center_angle = (left_angle + right_angle) * 0.5
+                lit_radius = self._vision_radius_from_activation(activation, radius, options) if activation > 0.001 else radius
+                sx, sy = camera.world_to_screen(eye_x, eye_y)
+                ex, ey = camera.world_to_screen(
+                    eye_x + math.cos(center_angle) * lit_radius,
+                    eye_y + math.sin(center_angle) * lit_radius,
+                )
+                line_color = color if activation > 0.001 else (70, 150, 210)
+                thickness = max(1, int(1 + activation * 2))
+                pygame.draw.line(surface, line_color, (int(sx), int(sy)), (int(ex), int(ey)), thickness)
+        if overlay is not None:
+            surface.blit(overlay, (0, 0))
+        if grid_overlay is not None:
+            surface.blit(grid_overlay, (0, 0))
     
     def _draw_agent_details(self, agent: 'Agent', surface: pygame.Surface):
         """Desenha detalhes do agente selecionado no canto direito."""
@@ -390,7 +551,7 @@ class EllipseRenderer(RendererStrategy):
         
         # Desenha visão se solicitado OU se o agente estiver selecionado
         if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
-            self._draw_vision_rays(agent, surface, camera)
+            self._draw_vision_rays(agent, surface, camera, selected=selected)
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo (igual ao SimpleRenderer)."""
@@ -410,6 +571,6 @@ class EllipseRenderer(RendererStrategy):
         """Reutiliza implementação do SimpleRenderer."""
         self._simple_renderer.draw_overlay(surface, info)
     
-    def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera'):
+    def _draw_vision_rays(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera', selected: bool = False):
         """Reutiliza implementação do SimpleRenderer."""
-        self._simple_renderer._draw_vision_rays(agent, surface, camera)
+        self._simple_renderer._draw_vision_rays(agent, surface, camera, selected=selected)
