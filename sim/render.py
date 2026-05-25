@@ -40,6 +40,17 @@ def _interpolated_agent_pose(agent: 'Agent', alpha: float) -> tuple[float, float
     return x, y, prev_angle + delta_angle * alpha
 
 
+def _interpolated_food_pos(food: 'Food', alpha: float) -> tuple[float, float]:
+    if alpha >= 1.0:
+        return float(food.x), float(food.y)
+    prev_x = float(getattr(food, 'prev_x', food.x))
+    prev_y = float(getattr(food, 'prev_y', food.y))
+    return (
+        prev_x + (float(food.x) - prev_x) * alpha,
+        prev_y + (float(food.y) - prev_y) * alpha,
+    )
+
+
 class RendererStrategy(ABC):
     """
     Interface para estratégias de renderização.
@@ -129,7 +140,8 @@ class SimpleRenderer(RendererStrategy):
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo simples."""
-        screen_x, screen_y = camera.world_to_screen(food.x, food.y)
+        fx, fy = _interpolated_food_pos(food, float(getattr(self, 'interpolation_alpha', 1.0)))
+        screen_x, screen_y = camera.world_to_screen(fx, fy)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
         _draw_food_bite_holes(food, surface, camera)
@@ -555,7 +567,8 @@ class EllipseRenderer(RendererStrategy):
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo (igual ao SimpleRenderer)."""
-        screen_x, screen_y = camera.world_to_screen(food.x, food.y)
+        fx, fy = _interpolated_food_pos(food, float(getattr(self, 'interpolation_alpha', 1.0)))
+        screen_x, screen_y = camera.world_to_screen(fx, fy)
         screen_radius = max(1, int(food.r * camera.zoom))
         pygame.draw.circle(surface, food.color, (int(screen_x), int(screen_y)), screen_radius)
         _draw_food_bite_holes(food, surface, camera)

@@ -821,6 +821,18 @@ class Engine:
         self._spatial_hash_dirty = True
         return len(live_victims)
 
+    def clear_food(self) -> int:
+        """Remove toda a comida atual sem alterar alvo/reposicao."""
+        count = len(self.entities.get('foods', []))
+        if count <= 0:
+            return 0
+        self.entities['foods'].clear()
+        self.food_controller.food_debt = 0.0
+        self.food_controller.food_energy_debt = 0.0
+        self.food_controller.food_excess_debt = 0.0
+        self._spatial_hash_dirty = True
+        return count
+
     def move_object_to(self, obj, world_x: float, world_y: float) -> bool:
         """Move objeto existente respeitando substrato e obstáculos."""
         if obj is None:
@@ -972,6 +984,9 @@ class Engine:
             return 0
         nearby_buffer = set()
         resolved = 0
+        movable_food = bool(params.get('movable_chunk_food_enabled', False))
+        push_strength = max(0.0, min(1.0, float(params.get('chunk_food_push_strength', 0.45))))
+        food_mass_scale = max(1e-6, float(params.get('chunk_food_mass_scale', 1.0)))
         for agent in self.all_agents:
             if agent in frozen_agents:
                 continue
@@ -997,8 +1012,34 @@ class Engine:
                     dist = 1.0
                 nx, ny = dx / dist, dy / dist
                 overlap = r_sum - dist
-                agent.x += nx * (overlap + 1e-3)
-                agent.y += ny * (overlap + 1e-3)
+                if movable_food:
+                    agent_m = max(1e-6, float(getattr(agent, 'm', agent_r * agent_r)))
+                    food_m = max(1e-6, float(getattr(food, 'm', float(getattr(food, 'r', 1.0)) ** 2)) * food_mass_scale)
+                    total_m = agent_m + food_m
+                    sep = overlap + 1e-3
+                    agent.x += nx * sep * (food_m / total_m)
+                    agent.y += ny * sep * (food_m / total_m)
+                    food.x -= nx * sep * (agent_m / total_m)
+                    food.y -= ny * sep * (agent_m / total_m)
+                    rvx = float(getattr(agent, 'vx', 0.0)) - float(getattr(food, 'vx', 0.0))
+                    rvy = float(getattr(agent, 'vy', 0.0)) - float(getattr(food, 'vy', 0.0))
+                    closing = rvx * nx + rvy * ny
+                    if closing < 0.0 and push_strength > 0.0:
+                        inv_agent = 1.0 / agent_m
+                        inv_food = 1.0 / food_m
+                        impulse = (-closing * push_strength) / max(1e-9, inv_agent + inv_food)
+                        ix = impulse * nx
+                        iy = impulse * ny
+                        agent.vx += ix * inv_agent
+                        agent.vy += iy * inv_agent
+                        food.vx -= ix * inv_food
+                        food.vy -= iy * inv_food
+                    food.x, food.y = self.world.clamp_position(food.x, food.y, getattr(food, 'r', 0.0))
+                    if getattr(self.obstacles, 'has_obstacles', False):
+                        self.obstacles.resolve_agent(food)
+                else:
+                    agent.x += nx * (overlap + 1e-3)
+                    agent.y += ny * (overlap + 1e-3)
                 if hasattr(agent, 'vx'):
                     inward = agent.vx * nx + agent.vy * ny
                     if inward < 0.0:
@@ -1008,6 +1049,228 @@ class Engine:
                 resolved += 1
                 break
         return resolved
+
+    def _resolve_chunk_food_contacts(self, params, max_iterations: int = 1) -> int:
+        """Impede sobreposicao e aplica adesao apenas dentro do mesmo pedaco."""
+        if str(params.get('food_mode', 'instant')) != 'chunk':
+            return 0
+        if not bool(params.get('movable_chunk_food_enabled', False)):
+            return 0
+        foods = [
+            food for food in self.entities.get('foods', [])
+            if str(getattr(food, 'kind', 'chunk')) == 'chunk'
+        ]
+        if len(foods) < 2:
+            return 0
+        collision_enabled = bool(params.get('chunk_food_collision_enabled', True))
+        adhesion_enabled = bool(params.get('chunk_food_adhesion_enabled', True))
+        if not (collision_enabled or adhesion_enabled):
+            return 0
+
+        edge_gap = max(0.0, float(params.get('food_piece_particle_spacing', 0.0)))
+        adhesion_strength = max(0.0, min(1.0, float(params.get('chunk_food_adhesion_strength', 0.35))))
+        mass_scale = max(1e-6, float(params.get('chunk_food_mass_scale', 1.0)))
+        max_radius = max((float(getattr(food, 'r', 0.0)) for food in foods), default=0.0)
+        if max_radius <= 0.0:
+            return 0
+
+        resolved = 0
+        nearby_buffer = set()
+
+        def _apply_pair(food, other, correction: float, nx: float, ny: float,
+                        r1: float, r2: float, *, damp_closing: bool) -> None:
+            m1 = max(1e-6, float(getattr(food, 'm', r1 * r1)) * mass_scale)
+            m2 = max(1e-6, float(getattr(other, 'm', r2 * r2)) * mass_scale)
+            total_m = m1 + m2
+            move1 = correction * (m2 / total_m)
+            move2 = correction * (m1 / total_m)
+            food.prev_x = float(getattr(food, 'x', 0.0))
+            food.prev_y = float(getattr(food, 'y', 0.0))
+            other.prev_x = float(getattr(other, 'x', 0.0))
+            other.prev_y = float(getattr(other, 'y', 0.0))
+            food.x += nx * move1
+            food.y += ny * move1
+            other.x -= nx * move2
+            other.y -= ny * move2
+
+            if damp_closing:
+                rvx = float(getattr(food, 'vx', 0.0)) - float(getattr(other, 'vx', 0.0))
+                rvy = float(getattr(food, 'vy', 0.0)) - float(getattr(other, 'vy', 0.0))
+                closing = rvx * nx + rvy * ny
+                if closing < 0.0:
+                    inv1 = 1.0 / m1
+                    inv2 = 1.0 / m2
+                    impulse = (-closing) / max(1e-9, inv1 + inv2)
+                    ix = impulse * nx
+                    iy = impulse * ny
+                    food.vx += ix * inv1
+                    food.vy += iy * inv1
+                    other.vx -= ix * inv2
+                    other.vy -= iy * inv2
+
+            food.x, food.y = self.world.clamp_position(food.x, food.y, r1)
+            other.x, other.y = self.world.clamp_position(other.x, other.y, r2)
+            if getattr(self.obstacles, 'has_obstacles', False):
+                self.obstacles.resolve_agent(food)
+                self.obstacles.resolve_agent(other)
+
+        if collision_enabled:
+            index = {food: i for i, food in enumerate(foods)}
+            collision_query_radius = max_radius * 2.0
+            for _iteration in range(max(1, int(max_iterations))):
+                pass_resolved = 0
+                for i, food in enumerate(foods):
+                    if self.spatial_hash:
+                        nearby_foods = self.spatial_hash.query_ball_filtered_into(
+                            float(food.x), float(food.y), float(food.r) + collision_query_radius, 0, nearby_buffer
+                        )
+                    else:
+                        nearby_foods = foods
+                    for other in nearby_foods:
+                        j = index.get(other, -1)
+                        if j <= i or str(getattr(other, 'kind', 'chunk')) != 'chunk':
+                            continue
+                        r1 = float(getattr(food, 'r', 0.0))
+                        r2 = float(getattr(other, 'r', 0.0))
+                        if r1 <= 0.0 or r2 <= 0.0:
+                            continue
+                        dx = float(food.x) - float(other.x)
+                        dy = float(food.y) - float(other.y)
+                        dist2 = dx * dx + dy * dy
+                        min_dist = r1 + r2
+                        if dist2 >= min_dist * min_dist:
+                            continue
+                        if dist2 <= 1e-12:
+                            dist = 1.0
+                            nx, ny = 1.0, 0.0
+                        else:
+                            dist = math.sqrt(dist2)
+                            nx, ny = dx / dist, dy / dist
+                        _apply_pair(food, other, min_dist - dist + 1e-4, nx, ny, r1, r2, damp_closing=True)
+                        pass_resolved += 1
+                resolved += pass_resolved
+                if pass_resolved == 0:
+                    break
+
+        if adhesion_enabled and adhesion_strength > 0.0:
+            chunks: dict[int, list] = {}
+            for food in foods:
+                chunk_id = int(getattr(food, 'chunk_id', 0) or 0)
+                if chunk_id > 0:
+                    chunks.setdefault(chunk_id, []).append(food)
+            for chunk_foods in chunks.values():
+                if len(chunk_foods) < 2:
+                    continue
+                for i, food in enumerate(chunk_foods):
+                    r1 = float(getattr(food, 'r', 0.0))
+                    if r1 <= 0.0:
+                        continue
+                    for other in chunk_foods[i + 1:]:
+                        r2 = float(getattr(other, 'r', 0.0))
+                        if r2 <= 0.0:
+                            continue
+                        dx = float(food.x) - float(other.x)
+                        dy = float(food.y) - float(other.y)
+                        dist2 = dx * dx + dy * dy
+                        min_dist = r1 + r2
+                        rest_dist = min_dist + edge_gap
+                        capture = max(r1, r2) * 0.75 + edge_gap
+                        max_dist = rest_dist + capture
+                        if dist2 > max_dist * max_dist:
+                            continue
+                        if dist2 <= 1e-12:
+                            dist = 1.0
+                            nx, ny = 1.0, 0.0
+                        else:
+                            dist = math.sqrt(dist2)
+                            nx, ny = dx / dist, dy / dist
+                        if dist < rest_dist:
+                            correction = (rest_dist - dist) * adhesion_strength
+                        else:
+                            correction = -(dist - rest_dist) * adhesion_strength * 0.18
+                        if abs(correction) <= 1e-7:
+                            continue
+                        _apply_pair(food, other, correction, nx, ny, r1, r2, damp_closing=False)
+                        m1 = max(1e-6, float(getattr(food, 'm', r1 * r1)) * mass_scale)
+                        m2 = max(1e-6, float(getattr(other, 'm', r2 * r2)) * mass_scale)
+                        total_m = m1 + m2
+                        blend = min(0.2, adhesion_strength * 0.08)
+                        avg_vx = (float(food.vx) * m1 + float(other.vx) * m2) / total_m
+                        avg_vy = (float(food.vy) * m1 + float(other.vy) * m2) / total_m
+                        food.vx += (avg_vx - float(food.vx)) * blend
+                        food.vy += (avg_vy - float(food.vy)) * blend
+                        other.vx += (avg_vx - float(other.vx)) * blend
+                        other.vy += (avg_vy - float(other.vy)) * blend
+                        resolved += 1
+        return resolved
+
+    def _apply_passive_physics(self, dt: float, params) -> int:
+        """Aplica viscosidade global, movimento browniano e inercia de comida solida."""
+        if dt <= 0.0:
+            return 0
+        viscosity_enabled = bool(params.get('global_viscosity_enabled', False))
+        brownian_enabled = bool(params.get('brownian_motion_enabled', False))
+        movable_food = (
+            str(params.get('food_mode', 'instant')) == 'chunk'
+            and bool(params.get('movable_chunk_food_enabled', False))
+        )
+        if not (viscosity_enabled or brownian_enabled or movable_food):
+            return 0
+
+        changed = 0
+        if viscosity_enabled:
+            drag = max(0.0, float(params.get('global_viscosity_drag', 0.2)))
+            decay = math.exp(-drag * dt) if drag > 0.0 else 1.0
+            for agent in self.all_agents:
+                agent.vx *= decay
+                agent.vy *= decay
+                if hasattr(agent, 'angular_velocity'):
+                    agent.angular_velocity *= decay
+
+        if brownian_enabled:
+            strength = max(0.0, float(params.get('brownian_motion_strength', 3.0)))
+            if strength > 0.0:
+                kick = strength * math.sqrt(max(0.0, dt))
+                for agent in self.all_agents:
+                    mass = max(1.0, float(getattr(agent, 'm', 1.0)))
+                    scale = kick / math.sqrt(mass)
+                    jx = random.uniform(-scale, scale)
+                    jy = random.uniform(-scale, scale)
+                    agent.vx += jx
+                    agent.vy += jy
+                    agent.x += jx * dt
+                    agent.y += jy * dt
+                    agent.x, agent.y = self.world.clamp_position(agent.x, agent.y, getattr(agent, 'r', 0.0))
+                    changed += 1
+
+        if movable_food:
+            food_drag = max(0.0, float(params.get('chunk_food_drag', 1.6)))
+            food_decay = math.exp(-food_drag * dt) if food_drag > 0.0 else 1.0
+            food_kick_base = max(0.0, float(params.get('brownian_motion_strength', 3.0))) if brownian_enabled else 0.0
+            for food in self.entities.get('foods', []):
+                if str(getattr(food, 'kind', 'chunk')) != 'chunk':
+                    continue
+                food.prev_x = float(getattr(food, 'x', 0.0))
+                food.prev_y = float(getattr(food, 'y', 0.0))
+                if food_kick_base > 0.0:
+                    mass = max(1.0, float(getattr(food, 'm', getattr(food, 'r', 1.0) ** 2)))
+                    kick = food_kick_base * math.sqrt(max(0.0, dt)) / math.sqrt(mass)
+                    food.vx += random.uniform(-kick, kick)
+                    food.vy += random.uniform(-kick, kick)
+                food.vx *= food_decay
+                food.vy *= food_decay
+                if abs(food.vx) < 1e-5:
+                    food.vx = 0.0
+                if abs(food.vy) < 1e-5:
+                    food.vy = 0.0
+                if food.vx or food.vy:
+                    food.x += food.vx * dt
+                    food.y += food.vy * dt
+                    food.x, food.y = self.world.clamp_position(food.x, food.y, getattr(food, 'r', 0.0))
+                    if getattr(self.obstacles, 'has_obstacles', False):
+                        self.obstacles.resolve_agent(food)
+                    changed += 1
+        return changed
     
     def _simulate_substep(self, dt: float):
         """Executa um substep de física."""
@@ -1095,6 +1358,11 @@ class Engine:
             for group in agent_groups.values():
                 update_agents_batch(group, dt, self.world, self.scene_query, step_params, selected_agent=self.selected_agent)
 
+        with profile_section('passive_physics'):
+            passive_food_moved = bool(self._apply_passive_physics(dt, step_params))
+            if passive_food_moved:
+                self._spatial_hash_dirty = True
+
         with profile_section('obstacle_collision'):
             if self._resolve_obstacle_collisions(frozen_agents=frozen_agents):
                 self._spatial_hash_dirty = True
@@ -1104,9 +1372,16 @@ class Engine:
             self._update_spatial_hash(force=True)
 
         with profile_section('food_collision'):
-            if self._resolve_solid_food_collisions(step_params, frozen_agents=frozen_agents):
+            food_pushed = bool(self._resolve_solid_food_collisions(step_params, frozen_agents=frozen_agents))
+            if food_pushed:
                 self._spatial_hash_dirty = True
                 self._update_spatial_hash(force=True)
+
+        if passive_food_moved or food_pushed:
+            with profile_section('chunk_food_contacts'):
+                if self._resolve_chunk_food_contacts(step_params):
+                    self._spatial_hash_dirty = True
+                    self._update_spatial_hash(force=True)
 
         topology_changed = False
         with profile_section('interaction'):
@@ -1219,6 +1494,10 @@ class Engine:
                 food.color = tuple(params.get('food_color', food.color))
             except Exception:
                 pass
+            try:
+                food.chunk_id = int(getattr(self.food_controller, '_new_chunk_id')())
+            except Exception:
+                food.chunk_id = 0
             base_energy = getattr(food, 'energy', radius * radius)
             corpse_energy = max(0.0, float(getattr(agent, 'energy', 0.0))) * 0.5
             food.energy = max(base_energy, corpse_energy)
@@ -1376,6 +1655,10 @@ class Engine:
 
         elif command == 'remove_selected_agents':
             self.remove_selected_agents()
+
+        elif command == 'clear_food':
+            removed = self.clear_food()
+            print(f"Comida limpa: {removed} itens removidos")
         
         elif command == 'reset_population':
             self._initialize_population()

@@ -428,8 +428,24 @@ class PygameView:
             self._follow_agent = None
             self._follow_screen_pos = None
             return
-        sx, sy = self.engine.camera.world_to_screen(self._follow_agent.x, self._follow_agent.y)
+        ax, ay = self._follow_agent_render_pos(self._follow_agent)
+        sx, sy = self.engine.camera.world_to_screen(ax, ay)
         self._follow_screen_pos = (float(sx), float(sy))
+
+    def _follow_agent_render_pos(self, agent):
+        alpha = 1.0
+        try:
+            alpha = float(self.engine._render_interpolation_alpha())
+        except Exception:
+            alpha = 1.0
+        if alpha >= 1.0:
+            return float(agent.x), float(agent.y)
+        px = float(getattr(agent, 'prev_x', agent.x))
+        py = float(getattr(agent, 'prev_y', agent.y))
+        return (
+            px + (float(agent.x) - px) * alpha,
+            py + (float(agent.y) - py) * alpha,
+        )
 
     def _update_camera_follow(self):
         if not bool(self.engine.params.get('camera_follow_selected_agent', True)):
@@ -446,8 +462,14 @@ class PygameView:
             self._follow_screen_pos = (self.screen_width * 0.5, self.screen_height * 0.5)
         zoom = max(1e-9, float(self.engine.camera.zoom))
         sx, sy = self._follow_screen_pos
-        self.engine.camera.x = float(agent.x) - float(sx) / zoom
-        self.engine.camera.y = float(agent.y) - float(sy) / zoom
+        ax, ay = self._follow_agent_render_pos(agent)
+        target_x = float(ax) - float(sx) / zoom
+        target_y = float(ay) - float(sy) / zoom
+        smooth = max(0.0, float(self.engine.params.get('camera_follow_smoothing', 10.0)))
+        fps = max(1.0, float(self.engine.params.get('fps', 60)))
+        factor = 1.0 - math.exp(-smooth / fps) if smooth > 0.0 else 1.0
+        self.engine.camera.x += (target_x - self.engine.camera.x) * factor
+        self.engine.camera.y += (target_y - self.engine.camera.y) * factor
 
 
 def bootstrap_pygame_simulation(params: Params, width: int = 1000, height: int = 700,

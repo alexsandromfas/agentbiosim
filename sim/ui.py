@@ -1721,6 +1721,29 @@ class SimulationUI(QMainWindow):
         cb = QCheckBox(); cb.setChecked(bool(self.params.get('render_interpolation_enabled', False))); row = self._add_grid_param(grid, row, "Interpolar render:", 'render_interpolation_enabled', cb)
         layout.addWidget(g_motion)
 
+        g_fluid = QGroupBox("Fisica de fluido e colisao")
+        g_fluid.setStyleSheet(card_style)
+        grid = QGridLayout(g_fluid)
+        row = 0
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('agent_collision_enabled', True))); row = self._add_grid_param(grid, row, "Colisao organismo-organismo:", 'agent_collision_enabled', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('agent_collision_elasticity_enabled', True))); row = self._add_grid_param(grid, row, "Elasticidade colisao:", 'agent_collision_elasticity_enabled', cb)
+        w = _spin_double(0.0, 1.0, 0.01, 3); w.setValue(self.params.get('agent_collision_restitution', 0.12)); row = self._add_grid_param(grid, row, "Rebote:", 'agent_collision_restitution', w)
+        w = _spin_double(0.0, 1.0, 0.01, 3); w.setValue(self.params.get('agent_collision_velocity_transfer', 0.35)); row = self._add_grid_param(grid, row, "Transferencia velocidade:", 'agent_collision_velocity_transfer', w)
+        w = _spin_double(0.0, 1.0, 0.01, 3); w.setValue(self.params.get('agent_collision_separation', 0.9)); row = self._add_grid_param(grid, row, "Separacao fisica:", 'agent_collision_separation', w)
+        w = _spin_double(0.0, 20000.0, 25.0, 1); w.setValue(self.params.get('agent_collision_max_impulse', 900.0)); row = self._add_grid_param(grid, row, "Impulso maximo:", 'agent_collision_max_impulse', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('global_viscosity_enabled', False))); row = self._add_grid_param(grid, row, "Viscosidade global:", 'global_viscosity_enabled', cb)
+        w = _spin_double(0.0, 20.0, 0.05, 3); w.setValue(self.params.get('global_viscosity_drag', 0.2)); row = self._add_grid_param(grid, row, "Arrasto global:", 'global_viscosity_drag', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('movable_chunk_food_enabled', False))); row = self._add_grid_param(grid, row, "Comida em pedacos movel:", 'movable_chunk_food_enabled', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('chunk_food_collision_enabled', True))); row = self._add_grid_param(grid, row, "Colisao comida-comida:", 'chunk_food_collision_enabled', cb)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('chunk_food_adhesion_enabled', True))); row = self._add_grid_param(grid, row, "Adesina da comida:", 'chunk_food_adhesion_enabled', cb)
+        w = _spin_double(0.0, 1.0, 0.01, 3); w.setValue(self.params.get('chunk_food_adhesion_strength', 0.35)); row = self._add_grid_param(grid, row, "Forca adesina:", 'chunk_food_adhesion_strength', w)
+        w = _spin_double(0.01, 100.0, 0.1, 2); w.setValue(self.params.get('chunk_food_mass_scale', 1.0)); row = self._add_grid_param(grid, row, "Massa comida:", 'chunk_food_mass_scale', w)
+        w = _spin_double(0.0, 30.0, 0.05, 3); w.setValue(self.params.get('chunk_food_drag', 1.6)); row = self._add_grid_param(grid, row, "Arrasto comida:", 'chunk_food_drag', w)
+        w = _spin_double(0.0, 1.0, 0.01, 3); w.setValue(self.params.get('chunk_food_push_strength', 0.45)); row = self._add_grid_param(grid, row, "Empurrao comida:", 'chunk_food_push_strength', w)
+        cb = QCheckBox(); cb.setChecked(bool(self.params.get('brownian_motion_enabled', False))); row = self._add_grid_param(grid, row, "Ruido browniano:", 'brownian_motion_enabled', cb)
+        w = _spin_double(0.0, 200.0, 0.25, 2); w.setValue(self.params.get('brownian_motion_strength', 3.0)); row = self._add_grid_param(grid, row, "Forca browniana:", 'brownian_motion_strength', w)
+        layout.addWidget(g_fluid)
+
         g_actions = QGroupBox("Acoes")
         g_actions.setStyleSheet(card_style)
         actions = QHBoxLayout(g_actions)
@@ -2238,6 +2261,23 @@ class SimulationUI(QMainWindow):
             'reproduction_cooldown': 'Tempo minimo entre duas reproducoes do mesmo agente.',
             'show_selected_details': 'Mostra o painel lateral do agente selecionado: energia, idade, velocidade, retinas e rede neural.',
             'camera_follow_selected_agent': 'Quando existe um unico agente selecionado, a camera acompanha esse organismo mantendo o zoom e a posicao de tela escolhida por pan.',
+            'agent_collision_enabled': 'Resolve sobreposicao entre organismos. Desligar pode permitir organismos atravessando uns aos outros.',
+            'agent_collision_elasticity_enabled': 'Aplica pequeno impulso de rebote ao colidir, dando sensacao de corpo elastico.',
+            'agent_collision_restitution': 'Quanto da colisao vira rebote. Valores baixos parecem liquido; altos parecem bolas duras.',
+            'agent_collision_velocity_transfer': 'Quanto movimento um organismo transfere ao outro quando colide.',
+            'agent_collision_separation': 'Forca da correcao de sobreposicao entre corpos.',
+            'agent_collision_max_impulse': 'Limite de impulso por colisao para evitar explosoes fisicas em grupos densos.',
+            'global_viscosity_enabled': 'Aplica arrasto geral nas velocidades, simulando um meio mais viscoso.',
+            'global_viscosity_drag': 'Intensidade do arrasto global por segundo.',
+            'movable_chunk_food_enabled': 'Permite que comida em pedacos seja empurrada por organismos. So custa no modo pedacos.',
+            'chunk_food_collision_enabled': 'Impede que particulas de comida solida ocupem o mesmo espaco.',
+            'chunk_food_adhesion_enabled': 'Faz particulas do mesmo pedaco tenderem a ficar juntas como um aglomerado aderente. Pedacos diferentes nao se fundem.',
+            'chunk_food_adhesion_strength': 'Forca da adesao entre particulas do mesmo pedaco. Maior deixa o bloco mais coeso.',
+            'chunk_food_mass_scale': 'Multiplica a massa das particulas de comida; maior fica mais dificil empurrar.',
+            'chunk_food_drag': 'Arrasto aplicado nas particulas de comida moveis.',
+            'chunk_food_push_strength': 'Quanto impulso o organismo transfere para a comida solida ao encostar.',
+            'brownian_motion_enabled': 'Adiciona ruido aleatorio leve ao movimento, lembrando agitacao microscopica.',
+            'brownian_motion_strength': 'Intensidade do ruido browniano. Use valores baixos para nao dominar a locomocao.',
             'enable_brain_activations': 'Habilita calculo e exibicao das ativacoes neurais do agente selecionado. E util para diagnostico, mas tem custo extra.',
             'debug_tracebacks': 'Mostra tracebacks completos em erros da UI. Use para depurar; desligado deixa mensagens mais curtas.',
             'auto_export_substrate': 'Ativa autosave de projeto .biosim completo em intervalos regulares.',
@@ -2249,7 +2289,7 @@ class SimulationUI(QMainWindow):
             'food_bite_seconds': 'No modo pedacos, define quanto tempo de contato leva para consumir uma particula.',
             'food_piece_particle_radius': 'Raio de cada particula solida que forma um aglomerado de comida.',
             'food_piece_cluster_radius': 'Raio aproximado do aglomerado que nasce no modo pedacos.',
-            'food_piece_particle_spacing': 'Distancia entre os centros das particulas do aglomerado. Maior distancia reduz empilhamento e custo.',
+            'food_piece_particle_spacing': 'Espaco entre as bordas das particulas. Use 0 para elas nascerem tangenciando umas as outras.',
             'food_piece_replenish_mode': 'Define se a comida em pedacos nasce em novos aglomerados, cresce em aglomerados, ou cresce uma particula por vez.',
             'food_min_r': 'Raio minimo da comida nova. Afeta tamanho visual e energia disponivel por item.',
             'food_max_r': 'Raio maximo da comida nova. Tambem influencia energia e espaco ocupado.',
@@ -2764,9 +2804,9 @@ class SimulationUI(QMainWindow):
         w.setValue(self.params.get('food_piece_cluster_radius', 36.0))
         row = self._add_grid_param(grid, row, "Raio do aglomerado:", 'food_piece_cluster_radius', w)
         self._piece_food_widgets.append(w)
-        w = _spin_double(0.5, 300.0, 0.5, 1)
-        w.setValue(self.params.get('food_piece_particle_spacing', 11.0))
-        row = self._add_grid_param(grid, row, "Distancia particulas:", 'food_piece_particle_spacing', w)
+        w = _spin_double(0.0, 300.0, 0.5, 1)
+        w.setValue(self.params.get('food_piece_particle_spacing', 0.0))
+        row = self._add_grid_param(grid, row, "Espaco entre particulas:", 'food_piece_particle_spacing', w)
         self._piece_food_widgets.append(w)
         rep = QComboBox()
         rep.addItem("Surgir em pedacos", "spawn_cluster")
@@ -2813,6 +2853,10 @@ class SimulationUI(QMainWindow):
         b = QPushButton("Aplicar ambiente")
         b.clicked.connect(self.apply_substrate_params)
         la.addWidget(b)
+        clear_food_btn = QPushButton("Limpar Comida")
+        clear_food_btn.setToolTip("Remove toda a comida atual; a reposicao continua obedecendo o target.")
+        clear_food_btn.clicked.connect(self.clear_food)
+        la.addWidget(clear_food_btn)
         row = QHBoxLayout()
         btn_export = QPushButton("Exportar substrato JSON")
         btn_export.clicked.connect(self.open_export_substrate_window)
@@ -4050,7 +4094,15 @@ class SimulationUI(QMainWindow):
             'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay',
             'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy',
             'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength',
-            'camera_follow_selected_agent',
+            'camera_follow_selected_agent', 'agent_collision_enabled',
+            'agent_collision_elasticity_enabled', 'agent_collision_restitution',
+            'agent_collision_velocity_transfer', 'agent_collision_separation',
+            'agent_collision_max_impulse', 'global_viscosity_enabled',
+            'global_viscosity_drag', 'movable_chunk_food_enabled',
+            'chunk_food_collision_enabled', 'chunk_food_adhesion_enabled',
+            'chunk_food_adhesion_strength', 'chunk_food_mass_scale',
+            'chunk_food_drag', 'chunk_food_push_strength',
+            'brownian_motion_enabled', 'brownian_motion_strength',
         }
 
     def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
@@ -4108,7 +4160,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'neural_network_type', 'neural_gate_init', 'neural_gate_min', 'neural_gate_max', 'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_init_std', 'neural_shortcut_scale', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std', 'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay', 'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'render_enabled', 'simple_render', 'show_spatial_hash', 'camera_follow_selected_agent', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'neural_network_type', 'neural_gate_init', 'neural_gate_min', 'neural_gate_max', 'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_init_std', 'neural_shortcut_scale', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std', 'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay', 'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'render_enabled', 'simple_render', 'show_spatial_hash', 'camera_follow_selected_agent', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'agent_collision_enabled', 'agent_collision_elasticity_enabled', 'agent_collision_restitution', 'agent_collision_velocity_transfer', 'agent_collision_separation', 'agent_collision_max_impulse', 'global_viscosity_enabled', 'global_viscosity_drag', 'movable_chunk_food_enabled', 'chunk_food_collision_enabled', 'chunk_food_adhesion_enabled', 'chunk_food_adhesion_strength', 'chunk_food_mass_scale', 'chunk_food_drag', 'chunk_food_push_strength', 'brownian_motion_enabled', 'brownian_motion_strength', 'show_selected_details', 'debug_tracebacks'}
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -4213,6 +4265,12 @@ class SimulationUI(QMainWindow):
     # ------------------------------------------------------------------
     # Apply parameter groups
     # ------------------------------------------------------------------
+    def clear_food(self):
+        try:
+            self.engine.send_command('clear_food')
+        except Exception as exc:
+            self._log_exception("Erro ao limpar comida", exc)
+
     def apply_population_params(self):
         for name in [
             'bacteria_count',
@@ -4235,7 +4293,7 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','neural_network_type','neural_gate_init','neural_gate_min','neural_gate_max','neural_gate_mutation_rate','neural_gate_mutation_strength','neural_shortcut_init_std','neural_shortcut_scale','neural_shortcut_mutation_rate','neural_shortcut_mutation_strength','neural_rnn_recurrent_init_std','neural_rnn_recurrent_scale','neural_rnn_memory_decay','neural_rnn_state_clip','neural_rnn_reset_state_on_copy','neural_rnn_mutation_rate','neural_rnn_mutation_strength','render_enabled','simple_render','show_spatial_hash','camera_follow_selected_agent','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','neural_network_type','neural_gate_init','neural_gate_min','neural_gate_max','neural_gate_mutation_rate','neural_gate_mutation_strength','neural_shortcut_init_std','neural_shortcut_scale','neural_shortcut_mutation_rate','neural_shortcut_mutation_strength','neural_rnn_recurrent_init_std','neural_rnn_recurrent_scale','neural_rnn_memory_decay','neural_rnn_state_clip','neural_rnn_reset_state_on_copy','neural_rnn_mutation_rate','neural_rnn_mutation_strength','render_enabled','simple_render','show_spatial_hash','camera_follow_selected_agent','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','agent_collision_enabled','agent_collision_elasticity_enabled','agent_collision_restitution','agent_collision_velocity_transfer','agent_collision_separation','agent_collision_max_impulse','global_viscosity_enabled','global_viscosity_drag','movable_chunk_food_enabled','chunk_food_collision_enabled','chunk_food_adhesion_enabled','chunk_food_adhesion_strength','chunk_food_mass_scale','chunk_food_drag','chunk_food_push_strength','brownian_motion_enabled','brownian_motion_strength','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
@@ -5137,6 +5195,24 @@ class SimulationUI(QMainWindow):
                     'smooth_angular_drag_enabled': True,
                     'smooth_angular_drag': 1.5,
                     'render_interpolation_enabled': False,
+                    'camera_follow_smoothing': 10.0,
+                    'agent_collision_enabled': True,
+                    'agent_collision_elasticity_enabled': True,
+                    'agent_collision_restitution': 0.12,
+                    'agent_collision_velocity_transfer': 0.35,
+                    'agent_collision_separation': 0.9,
+                    'agent_collision_max_impulse': 900.0,
+                    'global_viscosity_enabled': False,
+                    'global_viscosity_drag': 0.2,
+                    'movable_chunk_food_enabled': False,
+                    'chunk_food_collision_enabled': True,
+                    'chunk_food_adhesion_enabled': True,
+                    'chunk_food_adhesion_strength': 0.35,
+                    'chunk_food_mass_scale': 1.0,
+                    'chunk_food_drag': 1.6,
+                    'chunk_food_push_strength': 0.45,
+                    'brownian_motion_enabled': False,
+                    'brownian_motion_strength': 3.0,
                 }.items():
                     rows_by_name[param_name] = {
                         'name': param_name,
@@ -5759,6 +5835,9 @@ class SimulationUI(QMainWindow):
                     'initial_energy': getattr(food, 'initial_energy', getattr(food, 'energy', food.r * food.r)),
                     'base_radius': getattr(food, 'base_radius', food.r),
                     'kind': getattr(food, 'kind', self.params.get('food_mode', 'instant')),
+                    'vx': getattr(food, 'vx', 0.0),
+                    'vy': getattr(food, 'vy', 0.0),
+                    'chunk_id': getattr(food, 'chunk_id', 0),
                     'bite_holes': [list(hole) for hole in (getattr(food, 'bite_holes', []) or [])],
                 }
                 try:
@@ -6000,6 +6079,12 @@ class SimulationUI(QMainWindow):
                     food.energy = fd.get('energy', getattr(food, 'energy', food.r * food.r))
                     food.initial_energy = fd.get('initial_energy', max(1e-9, getattr(food, 'energy', food.r * food.r)))
                     food.base_radius = fd.get('base_radius', food.r)
+                    food.vx = float(fd.get('vx', 0.0) or 0.0)
+                    food.vy = float(fd.get('vy', 0.0) or 0.0)
+                    food.prev_x = float(fd.get('prev_x', food.x) or food.x)
+                    food.prev_y = float(fd.get('prev_y', food.y) or food.y)
+                    food.m = max(1e-6, float(fd.get('m', food.r * food.r) or (food.r * food.r)))
+                    food.chunk_id = int(fd.get('chunk_id', 0) or 0)
                     food.bite_holes = [
                         (float(h[0]), float(h[1]), float(h[2]))
                         for h in fd.get('bite_holes', []) or []
@@ -6013,6 +6098,12 @@ class SimulationUI(QMainWindow):
                         pass
                     if not getattr(self.engine, 'obstacles', None) or not self.engine.obstacles.circle_overlaps(food.x, food.y, food.r):
                         self.engine.entities['foods'].append(food)
+                try:
+                    max_chunk_id = max((int(getattr(food, 'chunk_id', 0) or 0) for food in self.engine.entities['foods']), default=0)
+                    if hasattr(self.engine.food_controller, '_next_chunk_id'):
+                        self.engine.food_controller._next_chunk_id = max(self.engine.food_controller._next_chunk_id, max_chunk_id + 1)
+                except Exception:
+                    pass
             else:
                 food_count = int(data.get('food', {}).get('count', 0))
                 for _ in range(food_count):

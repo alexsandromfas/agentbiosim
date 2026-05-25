@@ -15,7 +15,7 @@ def _engine_with_one_agent(food_mode: str) -> Engine:
     params.set("food_bite_seconds", 4.0, validate=False)
     params.set("food_piece_particle_radius", 5.0, validate=False)
     params.set("food_piece_cluster_radius", 12.0, validate=False)
-    params.set("food_piece_particle_spacing", 10.0, validate=False)
+    params.set("food_piece_particle_spacing", 0.0, validate=False)
     params.set("random_seed", 123, validate=False)
     engine = Engine(World(200, 160), Camera(), params, headless=True)
     engine.start(initialize=True)
@@ -184,3 +184,22 @@ def test_chunk_food_spawn_cluster_waits_for_consumed_energy():
 
     assert no_foods == []
     assert len(new_foods) > 1
+
+
+def test_movable_chunk_food_particles_do_not_overlap():
+    params = Params()
+    params.set("food_mode", "chunk", validate=False)
+    params.set("movable_chunk_food_enabled", True, validate=False)
+    params.set("chunk_food_collision_enabled", True, validate=False)
+    params.set("chunk_food_adhesion_enabled", False, validate=False)
+    engine = Engine(World(200, 160), Camera(), params, headless=True)
+    f1 = Food(90.0, 80.0, 6.0, kind="chunk")
+    f2 = Food(98.0, 80.0, 6.0, kind="chunk")
+    engine.entities["foods"][:] = [f1, f2]
+    engine._spatial_hash_dirty = True
+    engine._update_spatial_hash(force=True)
+
+    resolved = engine._resolve_chunk_food_contacts(engine.params)
+
+    assert resolved > 0
+    assert math.hypot(f1.x - f2.x, f1.y - f2.y) >= f1.r + f2.r - 1e-6

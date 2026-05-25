@@ -139,6 +139,8 @@ class InteractionSystem:
         base_radius = max(0.1, float(getattr(food, 'base_radius', getattr(food, 'r', 0.1)) or 0.1))
         fraction = max(0.0, min(1.0, float(getattr(food, 'energy', 0.0)) / initial))
         food.r = max(0.05, base_radius * math.sqrt(fraction))
+        if hasattr(food, 'm'):
+            food.m = max(1e-6, food.r * food.r)
 
     def _consume_chunk_food(self, agent: 'Agent', food: 'Food', params: 'Params',
                             dt: float, efficiency: float, cap=None) -> bool:
@@ -551,6 +553,12 @@ class CollisionSystem:
     def __init__(self):
         self._processed_pairs = set()
         self.last_collisions_resolved = 0
+        self._enabled = True
+        self._elastic_enabled = True
+        self._restitution = 0.12
+        self._velocity_transfer = 0.35
+        self._separation = 0.9
+        self._max_impulse = 900.0
     
     def apply(self, agents: List['Agent'], spatial_hash: 'SpatialHash', params: 'Params'):
         """
@@ -563,6 +571,14 @@ class CollisionSystem:
         """
         self._processed_pairs.clear()
         self.last_collisions_resolved = 0
+        self._enabled = bool(params.get('agent_collision_enabled', True))
+        if not self._enabled:
+            return 0
+        self._elastic_enabled = bool(params.get('agent_collision_elasticity_enabled', True))
+        self._restitution = max(0.0, min(1.0, float(params.get('agent_collision_restitution', 0.12))))
+        self._velocity_transfer = max(0.0, min(1.0, float(params.get('agent_collision_velocity_transfer', 0.35))))
+        self._separation = max(0.0, min(1.0, float(params.get('agent_collision_separation', 0.9))))
+        self._max_impulse = max(0.0, float(params.get('agent_collision_max_impulse', 900.0)))
         
         if spatial_hash:
             self._resolve_with_spatial_hash(agents, spatial_hash)
@@ -621,8 +637,9 @@ class CollisionSystem:
         overlap = r_sum - distance
         
         # Separação dos objetos
-        push_x = dx / distance * overlap
-        push_y = dy / distance * overlap
+        separation = self._separation
+        push_x = dx / distance * overlap * separation
+        push_y = dy / distance * overlap * separation
         total_mass = agent1.m + agent2.m
         
         if total_mass == 0:
@@ -638,6 +655,9 @@ class CollisionSystem:
         agent2.y -= push_y * mass_ratio_2
 
         # Resposta elástica nas velocidades
+        if not self._elastic_enabled:
+            return True
+
         inv_dist = 1.0 / distance
         nx = dx * inv_dist  # Normal x
         ny = dy * inv_dist  # Normal y
@@ -651,12 +671,18 @@ class CollisionSystem:
             return True  # Objetos separados, mas velocidades ja estavam se afastando
 
         # Impulso elástico
-        impulse = (2 * relative_velocity_normal) / total_mass
+        inv_mass1 = 1.0 / max(1e-9, agent1.m)
+        inv_mass2 = 1.0 / max(1e-9, agent2.m)
+        impulse = -(1.0 + self._restitution) * relative_velocity_normal
+        impulse /= max(1e-9, inv_mass1 + inv_mass2)
+        impulse *= self._velocity_transfer
+        if self._max_impulse > 0.0:
+            impulse = min(impulse, self._max_impulse)
         impulse_x = impulse * nx
         impulse_y = impulse * ny
 
-        agent1.vx -= impulse_x * agent2.m
-        agent1.vy -= impulse_y * agent2.m
-        agent2.vx += impulse_x * agent1.m
-        agent2.vy += impulse_y * agent1.m
+        agent1.vx += impulse_x * inv_mass1
+        agent1.vy += impulse_y * inv_mass1
+        agent2.vx -= impulse_x * inv_mass2
+        agent2.vy -= impulse_y * inv_mass2
         return True

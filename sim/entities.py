@@ -230,7 +230,10 @@ class Entity(ABC):
 
 
 class Food(Entity):
-    __slots__ = Entity.__slots__ + ("energy", "initial_energy", "base_radius", "kind", "bite_holes")
+    __slots__ = Entity.__slots__ + (
+        "energy", "initial_energy", "base_radius", "kind", "bite_holes",
+        "vx", "vy", "prev_x", "prev_y", "m", "chunk_id",
+    )
     def __init__(self, x: float, y: float, r: float, kind: str = "instant"):
         super().__init__(x, y, r, (220, 30, 30))
         self.energy = r * r
@@ -238,6 +241,12 @@ class Food(Entity):
         self.base_radius = r
         self.kind = kind
         self.bite_holes = []
+        self.vx = 0.0
+        self.vy = 0.0
+        self.prev_x = x
+        self.prev_y = y
+        self.m = max(1e-6, r * r)
+        self.chunk_id = 0
         self.type_code = 0
 
     def draw(self, renderer):  # pragma: no cover

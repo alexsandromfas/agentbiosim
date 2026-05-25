@@ -99,7 +99,7 @@ class Params:
             'food_bite_seconds': 6.0,
             'food_piece_particle_radius': 5.0,
             'food_piece_cluster_radius': 36.0,
-            'food_piece_particle_spacing': 11.0,
+            'food_piece_particle_spacing': 0.0,
             'food_piece_replenish_mode': 'spawn_cluster',  # spawn_cluster, grow_existing, grow_particles
             'food_trim_excess_enabled': True,
             'food_trim_max_per_step': 5,
@@ -255,6 +255,25 @@ class Params:
             'smooth_angular_drag_enabled': True,
             'smooth_angular_drag': 1.5,
             'render_interpolation_enabled': False,
+            'camera_follow_smoothing_enabled': True,
+            'camera_follow_smoothing': 10.0,
+            'agent_collision_enabled': True,
+            'agent_collision_elasticity_enabled': True,
+            'agent_collision_restitution': 0.12,
+            'agent_collision_velocity_transfer': 0.35,
+            'agent_collision_separation': 0.9,
+            'agent_collision_max_impulse': 900.0,
+            'global_viscosity_enabled': False,
+            'global_viscosity_drag': 0.2,
+            'movable_chunk_food_enabled': False,
+            'chunk_food_collision_enabled': True,
+            'chunk_food_adhesion_enabled': True,
+            'chunk_food_adhesion_strength': 0.35,
+            'chunk_food_mass_scale': 1.0,
+            'chunk_food_drag': 1.6,
+            'chunk_food_push_strength': 0.45,
+            'brownian_motion_enabled': False,
+            'brownian_motion_strength': 3.0,
             'allow_reverse_locomotion': False,
             'reproduction_min_age': 0.0,
             'reproduction_cooldown': 0.0,
@@ -353,8 +372,10 @@ class Params:
             return value if value in {'mlp', 'gated_mlp', 'shortcut_mlp', 'modulated_mlp', 'simple_rnn'} else 'mlp'
         if key in {'food_bite_seconds'}:
             return max(0.05, float(value))
-        if key in {'food_piece_particle_radius', 'food_piece_cluster_radius', 'food_piece_particle_spacing'}:
+        if key in {'food_piece_particle_radius', 'food_piece_cluster_radius'}:
             return max(0.1, float(value))
+        if key == 'food_piece_particle_spacing':
+            return max(0.0, float(value))
         if key in ['reproduction_min_age', 'reproduction_cooldown'] or key.endswith('_death_age') or key.endswith('_reproduction_min_age') or key.endswith('_reproduction_cooldown'):
             return max(0.0, float(value))
         if 'count' in key or 'limit' in key:
@@ -379,6 +400,17 @@ class Params:
             'smooth_linear_drag',
             'smooth_max_angular_accel',
             'smooth_angular_drag',
+            'camera_follow_smoothing',
+            'agent_collision_restitution',
+            'agent_collision_velocity_transfer',
+            'agent_collision_separation',
+            'agent_collision_max_impulse',
+            'global_viscosity_drag',
+            'chunk_food_adhesion_strength',
+            'chunk_food_mass_scale',
+            'chunk_food_drag',
+            'chunk_food_push_strength',
+            'brownian_motion_strength',
             'neural_gate_init',
             'neural_gate_min',
             'neural_gate_max',
@@ -501,6 +533,12 @@ class FoodController:
         self.last_foods_added = 0
         self.last_foods_removed = 0
         self.last_update_time = 0.0
+        self._next_chunk_id = 1
+
+    def _new_chunk_id(self) -> int:
+        chunk_id = int(self._next_chunk_id)
+        self._next_chunk_id += 1
+        return chunk_id
 
     def note_food_energy_consumed(self, amount: float):
         try:
@@ -587,7 +625,8 @@ class FoodController:
     def _piece_params(params: 'Params') -> tuple[float, float, float, str]:
         particle_r = max(0.1, float(params.get('food_piece_particle_radius', params.get('food_max_r', 5.0))))
         cluster_r = max(particle_r, float(params.get('food_piece_cluster_radius', particle_r * 6.0)))
-        spacing = max(particle_r * 1.15, float(params.get('food_piece_particle_spacing', particle_r * 2.2)))
+        edge_gap = max(0.0, float(params.get('food_piece_particle_spacing', 0.0)))
+        spacing = max(particle_r * 2.0, particle_r * 2.0 + edge_gap)
         mode = str(params.get('food_piece_replenish_mode', 'spawn_cluster'))
         if mode not in {'spawn_cluster', 'grow_existing', 'grow_particles'}:
             mode = 'spawn_cluster'
@@ -616,7 +655,8 @@ class FoodController:
         particle_r, _cluster_r, _spacing, _mode = self._piece_params(params)
         return self._estimate_cluster_count(params, max_count=max_count) * self._food_initial_energy(particle_r)
 
-    def _make_piece_food(self, x: float, y: float, params: 'Params', radius: float):
+    def _make_piece_food(self, x: float, y: float, params: 'Params', radius: float,
+                         chunk_id: int | None = None):
         from .entities import Food
         f = Food(x, y, radius, kind='chunk')
         try:
@@ -626,6 +666,7 @@ class FoodController:
         f.initial_energy = self._food_initial_energy(radius)
         f.energy = f.initial_energy
         f.base_radius = float(radius)
+        f.chunk_id = int(chunk_id if chunk_id is not None else self._new_chunk_id())
         return f
 
     @staticmethod
@@ -671,9 +712,19 @@ class FoodController:
         max_count = max(1, int(max_count))
         anchors = [food for food in existing_foods if str(getattr(food, 'kind', 'chunk')) == 'chunk']
 
+        fallback_chunk_id = self._new_chunk_id()
         for _attempt in range(80):
+            chunk_id = fallback_chunk_id
             if near_existing and anchors:
                 anchor = random.choice(anchors)
+                anchor_chunk = int(getattr(anchor, 'chunk_id', 0) or 0)
+                if anchor_chunk <= 0:
+                    anchor_chunk = self._new_chunk_id()
+                    try:
+                        anchor.chunk_id = anchor_chunk
+                    except Exception:
+                        pass
+                chunk_id = anchor_chunk
                 ang = random.random() * 2 * math.pi
                 dist = float(getattr(anchor, 'r', particle_r)) + cluster_r * random.uniform(0.6, 1.1)
                 cx = float(anchor.x) + math.cos(ang) * dist
@@ -697,7 +748,8 @@ class FoodController:
                 x = -cluster_r
                 while x <= cluster_r + 1e-6 and len(created) < max_count:
                     if x * x + y * y <= cluster_r * cluster_r:
-                        jitter = min(spacing * 0.12, particle_r * 0.3)
+                        edge_gap = max(0.0, float(params.get('food_piece_particle_spacing', 0.0)))
+                        jitter = min(edge_gap * 0.25, particle_r * 0.3)
                         px = cx + x + random.uniform(-jitter, jitter)
                         py = cy + y + random.uniform(-jitter, jitter)
                         if not self._piece_inside_world(px, py, particle_r, world_w, world_h, shape, radius_sub):
@@ -706,10 +758,10 @@ class FoodController:
                         if obstacle_map is not None and obstacle_map.circle_overlaps(px, py, particle_r):
                             x += spacing
                             continue
-                        if self._piece_overlaps_food(existing_foods + created, px, py, particle_r, margin=-0.08 * particle_r):
+                        if self._piece_overlaps_food(existing_foods + created, px, py, particle_r, margin=0.0):
                             x += spacing
                             continue
-                        created.append(self._make_piece_food(px, py, params, particle_r))
+                        created.append(self._make_piece_food(px, py, params, particle_r, chunk_id=chunk_id))
                     x += spacing
                 y += spacing
             if created:
@@ -728,17 +780,25 @@ class FoodController:
             return []
         for _attempt in range(80):
             anchor = random.choice(anchors)
+            anchor_chunk = int(getattr(anchor, 'chunk_id', 0) or 0)
+            if anchor_chunk <= 0:
+                anchor_chunk = self._new_chunk_id()
+                try:
+                    anchor.chunk_id = anchor_chunk
+                except Exception:
+                    pass
             ang = random.random() * 2 * math.pi
-            spacing = (float(getattr(anchor, 'r', particle_r)) + particle_r) * random.uniform(0.82, 1.06)
+            edge_gap = max(0.0, float(params.get('food_piece_particle_spacing', 0.0)))
+            spacing = float(getattr(anchor, 'r', particle_r)) + particle_r + edge_gap
             x = float(anchor.x) + math.cos(ang) * spacing
             y = float(anchor.y) + math.sin(ang) * spacing
             if not self._piece_inside_world(x, y, particle_r, world_w, world_h, shape, radius_sub):
                 continue
             if obstacle_map is not None and obstacle_map.circle_overlaps(x, y, particle_r):
                 continue
-            if self._piece_overlaps_food(existing_foods, x, y, particle_r, margin=-0.15 * particle_r):
+            if self._piece_overlaps_food(existing_foods, x, y, particle_r, margin=0.0):
                 continue
-            return [self._make_piece_food(x, y, params, particle_r)]
+            return [self._make_piece_food(x, y, params, particle_r, chunk_id=anchor_chunk)]
         return []
 
     def _update_piece_food(self, current_foods: list, target_count: int, difference: int,
@@ -830,15 +890,23 @@ class FoodController:
                 for _ in range(80):
                     r = random.uniform(min_r, max_r)
                     anchor = random.choice(anchors)
+                    anchor_chunk = int(getattr(anchor, 'chunk_id', 0) or 0)
+                    if anchor_chunk <= 0:
+                        anchor_chunk = self._new_chunk_id()
+                        try:
+                            anchor.chunk_id = anchor_chunk
+                        except Exception:
+                            pass
                     ang = random.random() * 2 * math.pi
-                    spacing = (float(getattr(anchor, 'r', r)) + r) * random.uniform(0.82, 1.06)
+                    edge_gap = max(0.0, float(params.get('food_piece_particle_spacing', 0.0)))
+                    spacing = float(getattr(anchor, 'r', r)) + r + edge_gap
                     x = float(anchor.x) + math.cos(ang) * spacing
                     y = float(anchor.y) + math.sin(ang) * spacing
                     if not _inside_world(x, y, r):
                         continue
                     if obstacle_map is not None and obstacle_map.circle_overlaps(x, y, r):
                         continue
-                    if _overlaps_food(x, y, r, margin=-0.15 * r):
+                    if _overlaps_food(x, y, r, margin=0.0):
                         continue
                     f = Food(x, y, r, kind=food_mode)
                     try:
@@ -847,6 +915,7 @@ class FoodController:
                         pass
                     f.initial_energy = max(1e-9, float(getattr(f, 'energy', r * r)))
                     f.base_radius = float(r)
+                    f.chunk_id = anchor_chunk
                     return f
         
         # Tenta encontrar posição válida
@@ -879,6 +948,8 @@ class FoodController:
                     pass
                 f.initial_energy = max(1e-9, float(getattr(f, 'energy', r * r)))
                 f.base_radius = float(r)
+                if food_mode == 'chunk':
+                    f.chunk_id = self._new_chunk_id()
                 return f
 
         # Se não encontrou posição válida, retorna None
