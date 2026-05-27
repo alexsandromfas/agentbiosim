@@ -11,6 +11,7 @@
 #include "systems/DeathSystem.hpp"
 #include "systems/EnergySystem.hpp"
 #include "systems/InteractionSystem.hpp"
+#include "systems/MovementSystem.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/System/Clock.hpp>
@@ -48,6 +49,7 @@ private:
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
     simulation::SpatialHash spatialHash_;
+    systems::MovementSystem movementSystem_;
     systems::EnergySystem energySystem_;
     systems::InteractionSystem interactionSystem_;
     systems::DeathSystem deathSystem_;
@@ -55,6 +57,7 @@ private:
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;
     render::RenderStats lastRenderStats_;
+    systems::MovementStats lastMovementStats_{};
     systems::EnergyStats lastEnergyStats_{};
     systems::InteractionStats lastInteractionStats_{};
     systems::DeathStats lastDeathStats_{};

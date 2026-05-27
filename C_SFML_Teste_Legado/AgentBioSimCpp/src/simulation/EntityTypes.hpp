@@ -21,6 +21,12 @@ enum class FoodKind : std::uint16_t
     Chunk = 1
 };
 
+enum class BodyShapeCode : std::uint16_t
+{
+    Ellipse = 0,
+    Circle = 1
+};
+
 struct ColorRgb
 {
     std::uint8_t r = 255;
@@ -36,9 +42,11 @@ struct AgentSpawn
     double radius = 9.0;
     double energy = 100.0;
     double age = 0.0;
+    double angularVelocity = 0.0;
     ColorRgb color{220, 220, 220};
     SpeciesId speciesId = 0;
     AgentTypeCode typeCode = AgentTypeCode::LegacyBacteria;
+    BodyShapeCode bodyShape = BodyShapeCode::Ellipse;
 };
 
 struct FoodSpawn

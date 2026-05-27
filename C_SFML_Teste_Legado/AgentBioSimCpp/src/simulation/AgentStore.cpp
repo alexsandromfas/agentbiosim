@@ -16,12 +16,14 @@ EntityId AgentStore::createAgent(const AgentSpawn& spawn)
     vx_.push_back(spawn.velocity.x);
     vy_.push_back(spawn.velocity.y);
     angle_.push_back(spawn.angle);
+    angularVelocity_.push_back(spawn.angularVelocity);
     radius_.push_back(spawn.radius);
     energy_.push_back(spawn.energy);
     age_.push_back(spawn.age);
     color_.push_back(spawn.color);
     speciesId_.push_back(spawn.speciesId);
     typeCode_.push_back(spawn.typeCode);
+    bodyShape_.push_back(spawn.bodyShape);
     alive_.push_back(1U);
     indexById_.emplace(id.value, index);
 
@@ -47,12 +49,14 @@ void AgentStore::clear()
     vx_.clear();
     vy_.clear();
     angle_.clear();
+    angularVelocity_.clear();
     radius_.clear();
     energy_.clear();
     age_.clear();
     color_.clear();
     speciesId_.clear();
     typeCode_.clear();
+    bodyShape_.clear();
     alive_.clear();
     indexById_.clear();
     nextId_ = 1;
@@ -129,6 +133,11 @@ double AgentStore::angleAt(const std::size_t index) const
     return angle_.at(index);
 }
 
+double AgentStore::angularVelocityAt(const std::size_t index) const
+{
+    return angularVelocity_.at(index);
+}
+
 double AgentStore::radiusAt(const std::size_t index) const
 {
     return radius_.at(index);
@@ -159,6 +168,11 @@ AgentTypeCode AgentStore::typeCodeAt(const std::size_t index) const
     return typeCode_.at(index);
 }
 
+BodyShapeCode AgentStore::bodyShapeAt(const std::size_t index) const
+{
+    return bodyShape_.at(index);
+}
+
 bool AgentStore::aliveAt(const std::size_t index) const
 {
     return alive_.at(index) != 0U;
@@ -173,6 +187,28 @@ void AgentStore::setVelocity(const EntityId id, const Vec2 velocity)
     }
     vx_[*index] = velocity.x;
     vy_[*index] = velocity.y;
+}
+
+void AgentStore::setPositionAt(const std::size_t index, const Vec2 position)
+{
+    x_.at(index) = position.x;
+    y_.at(index) = position.y;
+}
+
+void AgentStore::setVelocityAt(const std::size_t index, const Vec2 velocity)
+{
+    vx_.at(index) = velocity.x;
+    vy_.at(index) = velocity.y;
+}
+
+void AgentStore::setAngleAt(const std::size_t index, const double angle)
+{
+    angle_.at(index) = angle;
+}
+
+void AgentStore::setAngularVelocityAt(const std::size_t index, const double angularVelocity)
+{
+    angularVelocity_.at(index) = angularVelocity;
 }
 
 bool AgentStore::setEnergy(const EntityId id, const double energy)
@@ -231,12 +267,14 @@ void AgentStore::removeAtIndex(const std::size_t index)
         vx_[index] = vx_[last];
         vy_[index] = vy_[last];
         angle_[index] = angle_[last];
+        angularVelocity_[index] = angularVelocity_[last];
         radius_[index] = radius_[last];
         energy_[index] = energy_[last];
         age_[index] = age_[last];
         color_[index] = color_[last];
         speciesId_[index] = speciesId_[last];
         typeCode_[index] = typeCode_[last];
+        bodyShape_[index] = bodyShape_[last];
         alive_[index] = alive_[last];
         indexById_[ids_[index].value] = index;
     }
@@ -247,12 +285,14 @@ void AgentStore::removeAtIndex(const std::size_t index)
     vx_.pop_back();
     vy_.pop_back();
     angle_.pop_back();
+    angularVelocity_.pop_back();
     radius_.pop_back();
     energy_.pop_back();
     age_.pop_back();
     color_.pop_back();
     speciesId_.pop_back();
     typeCode_.pop_back();
+    bodyShape_.pop_back();
     alive_.pop_back();
     indexById_.erase(removedId.value);
 }

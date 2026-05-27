@@ -2,6 +2,7 @@
 #include "config/ParameterDefaults.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
+#include "systems/Phase8Diagnostics.hpp"
 
 #include <exception>
 #include <iomanip>
@@ -16,6 +17,8 @@ int main(const int argc, char* argv[])
         bool runSpatialBenchmark = false;
         bool runPhase7Validation = false;
         bool runPhase7Benchmark = false;
+        bool runPhase8Validation = false;
+        bool runPhase8Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -51,6 +54,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase7Validation = true;
                 runPhase7Benchmark = true;
+            }
+            else if (argument == "--phase8-selftest")
+            {
+                runPhase8Validation = true;
+            }
+            else if (argument == "--phase8-benchmark")
+            {
+                runPhase8Benchmark = true;
+            }
+            else if (argument == "--phase8-diagnostics")
+            {
+                runPhase8Validation = true;
+                runPhase8Benchmark = true;
             }
         }
 
@@ -119,6 +135,41 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase7Validation || runPhase7Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase8Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase8Validation();
+            std::cout << "Phase8 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 4;
+            }
+        }
+
+        if (runPhase8Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase8Microbenchmark();
+            std::cout << "Phase8 locomotion microbenchmark\n";
+            std::cout << "agents,movement_mode,smooth_locomotion,step_ms,agents_processed,max_speed_observed,wall_collisions\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.agents << ','
+                          << row.movementMode << ','
+                          << (row.smoothLocomotion ? "true" : "false") << ','
+                          << row.stepMilliseconds << ','
+                          << row.agentsProcessed << ','
+                          << row.maxSpeedObserved << ','
+                          << row.wallCollisions << '\n';
+            }
+        }
+
+        if (runPhase8Validation || runPhase8Benchmark)
         {
             return 0;
         }

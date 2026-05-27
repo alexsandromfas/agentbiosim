@@ -32,15 +32,21 @@ public:
     [[nodiscard]] Vec2 positionAt(std::size_t index) const;
     [[nodiscard]] Vec2 velocityAt(std::size_t index) const;
     [[nodiscard]] double angleAt(std::size_t index) const;
+    [[nodiscard]] double angularVelocityAt(std::size_t index) const;
     [[nodiscard]] double radiusAt(std::size_t index) const;
     [[nodiscard]] double energyAt(std::size_t index) const;
     [[nodiscard]] double ageAt(std::size_t index) const;
     [[nodiscard]] ColorRgb colorAt(std::size_t index) const;
     [[nodiscard]] SpeciesId speciesIdAt(std::size_t index) const;
     [[nodiscard]] AgentTypeCode typeCodeAt(std::size_t index) const;
+    [[nodiscard]] BodyShapeCode bodyShapeAt(std::size_t index) const;
     [[nodiscard]] bool aliveAt(std::size_t index) const;
 
     void setVelocity(EntityId id, Vec2 velocity);
+    void setPositionAt(std::size_t index, Vec2 position);
+    void setVelocityAt(std::size_t index, Vec2 velocity);
+    void setAngleAt(std::size_t index, double angle);
+    void setAngularVelocityAt(std::size_t index, double angularVelocity);
     [[nodiscard]] bool setEnergy(EntityId id, double energy);
     [[nodiscard]] double addEnergy(EntityId id, double delta, double cap);
     void setEnergyAt(std::size_t index, double energy);
@@ -56,12 +62,14 @@ private:
     std::vector<double> vx_;
     std::vector<double> vy_;
     std::vector<double> angle_;
+    std::vector<double> angularVelocity_;
     std::vector<double> radius_;
     std::vector<double> energy_;
     std::vector<double> age_;
     std::vector<ColorRgb> color_;
     std::vector<SpeciesId> speciesId_;
     std::vector<AgentTypeCode> typeCode_;
+    std::vector<BodyShapeCode> bodyShape_;
     std::vector<std::uint8_t> alive_;
     std::unordered_map<std::uint64_t, std::size_t> indexById_;
     std::uint64_t nextId_ = 1;

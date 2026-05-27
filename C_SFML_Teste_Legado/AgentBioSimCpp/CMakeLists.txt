@@ -32,7 +32,9 @@ add_executable(AgentBioSimCpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp
+    src/systems/MovementSystem.cpp
     src/systems/Phase7Diagnostics.cpp
+    src/systems/Phase8Diagnostics.cpp
 )
 
 target_include_directories(AgentBioSimCpp

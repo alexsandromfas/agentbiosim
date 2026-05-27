@@ -11,6 +11,7 @@
 #include <SFML/Window/VideoMode.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -122,6 +123,18 @@ simulation::ColorRgb toEntityColor(const config::ColorRgb color)
     return {colorChannel(color.r), colorChannel(color.g), colorChannel(color.b)};
 }
 
+simulation::BodyShapeCode toBodyShapeCode(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (value == "circle" || value == "circular" || value == "circulo")
+    {
+        return simulation::BodyShapeCode::Circle;
+    }
+    return simulation::BodyShapeCode::Ellipse;
+}
+
 sf::Color toRenderColor(const config::ColorRgb color)
 {
     return {colorChannel(color.r), colorChannel(color.g), colorChannel(color.b)};
@@ -162,7 +175,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 7: food, energy and basic interaction initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 8: locomotion foundation initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -321,6 +334,7 @@ void App::spawnDemoEntities()
     const double agentRadius = std::max(0.1, parameterDouble(parameters_, "bacteria_body_size", 9.0));
     const double initialEnergy = std::max(0.0, parameterDouble(parameters_, "bacteria_initial_energy", 100.0));
     const simulation::ColorRgb agentColor = toEntityColor(parameterColor(parameters_, "bacteria_color", {220, 220, 220}));
+    const simulation::BodyShapeCode bodyShape = toBodyShapeCode(parameterString(parameters_, "bacteria_body_shape", "ellipse"));
 
     std::uniform_real_distribution<double> angleDistribution(0.0, 2.0 * 3.14159265358979323846);
     for (int i = 0; i < agentCount; ++i)
@@ -333,6 +347,7 @@ void App::spawnDemoEntities()
         spawn.color = agentColor;
         spawn.speciesId = 0;
         spawn.typeCode = simulation::AgentTypeCode::LegacyBacteria;
+        spawn.bodyShape = bodyShape;
         [[maybe_unused]] const simulation::EntityId createdAgent = agents_.createAgent(spawn);
     }
 
@@ -399,6 +414,9 @@ void App::rebuildSpatialHash()
 
 void App::runSimulationStep(const double dt)
 {
+    const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
+    lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig);
+
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
     lastEnergyStats_ = energySystem_.apply(agents_, dt, energyConfig);
 
@@ -455,6 +473,7 @@ void App::updateFpsTitle()
           << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
           << " | eaten " << foodEatenCount_
           << " | deaths " << deathsCount_
+          << " | moved " << lastMovementStats_.agentsProcessed
           << " | world " << shapeName << " | zoom " << camera_.zoom()
           << " | dt " << timestep_.fixedDeltaSeconds()
           << " | steps " << simulatedSteps_;
