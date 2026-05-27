@@ -1,0 +1,171 @@
+#include "simulation/FoodStore.hpp"
+
+namespace agentbiosim::simulation
+{
+EntityId FoodStore::createFood(const FoodSpawn& spawn)
+{
+    const EntityId id{nextId_++};
+    const std::size_t index = ids_.size();
+
+    ids_.push_back(id);
+    x_.push_back(spawn.position.x);
+    y_.push_back(spawn.position.y);
+    radius_.push_back(spawn.radius);
+    energy_.push_back(spawn.energy);
+    initialEnergy_.push_back(spawn.initialEnergy);
+    color_.push_back(spawn.color);
+    kind_.push_back(spawn.kind);
+    alive_.push_back(1U);
+    indexById_.emplace(id.value, index);
+
+    return id;
+}
+
+bool FoodStore::removeFood(const EntityId id)
+{
+    const std::optional<std::size_t> index = indexOf(id);
+    if (!index.has_value())
+    {
+        return false;
+    }
+    removeAtIndex(*index);
+    return true;
+}
+
+void FoodStore::clear()
+{
+    ids_.clear();
+    x_.clear();
+    y_.clear();
+    radius_.clear();
+    energy_.clear();
+    initialEnergy_.clear();
+    color_.clear();
+    kind_.clear();
+    alive_.clear();
+    indexById_.clear();
+    nextId_ = 1;
+}
+
+std::size_t FoodStore::size() const noexcept
+{
+    return ids_.size();
+}
+
+bool FoodStore::empty() const noexcept
+{
+    return ids_.empty();
+}
+
+bool FoodStore::contains(const EntityId id) const
+{
+    return indexOf(id).has_value();
+}
+
+std::optional<std::size_t> FoodStore::indexOf(const EntityId id) const
+{
+    if (!id.isValid())
+    {
+        return std::nullopt;
+    }
+    const auto it = indexById_.find(id.value);
+    if (it == indexById_.end())
+    {
+        return std::nullopt;
+    }
+    return it->second;
+}
+
+std::optional<Vec2> FoodStore::getPosition(const EntityId id) const
+{
+    const std::optional<std::size_t> index = indexOf(id);
+    if (!index.has_value())
+    {
+        return std::nullopt;
+    }
+    return positionAt(*index);
+}
+
+bool FoodStore::setPosition(const EntityId id, const Vec2 position)
+{
+    const std::optional<std::size_t> index = indexOf(id);
+    if (!index.has_value())
+    {
+        return false;
+    }
+    x_[*index] = position.x;
+    y_[*index] = position.y;
+    return true;
+}
+
+EntityId FoodStore::idAt(const std::size_t index) const
+{
+    return ids_.at(index);
+}
+
+Vec2 FoodStore::positionAt(const std::size_t index) const
+{
+    return {x_.at(index), y_.at(index)};
+}
+
+double FoodStore::radiusAt(const std::size_t index) const
+{
+    return radius_.at(index);
+}
+
+double FoodStore::energyAt(const std::size_t index) const
+{
+    return energy_.at(index);
+}
+
+double FoodStore::initialEnergyAt(const std::size_t index) const
+{
+    return initialEnergy_.at(index);
+}
+
+ColorRgb FoodStore::colorAt(const std::size_t index) const
+{
+    return color_.at(index);
+}
+
+FoodKind FoodStore::kindAt(const std::size_t index) const
+{
+    return kind_.at(index);
+}
+
+bool FoodStore::aliveAt(const std::size_t index) const
+{
+    return alive_.at(index) != 0U;
+}
+
+void FoodStore::removeAtIndex(const std::size_t index)
+{
+    const std::size_t last = ids_.size() - 1U;
+    const EntityId removedId = ids_[index];
+
+    if (index != last)
+    {
+        ids_[index] = ids_[last];
+        x_[index] = x_[last];
+        y_[index] = y_[last];
+        radius_[index] = radius_[last];
+        energy_[index] = energy_[last];
+        initialEnergy_[index] = initialEnergy_[last];
+        color_[index] = color_[last];
+        kind_[index] = kind_[last];
+        alive_[index] = alive_[last];
+        indexById_[ids_[index].value] = index;
+    }
+
+    ids_.pop_back();
+    x_.pop_back();
+    y_.pop_back();
+    radius_.pop_back();
+    energy_.pop_back();
+    initialEnergy_.pop_back();
+    color_.pop_back();
+    kind_.pop_back();
+    alive_.pop_back();
+    indexById_.erase(removedId.value);
+}
+} // namespace agentbiosim::simulation

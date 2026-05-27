@@ -2,7 +2,9 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "render/Camera2D.hpp"
+#include "simulation/AgentStore.hpp"
 #include "simulation/FixedTimestep.hpp"
+#include "simulation/FoodStore.hpp"
 #include "simulation/World.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
@@ -23,14 +25,18 @@ private:
     void handleResize(unsigned int width, unsigned int height);
     void configureFromParameters();
     void fitCameraToWorld();
+    void spawnDemoEntities();
     void update();
     void render();
     void renderWorldBoundary();
+    void renderEntities();
     void updateFpsTitle();
 
     config::ParameterRegistry parameters_;
     simulation::World world_;
     simulation::FixedTimestep timestep_;
+    simulation::AgentStore agents_;
+    simulation::FoodStore foods_;
     render::Camera2D camera_;
     sf::RenderWindow window_;
     sf::Clock frameClock_;
