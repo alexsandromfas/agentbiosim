@@ -203,6 +203,24 @@ Separar:
 - `BrainExecutor`: forward em lote ou individual.
 - `BrainSerializer`: save/load versionado.
 
+Contratos estruturais obrigatorios a partir da Fase 9:
+
+- `BrainType`: enum ou identificador estavel para `Mlp`, `GatedMlp`, `ShortcutMlp`, `ModulatedMlp`, `SimpleRnn`, `NeatCommon`, `NeatSimplified` e `NeatRecurrent`.
+- `BrainFactory`: cria estados neurais a partir de `BrainConfig`, `Genome` e seed.
+- `BrainHandle`: indice/handle leve guardado no `AgentStore`; o agente nao deve carregar objeto neural pesado.
+- `BrainConfig`: tipo neural, input size, output size, hidden layers, parametros especificos e limites.
+- `BrainState`: pesos, biases, gates, shortcuts, estado recorrente ou topologia NEAT.
+- `BrainExecutor`: executa forward por tipo/assinatura.
+- `ActivationTrace`: dados opcionais para agente selecionado e visualizador neural.
+- `BrainSerializer`: serializacao versionada por tipo neural.
+
+Regra de acoplamento:
+
+- `App`, `Renderer`, `MovementSystem` e `AgentStore` nao devem conhecer detalhes de MLP, RNN ou NEAT.
+- `MovementSystem` recebe outputs normalizados; nao decide como o cerebro foi calculado.
+- `PerceptionSystem` produz inputs por assinatura; nao conhece pesos ou topologia.
+- `ReproductionSystem` solicita clone/mutacao pelo modulo neural/genoma; nao manipula arrays internos diretamente.
+
 Tipos:
 
 - MLP padrao: baseline, batch eficiente.
@@ -218,6 +236,21 @@ Regra de performance:
 
 - Redes densas devem ter executor em lote.
 - NEAT deve ser opcional e nao degradar MLP quando nao usado.
+
+Planejamento por fases:
+
+- Fase 9 cria a fundacao neural extensivel e implementa somente MLP inicial.
+- Fase 14 implementa Gated MLP, Shortcut MLP e Modulated MLP usando o mesmo contrato.
+- Fase 15 implementa Simple RNN com estado recorrente por agente.
+- Fase 16 implementa NEAT comum, NEAT simplificada e NEAT recorrente com fallback individual/grupo por topologia.
+- Fase 25 usa `ActivationTrace` no visualizador neural.
+- Fase 27 fecha serializacao neural versionada para todos os tipos implementados.
+
+Implicacoes para input/output:
+
+- `input_size` deve ser calculado pelas fases de percepcao/visao, especialmente Fases 10 a 12.
+- `output_size` deve respeitar a Fase 8: modo `forward` usa saidas de velocidade/giro; modo `omni` usa deslocamento local/giro.
+- Mudancas em sensores ou locomocao devem invalidar/recriar cerebros de forma explicita, nunca silenciosa.
 
 ## Estrategia para Renderizacao SFML
 

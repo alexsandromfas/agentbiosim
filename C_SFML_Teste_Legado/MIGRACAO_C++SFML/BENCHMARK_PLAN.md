@@ -79,6 +79,15 @@
 - NEAT simplificada.
 - NEAT recorrente.
 
+Cada tipo neural deve ter benchmark proprio na fase em que for implementado:
+
+- Fase 9: MLP inicial e base de executor.
+- Fase 14: Gated MLP, Shortcut MLP e Modulated MLP.
+- Fase 15: Simple RNN.
+- Fase 16: NEAT comum, NEAT simplificada e NEAT recorrente.
+
+Regra: benchmarks de MLP devem ser repetidos depois de adicionar NEAT para confirmar que o caminho MLP nao ficou mais caro quando NEAT esta desligado.
+
 ### Labels/Grupos
 
 - Sem labels/grupos alem do default.
@@ -211,6 +220,13 @@ Saidas esperadas:
 - candidatos medios por agente.
 - throughput agentes/s.
 
+Mapeamento por fase:
+
+- Fase 10: visao `single`, canais, olhos e input neural real.
+- Fase 11: `fullbody/raycast` e debug visual de visao.
+- Fase 12: `sector/bins`, subdivisoes de distancia, projection, candidate limit e high-scale auto sector.
+- Fase 20: oclusao por obstaculos e custo de bloquear visao.
+
 ## G. Benchmarks de Arquitetura
 
 Comparar:
@@ -227,6 +243,12 @@ Comparar:
 - Com e sem visualizacao neural do agente selecionado.
 - MLP batch vs NEAT individual.
 - Threading ligado/desligado, quando existir.
+- Dense neural batch vs fallback individual.
+- RNN com estado por agente vs MLP equivalente.
+- NEAT desligado vs ligado para confirmar isolamento de custo.
+- Save/load pequeno vs grande.
+- UI de parametros aberta/fechada.
+- Neural viewer oculto/visivel.
 
 ## H. Formato de Saida
 
@@ -290,6 +312,36 @@ Usar benchmarks:
 - Antes de considerar uma fase concluida.
 - Antes de comparar Python vs C++.
 - Antes de merge de uma fase importante.
+
+## K. Cobertura por Fase Futura
+
+Esta secao vincula benchmarks a fases executaveis. Um item citado aqui nao deve ficar apenas como intencao generica.
+
+| Fase | Benchmark obrigatorio |
+|---:|---|
+| 9 | Forward MLP individual e por lote; MLP pequena/media/default. |
+| 10 | Visao single por agente/retina/canal; input neural real. |
+| 11 | Fullbody/raycast vs single; debug visual ligado/desligado. |
+| 12 | Sector/bins vs raycast; subdivisoes 1/5/20/99; candidate limit. |
+| 13 | Reproducao/mutacao: custo de nascimento/remocao e clone neural. |
+| 14 | Gated/Shortcut/Modulated vs MLP baseline; batch por assinatura. |
+| 15 | RNN vs MLP; custo de estado recorrente e memory decay. |
+| 16 | NEAT comum/simplificada/recorrente; custo individual/grupos; MLP sem regressao com NEAT desligado. |
+| 17 | Agrupamento por especie/label e reset de cerebro por especie. |
+| 18 | Predacao com/sem predadores; dieta e energia ganha. |
+| 19 | Comida instantanea vs chunk; spawn_cluster/grow_existing/grow_particles. |
+| 20 | Obstaculos e oclusao; visao bloqueada vs atravessando paredes. |
+| 21 | Colisao/fisica on/off; agente-agente, chunk movel, Brownian e viscosidade. |
+| 22 | UI base on/off; toolbar e canvas tools. |
+| 23 | Preferencias abertas/fechadas; alteracao de parametros sem stutter. |
+| 24 | Editor genetico/especies/substrato aberto/fechado. |
+| 25 | Neural viewer oculto/visivel; MLP/RNN/NEAT. |
+| 26 | Metrics/profiler/logs on/off. |
+| 27 | Save/load/export/import/autosave em cenarios pequenos e grandes. |
+| 28 | Runner formal headless com CSV/JSON/MD. |
+| 29 | UI completa com simulacao real. |
+| 30 | Otimizacoes data-oriented antes/depois em 600/1000/2000/5000 agentes. |
+| 31 | Campanha final Python vs C++ com seed fixa e relatorio completo. |
 
 ## Relatorio Padrao de Benchmark
 

@@ -15,13 +15,20 @@ Migrar o AgentBioSim Python para uma versao C++/SFML/CMake mais rapida, organiza
 7. Medir antes/depois de qualquer otimizacao.
 8. Preservar compatibilidade de saves/genomas sempre que viavel.
 9. Consultar os inventarios antes de modificar parametros, UI ou comportamento.
-10. Nao avance para a proxima etapa sem autorizacao explicita do usuario.
+10. Consultar `PLANNING_COVERAGE_AUDIT.md` antes de iniciar qualquer fase futura.
+11. A partir da Fase 9, toda fase deve citar quais itens de `FEATURE_INVENTORY.md`, `PARAMETER_INVENTORY.md` e `UI_INVENTORY.md` ela cobre.
+12. Nao considerar a migracao funcionalmente completa enquanto houver itens classificados como nao cobertos em `PLANNING_COVERAGE_AUDIT.md`.
+13. A arquitetura neural deve ser extensivel desde a Fase 9.
+14. Redes neurais avancadas nao podem ser encaixadas depois de forma improvisada.
+15. Fases ja comitadas de 0 a 8 nao devem ser reescritas, salvo bugfix ou fase futura documentada.
+16. Nao avance para a proxima etapa sem autorizacao explicita do usuario.
 
 ## O que e permitido nesta etapa atual
 
 - Criar e revisar documentacao Markdown dentro de `C_SFML_Teste_Legado/MIGRACAO_C++SFML`.
 - Analisar Python atual.
 - Planejar arquitetura, fases, riscos e benchmarks.
+- Auditar cobertura de planejamento da Fase 9 em diante.
 
 ## O que e proibido nesta etapa atual
 
@@ -34,6 +41,15 @@ Migrar o AgentBioSim Python para uma versao C++/SFML/CMake mais rapida, organiza
 - Modificar arquivos Python.
 - Mover arquivos existentes.
 - Restaurar o TXT antigo apagado pelo usuario.
+- Iniciar a Fase 9 sem autorizacao explicita.
+
+## Estado Atual Oficial
+
+- Fase 0 concluida.
+- Fases 1, 2, 3, 4, 5, 6, 7 e 8 implementadas e comitadas.
+- A proxima fase de implementacao e a Fase 9, mas ela ainda nao deve comecar sem autorizacao explicita.
+- O planejamento futuro foi auditado em `PLANNING_COVERAGE_AUDIT.md`.
+- As fases 0 a 8 devem ser tratadas como historico concluido, nao como pendencia.
 
 ## Fonte de Verdade Python
 
@@ -87,29 +103,45 @@ Arquivos principais:
 - Percepcao/visao como modulo critico.
 - Redes neurais com executores por tipo.
 - Benchmarks e profiler desde cedo.
+- Arquitetura neural extensivel desde a Fase 9:
+  - `BrainType`;
+  - `BrainFactory`;
+  - `BrainConfig`;
+  - `BrainState`;
+  - `BrainExecutor`;
+  - `BrainHandle`;
+  - batch para redes densas;
+  - fallback individual/grupo por topologia para NEAT;
+  - estado recorrente por agente;
+  - `ActivationTrace` para visualizador neural;
+  - serializacao neural versionada.
 
 ## Ordem Recomendada das Fases
 
-- Fase 0: Auditoria/documentacao.
-- Fase 1: Esqueleto C++/SFML/CMake.
-- Fase 2: Parametros/configuracao.
-- Fase 3: Mundo/camera/tempo fixo.
-- Fase 4: Entidades basicas.
-- Fase 5: Render simples.
-- Fase 6: Spatial hash.
-- Fase 7: Comida/energia/interacao.
-- Fase 8: Locomocao.
-- Fase 9: MLP.
-- Fase 10: Sensores/visao simples.
-- Fase 11: Visao por setores otimizada.
-- Fase 12: Reproducao/mutacao.
-- Fase 13: Predadores/especies por dieta.
-- Fase 14: UI inicial.
-- Fase 15: Save/load/export/import.
-- Fase 16: Metricas/profiler/diagnostico.
-- Fase 17: Paridade completa de UI.
-- Fase 18: Otimizacao data-oriented.
-- Fase 19: Testes de paridade e benchmarks.
+- Fases 0 a 8: concluidas e comitadas.
+- Fase 9: MLP inicial com arquitetura neural extensivel.
+- Fase 10: Sensores, canais de retina e visao single.
+- Fase 11: Visao fullbody/raycast e debug visual de visao.
+- Fase 12: Visao sector/bins otimizada.
+- Fase 13: Reproducao, mutacao base e genoma.
+- Fase 14: Redes densas avancadas: Gated, Shortcut e Modulated MLP.
+- Fase 15: RNN simples.
+- Fase 16: Familia NEAT: comum, simplificada e recorrente.
+- Fase 17: Especies, labels e genomas.
+- Fase 18: Predacao e dieta generica.
+- Fase 19: Comida chunk/pedacos completa.
+- Fase 20: Obstaculos e oclusao.
+- Fase 21: Colisoes e fisica opcional.
+- Fase 22: UI base, menus e canvas.
+- Fase 23: UI de parametros e preferencias.
+- Fase 24: Editor genetico, especies e substrato.
+- Fase 25: Agente selecionado e visualizador neural.
+- Fase 26: Metricas, inteligencia, logs, diagnostico e profiler.
+- Fase 27: Save/load/export/import/autosave.
+- Fase 28: Benchmark runner e experimentos headless formais.
+- Fase 29: Paridade completa de UI.
+- Fase 30: Otimizacao data-oriented e escala.
+- Fase 31: Campanha final de paridade Python vs C++.
 
 ## Documentos que Devem Ser Consultados
 
@@ -120,18 +152,24 @@ Arquivos principais:
 - Antes de implementar modulo C++: `PROPOSED_CPP_ARCHITECTURE.md`.
 - Antes de planejar fase: `MIGRATION_PHASES.md`.
 - Antes de avaliar risco: `MIGRATION_RISKS.md`.
+- Antes de iniciar fase futura: `PLANNING_COVERAGE_AUDIT.md`.
 
 ## Checklist Antes de Cada Nova Etapa
 
 - A etapa foi autorizada explicitamente pelo usuario?
 - O escopo esta pequeno e testavel?
 - Existe criterio de conclusao?
+- A fase esta vinculada aos itens do `FEATURE_INVENTORY.md` que cobre?
+- A fase esta vinculada aos grupos do `PARAMETER_INVENTORY.md` que cadastra, usa, expoe ou valida?
+- A fase esta vinculada aos itens do `UI_INVENTORY.md` que implementa ou valida?
+- A fase resolve algum item nao coberto ou parcialmente coberto em `PLANNING_COVERAGE_AUDIT.md`?
 - Existem parametros envolvidos? Consultar `PARAMETER_INVENTORY.md`.
 - Existe UI envolvida? Consultar `UI_INVENTORY.md`.
 - Existe comportamento que pode ser perdido? Consultar `FEATURE_INVENTORY.md`.
 - Existe benchmark necessario? Consultar `BENCHMARK_PLAN.md`.
 - A mudanca preserva engine headless?
 - A mudanca tem commit separado planejado?
+- Para Fase 9 ou neural: a mudanca preserva `BrainType`, factory, executor por tipo e suporte futuro a RNN/NEAT?
 
 ## Criterios de Conclusao de Uma Etapa
 
@@ -146,8 +184,9 @@ Arquivos principais:
 
 - Revisar estes documentos.
 - Corrigir inventarios se o usuario encontrar ausencia.
-- Planejar Fase 1 em texto.
+- Planejar a Fase 9 em texto.
 - Criar checklists de paridade mais detalhados.
+- Auditar cobertura de planejamento.
 
 ## Proximos Passos Proibidos sem Autorizacao
 
@@ -158,6 +197,8 @@ Arquivos principais:
 - Migrar UI.
 - Remover arquivos.
 - Restaurar documentacao antiga apagada.
+- Reabrir ou renumerar Fases 0 a 8 como se estivessem pendentes.
+- Implementar Fase 9 sem autorizacao explicita.
 
 ## Frase de Seguranca
 

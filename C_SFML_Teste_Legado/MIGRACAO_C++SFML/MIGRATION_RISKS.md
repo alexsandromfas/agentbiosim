@@ -25,6 +25,14 @@
 | UI incompleta atrasar uso real | Alto | Media | Priorizar paineis essenciais e paridade incremental | Checklist UI por fase | `UI_INVENTORY.md` |
 | Incompatibilidade de arquivos antigos | Medio | Media | Loaders com aliases e migradores | Abrir saves reais copiados | `PARAMETER_INVENTORY.md` |
 | Confusao terminologica entre Labels/Especies/Agente/Genoma/Bacteria/Predator | Alto | Alta | Manter glossario e aliases versionados | Abrir saves antigos e conferir UI | `CODEX_MIGRATION_GUIDE.md`, `UI_INVENTORY.md` |
+| Funcionalidade inventariada sem fase executavel | Alto | Alta | Consultar `PLANNING_COVERAGE_AUDIT.md` antes de cada fase | Verificar se cada item tem fase de implementacao/validacao | `PLANNING_COVERAGE_AUDIT.md`, `MIGRATION_PHASES.md` |
+| Redes neurais avancadas sem fase clara | Alto | Alta | Fases 14, 15 e 16 dedicadas | Testar Gated/Shortcut/Modulated/RNN/NEAT separadamente | `MIGRATION_PHASES.md`, `PROPOSED_CPP_ARCHITECTURE.md` |
+| Redes neurais avancadas tratadas como detalhe tardio | Alto | Media | Fase 9 deve criar arquitetura neural extensivel | Revisar se MLP nao foi hardcoded no App/AgentStore | `PLANNING_COVERAGE_AUDIT.md` |
+| MLP inicial implementada com arquitetura fechada | Alto | Media | `BrainType`, `BrainFactory`, `BrainConfig`, `BrainState` e `BrainExecutor` desde a Fase 9 | Adicionar outro tipo neural sem reescrever App/MovementSystem | `PROPOSED_CPP_ARCHITECTURE.md` |
+| UI inventariada sem paridade por menu/ferramenta | Alto | Alta | Fases 22-25 e 29 quebradas por area | Checklist item a item de `UI_INVENTORY.md` | `UI_INVENTORY.md`, `MIGRATION_PHASES.md` |
+| Parametro cadastrado mas nunca usado funcionalmente | Alto | Alta | Tabela de cobertura por parametros deve indicar fase de uso, UI e validacao | Para cada parametro comportamental, teste efeito no sistema | `PARAMETER_INVENTORY.md`, `PLANNING_COVERAGE_AUDIT.md` |
+| Save/load/export/import deixados para o fim sem schema | Alto | Media | Fase 27 explicita com schema versionado e aliases | Roundtrip e abertura de saves/genomas legados | `PARAMETER_INVENTORY.md`, `MIGRATION_PHASES.md` |
+| Benchmarks planejados sem fase real de execucao | Alto | Media | Fase 28 para runner formal e Fase 31 para campanha final | CSV/JSON/MD gerados com commit/build/seed | `BENCHMARK_PLAN.md`, `MIGRATION_PHASES.md` |
 
 ## Riscos Criticos Detalhados
 
@@ -78,6 +86,35 @@ Mitigacao:
 - Manter varios modos.
 - Comparar desempenho e comportamento.
 - Visualizacao debug por agente.
+
+### Cobertura de planejamento insuficiente
+
+Um item pode estar citado em inventario ou arquitetura e ainda assim nao estar coberto. Para ser considerado coberto, precisa ter fase executavel de implementacao, validacao ou pendencia explicita com fase futura.
+
+Mitigacao:
+
+- Consultar `PLANNING_COVERAGE_AUDIT.md` antes de iniciar qualquer fase.
+- Toda fase futura deve listar quais funcionalidades, parametros e itens de UI cobre.
+- Itens parcialmente cobertos devem permanecer visiveis ate a fase de validacao.
+
+### Arquitetura neural fechada cedo demais
+
+Se a Fase 9 implementar MLP diretamente no `App`, `AgentStore` ou `MovementSystem`, a migracao futura de Gated/Shortcut/Modulated/RNN/NEAT exigira reescrita ou quebrara performance.
+
+Mitigacao:
+
+- `BrainType`, `BrainFactory`, `BrainConfig`, `BrainState`, `BrainHandle` e `BrainExecutor` desde a Fase 9.
+- Densas avancadas em Fase 14, RNN em Fase 15 e NEAT em Fase 16.
+- Benchmarks devem provar que NEAT desligado nao adiciona custo ao caminho MLP.
+
+### Parametro apenas cadastrado
+
+Cadastrar parametro no `ParameterRegistry` nao preserva comportamento. Parametros de comportamento precisam ser usados por um sistema, expostos na UI quando aplicavel e validados.
+
+Mitigacao:
+
+- A tabela de cobertura por parametros em `PLANNING_COVERAGE_AUDIT.md` deve ser revisada antes de cada fase.
+- Cada fase deve declarar parametros usados funcionalmente e parametros ainda pendentes.
 
 ## Regra de Seguranca
 
