@@ -22,6 +22,9 @@ add_executable(AgentBioSimCpp
     src/app/App.cpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterRegistry.cpp
+    src/render/Camera2D.cpp
+    src/simulation/FixedTimestep.cpp
+    src/simulation/World.cpp
 )
 
 target_include_directories(AgentBioSimCpp

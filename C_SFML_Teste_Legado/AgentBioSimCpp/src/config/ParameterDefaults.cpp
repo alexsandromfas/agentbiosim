@@ -246,7 +246,7 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addString(registry, "substrate_shape", "rectangular", "world.substrate", "Substrate shape: rectangular or circular.", {}, {"runtime", "world"});
     addDouble(registry, "world_w", 1000.0, "world.substrate", "Rectangular substrate width.", 1.0, std::nullopt, {}, {"runtime", "world"});
     addDouble(registry, "world_h", 700.0, "world.substrate", "Rectangular substrate height.", 1.0, std::nullopt, {}, {"runtime", "world"});
-    addDouble(registry, "substrate_radius", 400.0, "world.substrate", "Circular substrate radius.", 1.0, std::nullopt, {}, {"runtime", "world"});
+    addDouble(registry, "substrate_radius", 400.0, "world.substrate", "Circular substrate radius.", 10.0, std::nullopt, {}, {"runtime", "world"});
     addInt(registry, "random_seed", -1, "simulation.random", "Fixed random seed; -1 disables fixed seeding.", -1.0, std::nullopt, {}, {"runtime", "debug"});
     addString(registry, "agent_template_name", "organismo_1", "genome.template", "Default agent/genome template name.", {"species_template_name"}, {"ui", "species"});
     addInt(registry, "max_deaths_per_step", 5, "simulation.lifecycle", "Maximum deaths processed per step.", 0.0, std::nullopt, {}, {"runtime"});

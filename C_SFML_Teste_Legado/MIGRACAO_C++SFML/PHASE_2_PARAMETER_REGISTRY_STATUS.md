@@ -65,6 +65,10 @@ Aliases legados cadastrados para preservar compatibilidade conceitual com nomes 
 - Valores padrao devem ser refinados durante fases de paridade com Python.
 - Nem todos os controles de UI possuem mapeamento definitivo para widgets C++/ImGui.
 - Alguns nomes podem precisar ajuste depois de comparar diretamente com saves reais.
+- Estados de camera em save/UI (`camera_x`, `camera_y`, `camera_zoom`) ainda nao sao parametros globais; devem entrar no schema de save/camera.
+- `current_biosim_path` e estado de arquivo atual pertencem ao app/UI, nao ao registry global de simulacao.
+- `enable_brain_activations` e alias de UI com semantica invertida de `disable_brain_activations`; nao deve ser alias direto sem regra de migracao/inversao.
+- Metadados de labels/especies (`agent_labels`, `label_ids`, `next_agent_label_id`, nome, cor, minimo, maximo, inicial e grafico) continuam pendentes para `SpeciesRegistry`/save schema.
 
 ## Limitacoes Atuais
 
@@ -80,3 +84,56 @@ Aliases legados cadastrados para preservar compatibilidade conceitual com nomes 
 - A simulacao continua inexistente na versao C++.
 - Nenhum arquivo Python deve ser alterado por esta fase.
 - A Fase 3 nao foi iniciada.
+
+## Auditoria Retroativa de Referencia Funcional
+
+Arquivos consultados:
+
+- `sim/controllers.py`
+- `sim/ui.py`
+- `sim/engine.py`
+- `sim/entities.py`
+- `sim/sensors.py`
+- `sim/systems.py`
+- `sim/brain.py`
+- `C_SFML_Teste_Legado/MIGRACAO_C++SFML/PARAMETER_INVENTORY.md`
+- `C_SFML_Teste_Legado/MIGRACAO_C++SFML/CODEX_MIGRATION_GUIDE.md`
+- `C_SFML_Teste_Legado/MIGRACAO_C++SFML/MIGRATION_RISKS.md`
+
+Resultado da comparacao automatica:
+
+- Defaults encontrados em `Params._setup_defaults()`: 276.
+- Parametros cadastrados no `ParameterRegistry`: 283.
+- Defaults do Python ausentes no C++: 0.
+- Divergencias reais de default: 0.
+- Diferenca textual observada no dump: `smooth_max_angular_accel` aparece arredondado no dump (`12.56637061`) enquanto o Python usa `math.pi * 4` (`12.566370614...`). O valor cadastrado em C++ usa a precisao completa equivalente; a diferenca e apenas de formatacao do dump.
+- Parametros extras no C++: 7, todos vindos de usos parcialmente identificados no Python/inventario, nao inventados fora do schema: `brain_cache_max_entries`, `brain_cache_max_mb`, `brain_cache_log`, `disable_brain_activations`, `mem_diag_enable`, `mem_diag_interval`, `mem_warn_mb`.
+
+Categorias conferidas:
+
+- tempo/simulacao;
+- mundo/substrato;
+- render/performance;
+- visao global;
+- bins/setores;
+- comida;
+- bacteria/organismo base;
+- predador;
+- fisica;
+- UI/debug/save/aparencia;
+- redes neurais globais;
+- NEAT comum, proto-NEAT e NEAT recorrente;
+- metadados dinamicos de labels/especies fora de `Params`.
+
+Aliases conferidos:
+
+- aliases legados de autosave, food mode, predator enabled, substrate background color, native/Numba compatibility e template de especie foram preservados.
+- aliases dinamicos por especie para `*_retina_see_agents` e `*_diet_same_species` foram preservados.
+- `enable_brain_activations` nao foi cadastrado como alias direto porque sua semantica e invertida em relacao a `disable_brain_activations`; precisa de regra explicita de migracao.
+
+Decisoes/pendencias confirmadas:
+
+- Parametros de NEAT estao apenas cadastrados; nenhuma rede neural foi implementada.
+- Parametros Python/Numba permanecem registrados como compatibilidade historica, mas nao definem implementacao C++.
+- Labels/especies continuam como pendencia arquitetural porque sao estado dinamico e nao uma lista fixa de parametros globais.
+- Estados de camera/save/UI ficam pendentes para schema de persistencia e UI, nao para o registry global inicial.
