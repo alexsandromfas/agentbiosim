@@ -358,19 +358,25 @@ class Engine:
         bacteria_show_vision = bool(self.params.get('bacteria_show_vision', False))
 
         selected_agents = getattr(self, 'selected_agents', set())
+        multi_selected = len(selected_agents) > 1
+        show_multi_selected_vision = bool(self.params.get('show_multi_selected_vision', False))
         for predator in self.entities['predators']:
             if not self._is_object_visible(predator, visible_bounds):
                 continue
             selected = (predator is self.selected_agent) or (predator in selected_agents)
+            selected_vision = selected and ((not multi_selected) or show_multi_selected_vision)
             self.renderer.draw_agent(predator, surface, self.camera, 
-                                   show_head=True, show_vision=predator_show_vision, selected=selected)
+                                   show_head=True, show_vision=predator_show_vision, selected=selected,
+                                   selected_vision=selected_vision)
         
         for bacterium in self.entities['bacteria']:
             if not self._is_object_visible(bacterium, visible_bounds):
                 continue
             selected = (bacterium is self.selected_agent) or (bacterium in selected_agents)
+            selected_vision = selected and ((not multi_selected) or show_multi_selected_vision)
             self.renderer.draw_agent(bacterium, surface, self.camera,
-                                   show_head=True, show_vision=bacteria_show_vision, selected=selected)
+                                   show_head=True, show_vision=bacteria_show_vision, selected=selected,
+                                   selected_vision=selected_vision)
         
         # Desenha overlay de informações
         info = self._gather_render_info()

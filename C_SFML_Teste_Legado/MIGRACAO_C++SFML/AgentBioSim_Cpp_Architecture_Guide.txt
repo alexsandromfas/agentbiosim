@@ -1,0 +1,1031 @@
+AGENTBIOSIM CPP ARCHITECTURE GUIDE
+===================================
+
+Documento de referência para orientar o Codex na migração do AgentBioSim de Python/Pygame/PyQt6 para C++/SFML/CMake.
+
+Este documento NÃO deve ser tratado como uma tradução literal dos arquivos Python. Ele define a arquitetura-alvo da nova versão C++.
+
+Objetivo geral
+--------------
+Migrar o AgentBioSim para C++/SFML/CMake preservando 100% das funcionalidades, parâmetros, menus, modos de simulação, modos de visão, modelos neurais, ferramentas de UI, persistência, diagnóstico e fluxos de uso existentes.
+
+A migração deve melhorar a arquitetura, desempenho e manutenibilidade. O objetivo não é copiar a estrutura de arquivos Python, mas preservar responsabilidades, comportamentos e parâmetros.
+
+Regra central
+-------------
+Não preserve a estrutura dos arquivos Python. Preserve as responsabilidades, os parâmetros, os comportamentos e os fluxos de uso.
+
+A nova arquitetura deve ser pensada como um simulador científico modular, não como um protótipo visual.
+
+Princípios arquiteturais
+------------------------
+1. Engine headless
+   O motor da simulação não deve depender da UI nem do renderizador.
+   Ele deve poder rodar em modo headless para benchmarks, experimentos longos e testes automatizados.
+
+2. Separação clara de responsabilidades
+   Simulação, percepção, redes neurais, sistemas, renderização, UI, persistência e diagnóstico devem ser módulos separados.
+
+3. Parâmetros como fonte única de verdade
+   Todos os parâmetros devem estar registrados em um ParameterRegistry tipado.
+   A UI deve ler esse registro para criar ou validar controles.
+   Nenhum parâmetro deve ficar solto em código.
+
+4. Visão orientada a desempenho
+   O gargalo principal do projeto é a visão dos agentes.
+   A percepção deve ser feita com estruturas orientadas a dados, arrays contíguos, spatial hash, snapshots e buffers reutilizáveis.
+
+5. Arquitetura híbrida
+   Use objetos para organização de alto nível.
+   Use estrutura orientada a dados para processamento pesado, especialmente agentes, visão, colisão, interação e redes neurais em lote.
+
+6. UI modular
+   A UI não deve ficar em um único arquivo gigante.
+   Dividir a UI em painéis, menus, toolbars, inspetores e viewers.
+
+7. Persistência com schema
+   Save/load deve ter versão de schema e documentação clara.
+   Deve salvar parâmetros, mundo, agentes, comida, obstáculos, labels, cérebros, RNG e protótipos.
+
+8. Diagnóstico desde o início
+   Profiler, métricas, logs e benchmarks não devem ser adicionados apenas no final.
+   Eles devem acompanhar a migração.
+
+9. Migração incremental
+   Cada etapa deve compilar e rodar.
+   O Codex não deve avançar para etapas futuras sem autorização explícita.
+
+10. Preservação funcional
+   Se qualquer funcionalidade, menu, controle ou parâmetro ainda não for portado, registrar em arquivo de pendências.
+
+Arquitetura geral
+-----------------
+Camadas principais:
+
+1. Core / Simulation
+   A verdade da simulação. Não conhece UI.
+
+2. Presentation / Render / UI
+   Mostra e controla, mas não decide regra biológica.
+
+3. Tools / Persistence / Diagnostics
+   Salva, mede, depura, exporta e importa.
+
+Fluxo ideal:
+
+App
+  - processa eventos SFML
+  - atualiza UI ImGui
+  - envia comandos para Engine
+  - chama Engine.update(dt)
+  - chama Renderer.draw(state)
+  - chama UI.draw()
+
+Engine
+  - processa comandos
+  - executa pipeline de sistemas
+  - atualiza estado da simulação
+  - expõe uma view somente leitura para UI e render
+
+Renderer
+  - desenha estado da simulação
+  - não altera regras da simulação
+
+UI
+  - envia comandos
+  - altera parâmetros via ParameterRegistry
+  - lê snapshots/estado somente leitura
+
+Estrutura de pastas alvo
+------------------------
+
+AgentBioSimCpp/
+├─ CMakeLists.txt
+├─ README.md
+├─ docs/
+│  ├─ ARCHITECTURE.md
+│  ├─ PARAMETER_MANIFEST.md
+│  ├─ FEATURE_INVENTORY.md
+│  ├─ UI_PARITY_CHECKLIST.md
+│  ├─ SAVE_SCHEMA.md
+│  └─ PERFORMANCE_REPORT.md
+├─ assets/
+├─ src/
+│  ├─ app/
+│  ├─ core/
+│  ├─ config/
+│  ├─ simulation/
+│  ├─ ecs/
+│  ├─ spatial/
+│  ├─ perception/
+│  ├─ neural/
+│  ├─ systems/
+│  ├─ evolution/
+│  ├─ render/
+│  ├─ ui/
+│  ├─ persistence/
+│  ├─ diagnostics/
+│  └─ experiments/
+└─ tests/
+
+Detalhamento dos módulos
+========================
+
+1. src/app
+----------
+Responsável pela aplicação executável, loop principal, inicialização de SFML, ImGui, Engine, Renderer e UI.
+
+Arquivos sugeridos:
+
+src/app/
+├─ App.hpp
+├─ App.cpp
+└─ main.cpp
+
+Responsabilidades:
+- criar janela SFML
+- inicializar Engine
+- inicializar Renderer
+- inicializar UI
+- controlar loop principal
+- processar eventos globais
+- coordenar update/render
+- não implementar regra de simulação diretamente
+
+Fluxo recomendado:
+
+while window is open:
+    process SFML events
+    ui.handleEvent(event)
+    engine.dispatch(commands from UI/input)
+    engine.update(real_dt)
+    renderer.draw(engine.view())
+    ui.draw(engine.view())
+    window.display()
+
+2. src/core
+-----------
+Tipos e utilitários básicos independentes de domínio.
+
+Arquivos sugeridos:
+
+src/core/
+├─ Vec2.hpp
+├─ Color.hpp
+├─ Random.hpp
+├─ MathUtils.hpp
+├─ Id.hpp
+├─ Time.hpp
+├─ Span.hpp
+└─ Constants.hpp
+
+Responsabilidades:
+- Vec2
+- Color
+- clamp, lerp, normalize angle
+- random engine
+- seed
+- ids únicos
+- tipos básicos
+
+Regra:
+Nada em core deve conhecer Agent, Food, Retina, UI ou Renderer.
+
+3. src/config
+-------------
+Sistema central de parâmetros.
+
+Arquivos sugeridos:
+
+src/config/
+├─ Parameter.hpp
+├─ ParameterRegistry.hpp
+├─ ParameterRegistry.cpp
+├─ ParameterBinding.hpp
+├─ ParameterGroups.hpp
+└─ ParameterPresets.hpp
+
+Responsabilidades:
+- registrar todos os parâmetros do projeto
+- manter tipo, valor padrão, valor atual, categoria, descrição, limites e opções
+- permitir acesso por nome para UI/persistência
+- permitir acesso tipado para código interno
+- gerar ou validar PARAMETER_MANIFEST.md
+
+Modelo recomendado:
+
+Acesso tipado interno:
+    params.simulation.timeScale
+    params.vision.retinaVisionMode
+    params.food.foodMode
+    params.bacteria.initialEnergy
+
+Acesso dinâmico para UI:
+    registry.get("bacteria_vision_radius")
+    registry.set("retina_bins_mode", "nearest")
+    registry.listByGroup("Vision")
+
+Regras:
+- Todos os parâmetros atuais devem estar no registry.
+- Nenhum parâmetro deve ser removido.
+- Parâmetros ainda não usados devem ser marcados como portados mas pendentes de uso.
+- UI deve ser construída/validada a partir do ParameterRegistry.
+
+4. src/simulation
+-----------------
+Camada conceitual do mundo e do motor headless.
+
+Arquivos sugeridos:
+
+src/simulation/
+├─ Engine.hpp
+├─ Engine.cpp
+├─ World.hpp
+├─ World.cpp
+├─ Camera.hpp
+├─ Camera.cpp
+├─ SimulationState.hpp
+├─ SimulationClock.hpp
+├─ SceneQuery.hpp
+└─ CommandQueue.hpp
+
+Responsabilidades:
+- Engine headless
+- World retangular/circular
+- Camera
+- fixed timestep
+- CommandQueue
+- SimulationState
+- expor SimulationView somente leitura
+- coordenar SystemPipeline
+
+World deve suportar:
+- width
+- height
+- shape rectangular/circular
+- radius
+- cx/cy
+- isInside(x, y, radius)
+- clampPosition(x, y, radius)
+- wrapPosition(x, y)
+- distanceToWall(x, y)
+
+Camera deve suportar:
+- worldToScreen
+- screenToWorld
+- pan
+- zoomAt
+- limites de zoom
+
+Engine deve suportar:
+- start/stop/pause
+- fixed timestep
+- time_scale
+- physics_steps_per_second
+- max_physics_steps_per_frame
+- max_physics_backlog_seconds
+- current_fps
+- effective_time_scale
+- simulation_backlog
+- command queue
+- metrics
+- selection state
+- label state
+
+Regra importante:
+O Engine não deve renderizar diretamente.
+O renderer deve desenhar uma view do estado do Engine.
+
+5. src/ecs
+----------
+Armazenamento orientado a dados das entidades.
+
+Arquivos sugeridos:
+
+src/ecs/
+├─ EntityId.hpp
+├─ AgentStore.hpp
+├─ AgentStore.cpp
+├─ FoodStore.hpp
+├─ FoodStore.cpp
+├─ ObstacleStore.hpp
+├─ ObstacleStore.cpp
+├─ LabelStore.hpp
+└─ LabelStore.cpp
+
+Responsabilidades:
+- armazenar agentes, comidas, obstáculos e labels
+- fornecer arrays contíguos para processamento pesado
+- evitar objetos pesados para milhares de agentes
+- manter ids estáveis
+
+Estrutura recomendada para AgentStore:
+
+struct AgentStore {
+    std::vector<EntityId> id;
+    std::vector<float> x;
+    std::vector<float> y;
+    std::vector<float> vx;
+    std::vector<float> vy;
+    std::vector<float> angle;
+    std::vector<float> radius;
+    std::vector<float> energy;
+    std::vector<float> age;
+    std::vector<uint8_t> typeCode;
+    std::vector<Color> color;
+    std::vector<BrainHandle> brain;
+    std::vector<SensorConfig> sensor;
+};
+
+Por que:
+- visão percorre muitos agentes
+- colisão percorre muitos agentes
+- interação percorre muitos agentes
+- CPU funciona melhor com arrays contíguos
+
+6. src/spatial
+--------------
+Indexação espacial e snapshots para consultas rápidas.
+
+Arquivos sugeridos:
+
+src/spatial/
+├─ SpatialHash.hpp
+├─ SpatialHash.cpp
+├─ SpatialSnapshot.hpp
+└─ SpatialDebug.hpp
+
+Responsabilidades:
+- grid uniforme
+- buckets por célula
+- queryBall
+- queryAABB
+- rebuild
+- snapshot numérico para percepção
+- debug draw opcional
+
+Regra:
+O spatial hash deve guardar índices/ids, não ponteiros soltos para objetos pesados.
+
+Estrutura recomendada:
+
+struct SpatialSnapshot {
+    std::vector<float> x;
+    std::vector<float> y;
+    std::vector<float> radius;
+    std::vector<uint8_t> typeCode;
+    std::vector<Color> color;
+    std::vector<EntityId> ids;
+};
+
+7. src/perception
+-----------------
+Sistema de visão/percepção dos organismos.
+
+Arquivos sugeridos:
+
+src/perception/
+├─ RetinaSensor.hpp
+├─ VisionConfig.hpp
+├─ VisionChannels.hpp
+├─ VisionSingle.hpp
+├─ VisionSingle.cpp
+├─ VisionSector.hpp
+├─ VisionSector.cpp
+├─ VisionFullBody.hpp
+├─ VisionFullBody.cpp
+├─ VisionBatch.hpp
+└─ VisionBuffers.hpp
+
+Responsabilidades:
+- retina_count
+- vision_radius
+- fov
+- eye_count
+- eye_angle_degrees
+- eye_separation_degrees
+- canais R, G, B, D, R*D, G*D, B*D
+- modos distance_only, color_only, color_distance, color_plus_distance
+- modos de visão single, sector, fullbody
+- processamento em lote
+- buffers reutilizáveis
+
+Modos obrigatórios:
+
+single:
+- aproximação rápida por centroide do objeto
+- compatibilidade com o comportamento histórico
+
+sector:
+- modo principal de alto desempenho
+- usa setores angulares
+- evita interseção por raio quando possível
+- deve suportar bins e canais configuráveis
+
+fullbody:
+- raycast geométrico
+- usa ray_circle_intersect
+- opção experimental/mais precisa
+
+Parâmetros de bins obrigatórios:
+- retina_bins_mode: nearest, strongest, sum_saturating, weighted_average
+- retina_bins_distance_subdivisions
+- retina_bins_distance_distribution: linear, near_detail
+- retina_bins_distance_falloff: linear, quadratic, step, none
+- retina_bins_projection: center, center_edges, apparent_size
+- retina_bins_candidate_limit
+- retina_bins_obstacles_block_vision
+
+Regra de desempenho:
+Evitar alocação dentro do loop de percepção.
+Usar SpatialSnapshot e VisionBuffers.
+Agrupar agentes com mesma configuração visual.
+
+8. src/neural
+-------------
+Sistema neural dos agentes.
+
+Arquivos sugeridos:
+
+src/neural/
+├─ IBrain.hpp
+├─ BrainType.hpp
+├─ MLPBrain.hpp
+├─ MLPBrain.cpp
+├─ RNNBrain.hpp
+├─ RNNBrain.cpp
+├─ GatedBrain.hpp
+├─ GatedBrain.cpp
+├─ ShortcutBrain.hpp
+├─ ShortcutBrain.cpp
+├─ ModulatedBrain.hpp
+├─ ModulatedBrain.cpp
+├─ BrainFactory.hpp
+├─ BrainBatch.hpp
+├─ BrainSerialization.hpp
+└─ ActivationTrace.hpp
+
+Responsabilidades:
+- interface IBrain
+- forward
+- activations
+- copy/clone
+- mutate
+- resizeInput
+- serialize/deserialize
+- resetRuntimeState
+- batch forward
+- activation trace apenas para agente selecionado
+
+Tipos neurais a preservar:
+- MLP
+- GatedNeuralNet
+- ShortcutNeuralNet
+- ModulatedNeuralNet
+- SimpleRNNBrain
+
+Regras:
+- Começar com MLP.
+- Registrar demais modelos como pendentes até serem portados.
+- Não armazenar ativações completas de todos os agentes por frame.
+- Calcular ativações completas apenas para agente selecionado ou quando exportação/debug exigir.
+
+9. src/systems
+--------------
+Pipeline explícito de atualização da simulação.
+
+Arquivos sugeridos:
+
+src/systems/
+├─ System.hpp
+├─ SystemPipeline.hpp
+├─ PerceptionSystem.hpp
+├─ PerceptionSystem.cpp
+├─ BrainSystem.hpp
+├─ BrainSystem.cpp
+├─ LocomotionSystem.hpp
+├─ LocomotionSystem.cpp
+├─ EnergySystem.hpp
+├─ EnergySystem.cpp
+├─ InteractionSystem.hpp
+├─ InteractionSystem.cpp
+├─ ReproductionSystem.hpp
+├─ ReproductionSystem.cpp
+├─ DeathSystem.hpp
+├─ DeathSystem.cpp
+├─ CollisionSystem.hpp
+├─ CollisionSystem.cpp
+├─ FoodSystem.hpp
+├─ FoodSystem.cpp
+├─ ObstacleSystem.hpp
+├─ ObstacleSystem.cpp
+├─ SelectionSystem.hpp
+└─ SelectionSystem.cpp
+
+Pipeline recomendado por step:
+
+1. process commands
+2. rebuild spatial hash if needed
+3. perception
+4. brain forward
+5. locomotion
+6. energy
+7. interactions
+8. reproduction
+9. death
+10. food replenish
+11. metrics
+
+Locomotion deve suportar:
+- movement_mode forward
+- movement_mode omni
+- body_shape ellipse/circle
+- allow_reverse_locomotion
+- max_speed
+- max_turn
+- agents_inertia
+- smooth locomotion params
+- render interpolation params
+
+Interaction deve suportar:
+- bactéria come comida
+- predador come bactéria
+- dieta genérica
+- comida instantânea
+- comida chunk consumida aos poucos
+- contadores de energia consumida
+- last_foods_eaten
+- last_agents_predated
+
+10. src/evolution
+-----------------
+Criação, mutação, reprodução, população e linhagens.
+
+Arquivos sugeridos:
+
+src/evolution/
+├─ Mutation.hpp
+├─ Mutation.cpp
+├─ ReproductionRules.hpp
+├─ ReproductionRules.cpp
+├─ PopulationController.hpp
+├─ PopulationController.cpp
+├─ FoodController.hpp
+├─ FoodController.cpp
+├─ SpeciesTemplate.hpp
+├─ AgentPrototype.hpp
+└─ Lineage.hpp
+
+Responsabilidades:
+- criação de bactérias
+- criação de predadores
+- criação de comida
+- templates/protótipos de agente
+- reprodução
+- mutação neural
+- mutação estrutural
+- limites min/max de população
+- rescue population
+- linhagens
+
+11. src/render
+--------------
+Renderização visual da simulação.
+
+Arquivos sugeridos:
+
+src/render/
+├─ Renderer.hpp
+├─ Renderer.cpp
+├─ RenderContext.hpp
+├─ AgentRenderer.hpp
+├─ AgentRenderer.cpp
+├─ FoodRenderer.hpp
+├─ FoodRenderer.cpp
+├─ ObstacleRenderer.hpp
+├─ ObstacleRenderer.cpp
+├─ VisionRenderer.hpp
+├─ VisionRenderer.cpp
+├─ OverlayRenderer.hpp
+├─ OverlayRenderer.cpp
+├─ SpatialDebugRenderer.hpp
+└─ Theme.hpp
+
+Responsabilidades:
+- desenhar mundo
+- desenhar limites do substrato
+- desenhar agentes
+- desenhar comida
+- desenhar obstáculos
+- desenhar raios/setores de visão
+- desenhar spatial hash debug
+- desenhar overlay de FPS, tempo, contadores
+
+Regras:
+- Renderer não altera simulação.
+- Renderer recebe SimulationView/SimulationState somente leitura.
+- Renderização simples e bonita devem ser estratégias separadas.
+
+12. src/ui
+----------
+Interface do usuário modular, preferencialmente com Dear ImGui + SFML.
+
+Arquivos sugeridos:
+
+src/ui/
+├─ UiRoot.hpp
+├─ UiRoot.cpp
+├─ MainMenuBar.hpp
+├─ MainMenuBar.cpp
+├─ RuntimeToolbar.hpp
+├─ RuntimeToolbar.cpp
+├─ CanvasToolsPanel.hpp
+├─ CanvasToolsPanel.cpp
+├─ ParameterPanel.hpp
+├─ ParameterPanel.cpp
+├─ GeneticEditorPanel.hpp
+├─ GeneticEditorPanel.cpp
+├─ EnvironmentPanel.hpp
+├─ EnvironmentPanel.cpp
+├─ LabelsPanel.hpp
+├─ LabelsPanel.cpp
+├─ AgentInspectorPanel.hpp
+├─ AgentInspectorPanel.cpp
+├─ NeuralViewerPanel.hpp
+├─ NeuralViewerPanel.cpp
+├─ MetricsPanel.hpp
+├─ MetricsPanel.cpp
+├─ Dialogs.hpp
+├─ Dialogs.cpp
+└─ UiState.hpp
+
+Responsabilidades:
+- menus
+- toolbar play/pause/stop/time scale
+- ferramentas de canvas
+- painéis de parâmetros
+- editor genético
+- painel de substrato/ambiente
+- painel de labels
+- inspetor do agente selecionado
+- visualizador neural
+- gráficos e métricas
+- diálogos
+
+Menus a preservar:
+- Arquivo
+- View
+- Preferências
+- Gráfico
+- Resolução de renderização
+- Novas mudanças
+- Agente
+- Ajuda
+
+Ações de arquivo a preservar:
+- Novo
+- Abrir simulação
+- Salvar simulação
+- Salvar como
+- Exportar substrato JSON
+- Importar substrato JSON
+
+Ações de agente a preservar:
+- Exportar agente selecionado
+- Carregar agente
+- Criar linhagem a partir do selecionado
+
+Painéis/tabs a preservar:
+- Simulação
+- Substrato
+- Bactérias
+- Predadores
+- Labels
+- Ajuda
+- Editor Genético
+- População
+- Agente selecionado
+- Rede Neural
+- Gráfico/Métricas
+
+Regras:
+- Nenhum parâmetro do ParameterRegistry pode ficar sem lugar na UI.
+- Parâmetros menos usados devem ir para aba Avançado.
+- Se algum controle ainda não for portado, registrar em UI_PENDING.md.
+- UI deve mandar comandos ao Engine, não alterar estado diretamente.
+
+Exemplo correto:
+    engine.dispatch(Command::SetParameter{"bacteria_count", 200});
+    engine.dispatch(Command::AddFoodAt{x, y});
+    engine.dispatch(Command::SelectAgent{id});
+
+Evitar:
+    agent.energy = 100;
+
+13. src/persistence
+-------------------
+Salvar, carregar, importar e exportar.
+
+Arquivos sugeridos:
+
+src/persistence/
+├─ ProjectSerializer.hpp
+├─ ProjectSerializer.cpp
+├─ AgentSerializer.hpp
+├─ AgentSerializer.cpp
+├─ BrainSerializer.hpp
+├─ BrainSerializer.cpp
+├─ SubstrateSerializer.hpp
+├─ SubstrateSerializer.cpp
+├─ ParameterSerializer.hpp
+├─ ParameterSerializer.cpp
+├─ RngSerializer.hpp
+├─ RngSerializer.cpp
+└─ SaveSchema.hpp
+
+Responsabilidades:
+- salvar projeto completo
+- abrir projeto completo
+- exportar substrato
+- importar substrato
+- exportar agente selecionado
+- carregar agente
+- salvar parâmetros
+- salvar cérebros
+- salvar obstáculos
+- salvar labels
+- salvar RNG
+- versionar schema
+
+Save completo deve incluir:
+- schema_version
+- parâmetros
+- mundo
+- câmera, se aplicável
+- agentes
+- comida
+- obstáculos
+- labels
+- cérebros
+- protótipos
+- RNG state
+- estado de UI opcional
+
+14. src/diagnostics
+-------------------
+Profiling, logs, métricas e benchmarks.
+
+Arquivos sugeridos:
+
+src/diagnostics/
+├─ Logger.hpp
+├─ Logger.cpp
+├─ RuntimeDiagnostics.hpp
+├─ RuntimeDiagnostics.cpp
+├─ Profiler.hpp
+├─ Profiler.cpp
+├─ Metrics.hpp
+├─ Metrics.cpp
+├─ MetricsHistory.hpp
+├─ MetricsHistory.cpp
+├─ CrashHandler.hpp
+├─ CrashHandler.cpp
+├─ Benchmark.hpp
+└─ Benchmark.cpp
+
+Responsabilidades:
+- log runtime
+- log de erros
+- heartbeat
+- profiler de seções
+- métricas de FPS/CPU/RAM
+- métricas de simulação
+- inteligência alimentar
+- benchmarks
+
+Profiler deve medir:
+- perception
+- brain_forward
+- locomotion
+- energy
+- interaction
+- reproduction
+- death
+- food
+- render
+- spatial_hash
+
+15. src/experiments
+-------------------
+Execuções headless, benchmarks e experimentos científicos.
+
+Arquivos sugeridos:
+
+src/experiments/
+├─ HeadlessRunner.hpp
+├─ HeadlessRunner.cpp
+├─ BenchmarkScenarios.hpp
+├─ BenchmarkScenarios.cpp
+├─ BatchExperiment.hpp
+└─ BatchExperiment.cpp
+
+Responsabilidades:
+- rodar simulação sem janela
+- benchmarks comparáveis
+- experimentos longos
+- exportação de métricas
+- cenários fixos com seed
+
+Mapeamento dos arquivos Python para arquitetura C++
+===================================================
+
+controllers.py
+    → config/ParameterRegistry
+    → evolution/PopulationController
+    → evolution/FoodController
+
+engine.py
+    → simulation/Engine
+    → simulation/CommandQueue
+    → systems/SystemPipeline
+    → diagnostics/Metrics
+
+entities.py
+    → ecs/AgentStore
+    → ecs/FoodStore
+    → evolution/AgentPrototype
+    → systems/BrainSystem
+    → systems/LocomotionSystem
+
+sensors.py
+    → perception/RetinaSensor
+    → perception/VisionSingle
+    → perception/VisionSector
+    → perception/VisionFullBody
+    → perception/VisionBatch
+
+brain.py
+    → neural/IBrain
+    → neural/MLPBrain
+    → neural/RNNBrain
+    → neural/GatedBrain
+    → neural/ShortcutBrain
+    → neural/ModulatedBrain
+    → neural/BrainFactory
+    → neural/BrainSerialization
+
+actuators.py
+    → systems/LocomotionSystem
+    → systems/EnergySystem
+
+systems.py
+    → systems/InteractionSystem
+    → systems/ReproductionSystem
+    → systems/DeathSystem
+    → systems/CollisionSystem
+
+spatial.py
+    → spatial/SpatialHash
+    → spatial/SpatialSnapshot
+
+world.py
+    → simulation/World
+    → simulation/Camera
+
+render.py
+    → render/Renderer
+    → render/AgentRenderer
+    → render/FoodRenderer
+    → render/ObstacleRenderer
+    → render/OverlayRenderer
+
+game.py
+    → app/App
+    → render/Renderer
+    → ui/CanvasToolsPanel
+    → simulation/Camera
+    → simulation/CommandQueue
+
+ui.py
+    → ui/UiRoot
+    → ui/MainMenuBar
+    → ui/RuntimeToolbar
+    → ui/CanvasToolsPanel
+    → ui/ParameterPanel
+    → ui/MetricsPanel
+    → ui/AgentInspectorPanel
+    → ui/Dialogs
+
+neural_viewer.py
+    → ui/NeuralViewerPanel
+
+obstacles.py
+    → ecs/ObstacleStore
+    → systems/ObstacleSystem
+    → render/ObstacleRenderer
+
+intelligence.py
+    → diagnostics/Metrics
+    → diagnostics/MetricsHistory
+    → experiments/Analysis
+
+profiler.py
+    → diagnostics/Profiler
+
+diagnostics.py
+    → diagnostics/RuntimeDiagnostics
+    → diagnostics/Logger
+
+random_utils.py
+    → core/Random
+    → persistence/RngSerializer
+
+soa.py
+    → ecs/AgentStore
+    → data-oriented backend
+
+fast_kernels.py
+    → perception optimized C++ backend
+    → neural batch backend
+    → systems optimized locomotion/energy backend
+
+Regras para prompts ao Codex
+============================
+
+Sempre incluir estas regras em tarefas de migração:
+
+1. Execute somente a etapa solicitada.
+2. Não avance para etapas futuras sem autorização.
+3. O projeto deve compilar ao final da etapa.
+4. Atualize documentos de status.
+5. Não remova parâmetros.
+6. Não remova funcionalidades.
+7. Se algo ficar pendente, registre explicitamente.
+8. Não faça tradução literal Python -> C++.
+9. Preserve comportamento e fluxos de uso.
+10. Prefira arquitetura C++ idiomática, modular e performática.
+
+Arquivos de documentação obrigatórios
+=====================================
+
+Criar e manter:
+
+- docs/ARCHITECTURE.md
+- docs/FEATURE_INVENTORY.md
+- docs/PARAMETER_MANIFEST.md
+- docs/UI_PARITY_CHECKLIST.md
+- docs/PARAMETER_PORT_STATUS.md
+- docs/FEATURE_PORT_STATUS.md
+- docs/UI_PENDING.md
+- docs/NEURAL_PORT_STATUS.md
+- docs/SAVE_SCHEMA.md
+- docs/PERFORMANCE_REPORT.md
+
+Critérios de sucesso da arquitetura
+===================================
+
+A arquitetura será considerada correta se:
+
+1. O Engine roda sem UI.
+2. A UI é modular.
+3. Todos os parâmetros atuais existem no ParameterRegistry.
+4. A visão pode ser otimizada sem mexer na UI.
+5. O renderizador não altera simulação.
+6. Save/load preserva estado completo.
+7. Benchmarks podem rodar em modo headless.
+8. A simulação consegue evoluir para milhares de agentes.
+9. A implementação permite novos modelos neurais, incluindo RNN e futuramente NEAT.
+10. Nenhuma funcionalidade atual some silenciosamente.
+
+Prioridade de otimização
+========================
+
+1. Visão dos agentes
+2. Spatial hash / spatial snapshot
+3. Forward neural em lote
+4. Interação comida/agente/predador
+5. Locomoção e energia
+6. Renderização
+7. UI
+
+Observações finais para o Codex
+===============================
+
+Este documento é a arquitetura-alvo.
+Não usar a estrutura Python como estrutura final.
+Usar os arquivos Python como fonte de funcionalidades, parâmetros e comportamento.
+
+A nova versão C++ deve ser melhor organizada, mais performática e mais fácil de expandir.
+
+Foco principal:
+- preservar tudo que já existe;
+- melhorar arquitetura;
+- resolver gargalo de visão;
+- permitir experimentos científicos;
+- permitir UI rica sem virar um arquivo gigante;
+- permitir migração incremental segura.
+
+Frase-guia:
+
+Primeiro garanta paridade. Depois otimize. Depois refine a UI.
+

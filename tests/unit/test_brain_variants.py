@@ -21,6 +21,9 @@ def test_brain_factory_creates_requested_variants():
         ("shortcut_mlp", "shortcut_mlp"),
         ("modulated_mlp", "modulated_mlp"),
         ("simple_rnn", "simple_rnn"),
+        ("neat_common", "neat_common"),
+        ("neat_simplified", "neat_simplified"),
+        ("neat_recurrent", "neat_recurrent"),
     ]:
         params.set("neural_network_type", kind, validate=False)
         brain = create_brain([4, 5, 2], params=params, init_std=0.1)
@@ -55,3 +58,22 @@ def test_simple_rnn_has_state_and_serializes_roundtrip():
     assert restored.sizes == brain.sizes
     assert np.allclose(restored.recurrent_weights, brain.recurrent_weights)
 
+
+def test_neat_variants_are_individual_and_serialize_roundtrip():
+    inputs = np.array([[0.1, -0.2, 0.3], [0.4, 0.2, -0.1]], dtype=np.float32)
+    params = Params()
+    for kind in ("neat_common", "neat_simplified", "neat_recurrent"):
+        params.set("neural_network_type", kind, validate=False)
+        brains = [create_brain([3, 4, 2], params=params, init_std=0.2) for _ in range(2)]
+        got = forward_many_brains(brains, inputs)
+        assert got.shape == (2, 2)
+        assert all(getattr(brain, "supports_batch", True) is False for brain in brains)
+
+        brains[0].mutate(0.5, 0.2)
+        data = brain_to_data(brains[0])
+        restored = brain_from_data(data, params=params)
+        assert restored.brain_type == kind
+        assert restored.sizes == brains[0].sizes
+        assert len(restored.nodes) == len(brains[0].nodes)
+        assert len(restored.connections) == len(brains[0].connections)
+        assert len(restored.forward([0.1, -0.2, 0.3])) == 2

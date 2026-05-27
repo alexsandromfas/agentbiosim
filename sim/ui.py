@@ -48,6 +48,46 @@ from .profiler import profiler
 
 # -------------------------- Helper abstractions --------------------------
 
+NEAT_PARAM_NAMES = (
+    'neural_neat_initial_topology',
+    'neural_neat_weight_init_std',
+    'neural_neat_weight_mutation_rate',
+    'neural_neat_weight_mutation_strength',
+    'neural_neat_add_connection_rate',
+    'neural_neat_add_node_rate',
+    'neural_neat_toggle_connection_rate',
+    'neural_neat_remove_connection_rate',
+    'neural_neat_reset_weight_rate',
+    'neural_neat_max_hidden_nodes',
+    'neural_neat_max_connections',
+    'neural_proto_neat_initial_topology',
+    'neural_proto_neat_weight_init_std',
+    'neural_proto_neat_weight_mutation_rate',
+    'neural_proto_neat_weight_mutation_strength',
+    'neural_proto_neat_add_connection_rate',
+    'neural_proto_neat_add_node_rate',
+    'neural_proto_neat_toggle_connection_rate',
+    'neural_proto_neat_remove_connection_rate',
+    'neural_proto_neat_reset_weight_rate',
+    'neural_proto_neat_max_hidden_nodes',
+    'neural_proto_neat_max_connections',
+    'neural_recurrent_neat_initial_topology',
+    'neural_recurrent_neat_weight_init_std',
+    'neural_recurrent_neat_weight_mutation_rate',
+    'neural_recurrent_neat_weight_mutation_strength',
+    'neural_recurrent_neat_add_connection_rate',
+    'neural_recurrent_neat_add_node_rate',
+    'neural_recurrent_neat_toggle_connection_rate',
+    'neural_recurrent_neat_remove_connection_rate',
+    'neural_recurrent_neat_reset_weight_rate',
+    'neural_recurrent_neat_max_hidden_nodes',
+    'neural_recurrent_neat_max_connections',
+    'neural_recurrent_neat_recurrent_connection_rate',
+    'neural_recurrent_neat_memory_decay',
+    'neural_recurrent_neat_state_clip',
+    'neural_recurrent_neat_reset_state_on_copy',
+)
+
 def _spin_int(min_v: int, max_v: int, step: int = 1) -> QSpinBox:
     w = QSpinBox()
     w.setRange(min_v, max_v)
@@ -1776,6 +1816,9 @@ class SimulationUI(QMainWindow):
             idx = 0
         mode.setCurrentIndex(idx)
         row = self._add_grid_param(grid, row, "Modo de visao:", 'retina_vision_mode', mode)
+        cb = QCheckBox()
+        cb.setChecked(bool(self.params.get('show_multi_selected_vision', False)))
+        row = self._add_grid_param(grid, row, "Mostrar visao em selecao multipla:", 'show_multi_selected_vision', cb)
         layout.addWidget(g_mode)
 
         g_bins = QGroupBox("Controles dos bins angulares")
@@ -1887,6 +1930,9 @@ class SimulationUI(QMainWindow):
             ("MLP com atalho entrada -> saida", "shortcut_mlp"),
             ("MLP modulada (gates + atalho)", "modulated_mlp"),
             ("RNN simples com memoria curta", "simple_rnn"),
+            ("NEAT comum experimental", "neat_common"),
+            ("NEAT simplificada tipo Protozoa", "neat_simplified"),
+            ("NEAT recorrente experimental", "neat_recurrent"),
         ]
         for label, value in options:
             combo.addItem(label, value)
@@ -1967,6 +2013,50 @@ class SimulationUI(QMainWindow):
             "RNN simples",
             rows,
             "Usa a primeira camada oculta como memoria curta. O visualizador mostra essa camada de forma simplificada como camada recorrente.",
+        )
+
+        def _topology_combo(name: str, default: str):
+            cb = QComboBox()
+            cb.addItem("Minima: sensores -> saidas", "minimal")
+            cb.addItem("Camadas do editor genetico", "layered")
+            idx = cb.findData(str(self.params.get(name, default)))
+            cb.setCurrentIndex(max(0, idx))
+            return cb
+
+        def _neat_rows(prefix: str, default_topology: str, recurrent: bool = False):
+            rows = []
+            rows.append(("Topologia inicial:", f"{prefix}_initial_topology", _topology_combo(f"{prefix}_initial_topology", default_topology)))
+            w = _spin_double(0.0, 10.0, 0.01, 3); w.setValue(self.params.get(f"{prefix}_weight_init_std", 0.6)); rows.append(("Inicializacao pesos:", f"{prefix}_weight_init_std", w))
+            w = _spin_double(-1.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_weight_mutation_rate", -1.0)); rows.append(("Taxa mutacao pesos (-1 usa geral):", f"{prefix}_weight_mutation_rate", w))
+            w = _spin_double(-1.0, 10.0, 0.01, 3); w.setValue(self.params.get(f"{prefix}_weight_mutation_strength", -1.0)); rows.append(("Forca mutacao pesos (-1 usa geral):", f"{prefix}_weight_mutation_strength", w))
+            w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_add_connection_rate", 0.08)); rows.append(("Chance adicionar conexao:", f"{prefix}_add_connection_rate", w))
+            w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_add_node_rate", 0.03)); rows.append(("Chance adicionar neuronio:", f"{prefix}_add_node_rate", w))
+            w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_toggle_connection_rate", 0.01)); rows.append(("Chance ligar/desligar conexao:", f"{prefix}_toggle_connection_rate", w))
+            w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_remove_connection_rate", 0.0)); rows.append(("Chance remover conexao:", f"{prefix}_remove_connection_rate", w))
+            w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_reset_weight_rate", 0.02)); rows.append(("Chance resetar peso:", f"{prefix}_reset_weight_rate", w))
+            w = _spin_int(0, 10000); w.setValue(_param_int(self.params, f"{prefix}_max_hidden_nodes", 64)); rows.append(("Max. neuronios extras:", f"{prefix}_max_hidden_nodes", w))
+            w = _spin_int(1, 200000); w.setValue(_param_int(self.params, f"{prefix}_max_connections", 512)); rows.append(("Max. conexoes:", f"{prefix}_max_connections", w))
+            if recurrent:
+                w = _spin_double(0.0, 1.0, 0.001, 3); w.setValue(self.params.get(f"{prefix}_recurrent_connection_rate", 0.12)); rows.append(("Chance conexao recorrente:", f"{prefix}_recurrent_connection_rate", w))
+                w = _spin_double(0.0, 0.999, 0.01, 3); w.setValue(self.params.get(f"{prefix}_memory_decay", 0.85)); rows.append(("Decaimento memoria:", f"{prefix}_memory_decay", w))
+                w = _spin_double(0.01, 10.0, 0.05, 3); w.setValue(self.params.get(f"{prefix}_state_clip", 1.0)); rows.append(("Limite do estado:", f"{prefix}_state_clip", w))
+                cb = QCheckBox(); cb.setChecked(bool(self.params.get(f"{prefix}_reset_state_on_copy", True))); rows.append(("Resetar memoria no filho:", f"{prefix}_reset_state_on_copy", cb))
+            return rows
+
+        add_panel(
+            "NEAT comum experimental",
+            _neat_rows("neural_neat", "minimal", recurrent=False),
+            "Topologia variavel com mutacao de pesos, conexoes e neuronios. E mais pesada que MLP/RNN e nao usa batch; use para grupos menores ou experimentos de estrutura.",
+        )
+        add_panel(
+            "NEAT simplificada tipo Protozoa",
+            _neat_rows("neural_proto_neat", "minimal", recurrent=False),
+            "Versao mais enxuta inspirada no Evolving Protozoa: muta uma conexao/topologia por vez, sem especiacao completa. Boa para testar estrutura com menor complexidade.",
+        )
+        add_panel(
+            "NEAT recorrente experimental",
+            _neat_rows("neural_recurrent_neat", "minimal", recurrent=True),
+            "Permite conexoes recorrentes que leem o estado anterior da rede. Funciona como uma NEAT com memoria, mas tem custo individual e pode gerar dinamicas instaveis.",
         )
 
         def sync_stack():
@@ -2213,6 +2303,7 @@ class SimulationUI(QMainWindow):
             'retina_bins_projection': 'Define quantos setores um objeto ativa. Centro apenas usa o centro; Centro + bordas considera as bordas angulares; Tamanho aparente espalha objetos grandes ou proximos.',
             'retina_bins_candidate_limit': 'Limita quantos objetos proximos cada organismo avalia no modo bins. Zero significa ilimitado. Valores baixos evitam travamentos, mas podem ignorar objetos relevantes.',
             'retina_bins_obstacles_block_vision': 'No modo bins, obstaculos podem bloquear objetos atras deles. E mais realista, mas custa mais processamento.',
+            'show_multi_selected_vision': 'Quando desligado, selecoes por laco, quadrado ou selecionar todos nao desenham o campo de visao de todos. Um unico organismo selecionado continua mostrando a visao normalmente.',
             'neural_network_type': 'Escolhe o tipo de cerebro usado ao criar ou recriar redes neurais. A arquitetura basica continua vindo do editor genetico.',
             'neural_gate_init': 'Valor inicial dos gates. 1.0 preserva a intensidade normal; perto de 0 silencia neuronios; acima de 1 amplifica.',
             'neural_gate_min': 'Limite inferior dos gates apos mutacoes.',
@@ -2230,6 +2321,43 @@ class SimulationUI(QMainWindow):
             'neural_rnn_reset_state_on_copy': 'Quando um filho nasce, zera a memoria momentanea em vez de herdar o estado instantaneo do pai.',
             'neural_rnn_mutation_rate': 'Taxa de mutacao dos pesos recorrentes. Use -1 para reutilizar a taxa geral.',
             'neural_rnn_mutation_strength': 'Forca de mutacao dos pesos recorrentes. Use -1 para reutilizar a forca geral.',
+            'neural_neat_initial_topology': 'Define se a NEAT comum nasce minima ou usando as camadas do editor genetico como topologia inicial.',
+            'neural_neat_weight_init_std': 'Escala dos pesos iniciais da NEAT comum.',
+            'neural_neat_weight_mutation_rate': 'Taxa de mutacao dos pesos da NEAT comum. Use -1 para reutilizar a taxa geral.',
+            'neural_neat_weight_mutation_strength': 'Forca de mutacao dos pesos da NEAT comum. Use -1 para reutilizar a forca geral.',
+            'neural_neat_add_connection_rate': 'Chance de uma reproducao adicionar uma nova conexao na NEAT comum.',
+            'neural_neat_add_node_rate': 'Chance de uma reproducao dividir uma conexao e criar um novo neuronio na NEAT comum.',
+            'neural_neat_toggle_connection_rate': 'Chance de ligar ou desligar uma conexao existente na NEAT comum.',
+            'neural_neat_remove_connection_rate': 'Chance de remover uma conexao na NEAT comum.',
+            'neural_neat_reset_weight_rate': 'Chance de sortear novamente um peso individual na NEAT comum.',
+            'neural_neat_max_hidden_nodes': 'Limite de neuronios escondidos extras para impedir crescimento sem controle.',
+            'neural_neat_max_connections': 'Limite de conexoes para controlar custo computacional.',
+            'neural_proto_neat_initial_topology': 'Topologia inicial da NEAT simplificada.',
+            'neural_proto_neat_weight_init_std': 'Escala dos pesos iniciais da NEAT simplificada.',
+            'neural_proto_neat_weight_mutation_rate': 'Taxa de mutacao dos pesos da NEAT simplificada. Use -1 para reutilizar a taxa geral.',
+            'neural_proto_neat_weight_mutation_strength': 'Forca de mutacao dos pesos da NEAT simplificada. Use -1 para reutilizar a forca geral.',
+            'neural_proto_neat_add_connection_rate': 'Chance de adicionar uma conexao na NEAT simplificada.',
+            'neural_proto_neat_add_node_rate': 'Chance de dividir conexao e criar neuronio na NEAT simplificada.',
+            'neural_proto_neat_toggle_connection_rate': 'Chance de ligar ou desligar conexao na NEAT simplificada.',
+            'neural_proto_neat_remove_connection_rate': 'Chance de remover conexao na NEAT simplificada.',
+            'neural_proto_neat_reset_weight_rate': 'Chance de sortear novamente um peso na NEAT simplificada.',
+            'neural_proto_neat_max_hidden_nodes': 'Limite de neuronios escondidos extras na NEAT simplificada.',
+            'neural_proto_neat_max_connections': 'Limite de conexoes da NEAT simplificada.',
+            'neural_recurrent_neat_initial_topology': 'Topologia inicial da NEAT recorrente.',
+            'neural_recurrent_neat_weight_init_std': 'Escala dos pesos iniciais da NEAT recorrente.',
+            'neural_recurrent_neat_weight_mutation_rate': 'Taxa de mutacao dos pesos da NEAT recorrente. Use -1 para reutilizar a taxa geral.',
+            'neural_recurrent_neat_weight_mutation_strength': 'Forca de mutacao dos pesos da NEAT recorrente. Use -1 para reutilizar a forca geral.',
+            'neural_recurrent_neat_add_connection_rate': 'Chance de adicionar conexao feedforward na NEAT recorrente.',
+            'neural_recurrent_neat_add_node_rate': 'Chance de criar novo neuronio na NEAT recorrente.',
+            'neural_recurrent_neat_toggle_connection_rate': 'Chance de ligar ou desligar conexao na NEAT recorrente.',
+            'neural_recurrent_neat_remove_connection_rate': 'Chance de remover conexao na NEAT recorrente.',
+            'neural_recurrent_neat_reset_weight_rate': 'Chance de sortear novamente um peso na NEAT recorrente.',
+            'neural_recurrent_neat_max_hidden_nodes': 'Limite de neuronios escondidos extras na NEAT recorrente.',
+            'neural_recurrent_neat_max_connections': 'Limite de conexoes da NEAT recorrente.',
+            'neural_recurrent_neat_recurrent_connection_rate': 'Chance de uma nova conexao ser recorrente, lendo estado neural anterior.',
+            'neural_recurrent_neat_memory_decay': 'Quanto do estado anterior permanece. Maior gera memoria mais longa.',
+            'neural_recurrent_neat_state_clip': 'Limite numerico do estado recorrente.',
+            'neural_recurrent_neat_reset_state_on_copy': 'Quando um filho nasce, zera a memoria instantanea em vez de herdar o estado do pai.',
             'render_enabled': 'Liga ou desliga o desenho da simulacao no Pygame. Desligado, a simulacao continua evoluindo, mas a tela nao e redesenhada.',
             'simple_render': 'Troca para renderizacao mais simples e rapida. Use para populacoes grandes ou benchmarks visuais.',
             'show_spatial_hash': 'Desenha a grade de celulas do spatial hash sobre o substrato. Desligado nao adiciona custo de renderizacao.',
@@ -4080,7 +4208,7 @@ class SimulationUI(QMainWindow):
             'max_physics_steps_per_frame', 'max_physics_backlog_seconds',
             'render_enabled', 'simple_render', 'use_numba_kernels', 'use_numba_batch_retina',
             'use_numba_locomotion_energy', 'bacteria_show_vision',
-            'predator_show_vision', 'show_selected_details',
+            'predator_show_vision', 'show_selected_details', 'show_multi_selected_vision',
             'show_spatial_hash', 'retina_vision_mode',
             'retina_bins_mode', 'retina_bins_distance_subdivisions',
             'retina_bins_distance_distribution', 'retina_bins_distance_falloff',
@@ -4103,7 +4231,7 @@ class SimulationUI(QMainWindow):
             'chunk_food_adhesion_strength', 'chunk_food_mass_scale',
             'chunk_food_drag', 'chunk_food_push_strength',
             'brownian_motion_enabled', 'brownian_motion_strength',
-        }
+        } | set(NEAT_PARAM_NAMES)
 
     def _prepare_param_widget_runtime(self, name: str, widget: QWidget):
         if getattr(widget, '_agentbiosim_runtime_prepared', False):
@@ -4160,7 +4288,7 @@ class SimulationUI(QMainWindow):
             'food_target', 'food_min_r', 'food_max_r', 'food_replenish_interval',
             'world_w', 'world_h', 'substrate_shape', 'substrate_radius',
         }
-        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'neural_network_type', 'neural_gate_init', 'neural_gate_min', 'neural_gate_max', 'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_init_std', 'neural_shortcut_scale', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std', 'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay', 'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'render_enabled', 'simple_render', 'show_spatial_hash', 'camera_follow_selected_agent', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'agent_collision_enabled', 'agent_collision_elasticity_enabled', 'agent_collision_restitution', 'agent_collision_velocity_transfer', 'agent_collision_separation', 'agent_collision_max_impulse', 'global_viscosity_enabled', 'global_viscosity_drag', 'movable_chunk_food_enabled', 'chunk_food_collision_enabled', 'chunk_food_adhesion_enabled', 'chunk_food_adhesion_strength', 'chunk_food_mass_scale', 'chunk_food_drag', 'chunk_food_push_strength', 'brownian_motion_enabled', 'brownian_motion_strength', 'show_selected_details', 'debug_tracebacks'}
+        simulation_names = {'time_scale', 'fps', 'paused', 'physics_steps_per_second', 'max_physics_steps_per_frame', 'max_physics_backlog_seconds', 'use_spatial', 'retina_skip', 'random_seed', 'retina_vision_mode', 'retina_bins_mode', 'retina_bins_distance_subdivisions', 'retina_bins_distance_distribution', 'retina_bins_distance_falloff', 'retina_bins_projection', 'retina_bins_candidate_limit', 'retina_bins_obstacles_block_vision', 'show_multi_selected_vision', 'neural_network_type', 'neural_gate_init', 'neural_gate_min', 'neural_gate_max', 'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_init_std', 'neural_shortcut_scale', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_recurrent_init_std', 'neural_rnn_recurrent_scale', 'neural_rnn_memory_decay', 'neural_rnn_state_clip', 'neural_rnn_reset_state_on_copy', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'render_enabled', 'simple_render', 'show_spatial_hash', 'camera_follow_selected_agent', 'use_numba_kernels', 'use_numba_batch_retina', 'use_grouped_vision_batches', 'use_persistent_perception_arrays', 'retina_high_scale_auto_sector', 'retina_high_scale_global_sector', 'retina_high_scale_sector_min_agents', 'use_numba_brain_forward', 'numba_brain_forward_min_batch', 'use_numba_locomotion_energy', 'reuse_spatial_grid', 'agents_inertia', 'smooth_locomotion_enabled', 'smooth_linear_inertia_enabled', 'smooth_max_linear_accel', 'smooth_linear_drag_enabled', 'smooth_linear_drag', 'smooth_angular_inertia_enabled', 'smooth_max_angular_accel', 'smooth_angular_drag_enabled', 'smooth_angular_drag', 'render_interpolation_enabled', 'agent_collision_enabled', 'agent_collision_elasticity_enabled', 'agent_collision_restitution', 'agent_collision_velocity_transfer', 'agent_collision_separation', 'agent_collision_max_impulse', 'global_viscosity_enabled', 'global_viscosity_drag', 'movable_chunk_food_enabled', 'chunk_food_collision_enabled', 'chunk_food_adhesion_enabled', 'chunk_food_adhesion_strength', 'chunk_food_mass_scale', 'chunk_food_drag', 'chunk_food_push_strength', 'brownian_motion_enabled', 'brownian_motion_strength', 'show_selected_details', 'debug_tracebacks'} | set(NEAT_PARAM_NAMES)
         if name == 'agent_template_name':
             self.params.set(name, self._get_widget_value(name), validate=False)
         elif name in genetic_names:
@@ -4293,12 +4421,15 @@ class SimulationUI(QMainWindow):
         self._schedule_ui_params_save()
 
     def apply_simulation_params(self):
-        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','neural_network_type','neural_gate_init','neural_gate_min','neural_gate_max','neural_gate_mutation_rate','neural_gate_mutation_strength','neural_shortcut_init_std','neural_shortcut_scale','neural_shortcut_mutation_rate','neural_shortcut_mutation_strength','neural_rnn_recurrent_init_std','neural_rnn_recurrent_scale','neural_rnn_memory_decay','neural_rnn_state_clip','neural_rnn_reset_state_on_copy','neural_rnn_mutation_rate','neural_rnn_mutation_strength','render_enabled','simple_render','show_spatial_hash','camera_follow_selected_agent','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','agent_collision_enabled','agent_collision_elasticity_enabled','agent_collision_restitution','agent_collision_velocity_transfer','agent_collision_separation','agent_collision_max_impulse','global_viscosity_enabled','global_viscosity_drag','movable_chunk_food_enabled','chunk_food_collision_enabled','chunk_food_adhesion_enabled','chunk_food_adhesion_strength','chunk_food_mass_scale','chunk_food_drag','chunk_food_push_strength','brownian_motion_enabled','brownian_motion_strength','show_selected_details','debug_tracebacks']:
+        for name in ['time_scale','fps','paused','physics_steps_per_second','max_physics_steps_per_frame','max_physics_backlog_seconds','use_spatial','retina_skip','random_seed','retina_vision_mode','retina_bins_mode','retina_bins_distance_subdivisions','retina_bins_distance_distribution','retina_bins_distance_falloff','retina_bins_projection','retina_bins_candidate_limit','retina_bins_obstacles_block_vision','show_multi_selected_vision','neural_network_type','neural_gate_init','neural_gate_min','neural_gate_max','neural_gate_mutation_rate','neural_gate_mutation_strength','neural_shortcut_init_std','neural_shortcut_scale','neural_shortcut_mutation_rate','neural_shortcut_mutation_strength','neural_rnn_recurrent_init_std','neural_rnn_recurrent_scale','neural_rnn_memory_decay','neural_rnn_state_clip','neural_rnn_reset_state_on_copy','neural_rnn_mutation_rate','neural_rnn_mutation_strength','render_enabled','simple_render','show_spatial_hash','camera_follow_selected_agent','use_numba_kernels','use_numba_batch_retina','use_grouped_vision_batches','use_persistent_perception_arrays','retina_high_scale_auto_sector','retina_high_scale_global_sector','retina_high_scale_sector_min_agents','use_numba_brain_forward','numba_brain_forward_min_batch','use_numba_locomotion_energy','reuse_spatial_grid','agents_inertia','smooth_locomotion_enabled','smooth_linear_inertia_enabled','smooth_max_linear_accel','smooth_linear_drag_enabled','smooth_linear_drag','smooth_angular_inertia_enabled','smooth_max_angular_accel','smooth_angular_drag_enabled','smooth_angular_drag','render_interpolation_enabled','agent_collision_enabled','agent_collision_elasticity_enabled','agent_collision_restitution','agent_collision_velocity_transfer','agent_collision_separation','agent_collision_max_impulse','global_viscosity_enabled','global_viscosity_drag','movable_chunk_food_enabled','chunk_food_collision_enabled','chunk_food_adhesion_enabled','chunk_food_adhesion_strength','chunk_food_mass_scale','chunk_food_drag','chunk_food_push_strength','brownian_motion_enabled','brownian_motion_strength','show_selected_details','debug_tracebacks']:
             if name in self.widgets:
                 val = self._get_widget_value(name)
                 if name == 'show_selected_details':
                     val = bool(val)
                 self.params.set(name, val)
+        for name in NEAT_PARAM_NAMES:
+            if name in self.widgets:
+                self.params.set(name, self._get_widget_value(name))
         if 'enable_brain_activations' in self.widgets:
             enabled = bool(self._get_widget_value('enable_brain_activations'))
             profiler.enabled = enabled
@@ -5129,7 +5260,7 @@ class SimulationUI(QMainWindow):
                 }
                 for param_name, default in bool_params.items():
                     rows_by_name[param_name] = {'name': param_name, 'value': bool(self.params.get(param_name, default))}
-                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision', 'camera_follow_selected_agent', 'neural_view_dense_layout']:
+                for menu_param in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_multi_selected_vision', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision', 'camera_follow_selected_agent', 'neural_view_dense_layout']:
                     rows_by_name[menu_param] = {'name': menu_param, 'value': self.params.get(menu_param, True if menu_param == 'render_enabled' else False)}
                 rows_by_name['render_resolution_scale'] = {
                     'name': 'render_resolution_scale',
@@ -5156,6 +5287,7 @@ class SimulationUI(QMainWindow):
                     'retina_bins_projection': 'center',
                     'retina_bins_candidate_limit': 128,
                     'retina_bins_obstacles_block_vision': False,
+                    'show_multi_selected_vision': False,
                     'reuse_spatial_grid': True,
                     'use_numba_batch_retina': False,
                     'use_grouped_vision_batches': True,
@@ -5183,6 +5315,43 @@ class SimulationUI(QMainWindow):
                     'neural_rnn_reset_state_on_copy': True,
                     'neural_rnn_mutation_rate': -1.0,
                     'neural_rnn_mutation_strength': -1.0,
+                    'neural_neat_initial_topology': 'minimal',
+                    'neural_neat_weight_init_std': 0.6,
+                    'neural_neat_weight_mutation_rate': -1.0,
+                    'neural_neat_weight_mutation_strength': -1.0,
+                    'neural_neat_add_connection_rate': 0.08,
+                    'neural_neat_add_node_rate': 0.03,
+                    'neural_neat_toggle_connection_rate': 0.01,
+                    'neural_neat_remove_connection_rate': 0.005,
+                    'neural_neat_reset_weight_rate': 0.02,
+                    'neural_neat_max_hidden_nodes': 64,
+                    'neural_neat_max_connections': 512,
+                    'neural_proto_neat_initial_topology': 'minimal',
+                    'neural_proto_neat_weight_init_std': 0.6,
+                    'neural_proto_neat_weight_mutation_rate': -1.0,
+                    'neural_proto_neat_weight_mutation_strength': -1.0,
+                    'neural_proto_neat_add_connection_rate': 0.04,
+                    'neural_proto_neat_add_node_rate': 0.02,
+                    'neural_proto_neat_toggle_connection_rate': 0.0,
+                    'neural_proto_neat_remove_connection_rate': 0.0,
+                    'neural_proto_neat_reset_weight_rate': 0.03,
+                    'neural_proto_neat_max_hidden_nodes': 48,
+                    'neural_proto_neat_max_connections': 384,
+                    'neural_recurrent_neat_initial_topology': 'minimal',
+                    'neural_recurrent_neat_weight_init_std': 0.45,
+                    'neural_recurrent_neat_weight_mutation_rate': -1.0,
+                    'neural_recurrent_neat_weight_mutation_strength': -1.0,
+                    'neural_recurrent_neat_add_connection_rate': 0.08,
+                    'neural_recurrent_neat_add_node_rate': 0.025,
+                    'neural_recurrent_neat_toggle_connection_rate': 0.01,
+                    'neural_recurrent_neat_remove_connection_rate': 0.003,
+                    'neural_recurrent_neat_reset_weight_rate': 0.02,
+                    'neural_recurrent_neat_max_hidden_nodes': 64,
+                    'neural_recurrent_neat_max_connections': 640,
+                    'neural_recurrent_neat_recurrent_connection_rate': 0.12,
+                    'neural_recurrent_neat_memory_decay': 0.85,
+                    'neural_recurrent_neat_state_clip': 1.0,
+                    'neural_recurrent_neat_reset_state_on_copy': True,
                     'use_numba_locomotion_energy': False,
                     'agents_inertia': 1.0,
                     'smooth_locomotion_enabled': False,
@@ -5394,7 +5563,7 @@ class SimulationUI(QMainWindow):
                                     cam.zoom = max(0.01, float(value))
                             except Exception:
                                 pass
-                        if name in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
+                        if name in ['render_enabled', 'simple_render', 'show_spatial_hash', 'show_selected_details', 'show_multi_selected_vision', 'show_metrics_chart', 'bacteria_show_vision', 'predator_show_vision']:
                             checked = value in ('1', 'True', 'true', 'yes', 'YES')
                             self.params.set(name, checked, validate=False)
                             if name == 'show_metrics_chart':
@@ -5617,6 +5786,37 @@ class SimulationUI(QMainWindow):
         set_param('agent_template_name', str(pick('agent_name', default=fallback_name) or fallback_name))
         if pick('brain_type', default=None):
             set_param('neural_network_type', str(pick('brain_type', default='mlp') or 'mlp'))
+        for neural_name in NEAT_PARAM_NAMES:
+            if neural_name in data and data.get(neural_name) not in (None, ''):
+                set_param(neural_name, data.get(neural_name))
+        brain_type = str(pick('brain_type', default='') or '')
+        neat_prefix = {
+            'neat_common': 'neural_neat',
+            'neat_simplified': 'neural_proto_neat',
+            'neat_recurrent': 'neural_recurrent_neat',
+        }.get(brain_type)
+        if neat_prefix:
+            neat_key_map = {
+                'initial_topology': 'brain_neat_initial_topology',
+                'weight_init_std': 'brain_neat_weight_init_std',
+                'weight_mutation_rate': 'brain_neat_weight_mutation_rate',
+                'weight_mutation_strength': 'brain_neat_weight_mutation_strength',
+                'add_connection_rate': 'brain_neat_add_connection_rate',
+                'add_node_rate': 'brain_neat_add_node_rate',
+                'toggle_connection_rate': 'brain_neat_toggle_connection_rate',
+                'remove_connection_rate': 'brain_neat_remove_connection_rate',
+                'reset_weight_rate': 'brain_neat_reset_weight_rate',
+                'max_hidden_nodes': 'brain_neat_max_hidden_nodes',
+                'max_connections': 'brain_neat_max_connections',
+                'recurrent_connection_rate': 'brain_neat_recurrent_connection_rate',
+                'memory_decay': 'brain_neat_memory_decay',
+                'state_clip': 'brain_neat_state_clip',
+                'reset_state_on_copy': 'brain_neat_reset_state_on_copy',
+            }
+            for suffix, source_key in neat_key_map.items():
+                target_key = f'{neat_prefix}_{suffix}'
+                if target_key in NEAT_PARAM_NAMES and source_key in data and data.get(source_key) not in (None, ''):
+                    set_param(target_key, data.get(source_key))
         set_param('bacteria_body_size', as_float(pick('r', default=self.params.get('bacteria_body_size', 9.0)), 9.0))
         set_param('bacteria_initial_energy', as_float(pick('energy', default=self.params.get('bacteria_initial_energy', 100.0)), 100.0))
         set_param('bacteria_death_energy', as_float(pick('energy_death_energy', 'death_energy', default=self.params.get('bacteria_death_energy', 50.0)), 50.0))

@@ -6,6 +6,9 @@ import pygame
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
+SELECTED_BODY_COLOR = (245, 250, 255)
+SELECTED_OUTLINE_COLOR = (90, 205, 255)
+
 if TYPE_CHECKING:
     from .entities import Agent, Food
     from .obstacles import ObstacleMap
@@ -59,7 +62,8 @@ class RendererStrategy(ABC):
     
     @abstractmethod
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
-                   show_head: bool = True, show_vision: bool = False, selected: bool = False):
+                   show_head: bool = True, show_vision: bool = False, selected: bool = False,
+                   selected_vision=None):
         """Desenha um agente na superfície."""
         pass
     
@@ -94,7 +98,8 @@ class SimpleRenderer(RendererStrategy):
         self.small_font = pygame.font.SysFont(None, 14)
     
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
-                   show_head: bool = True, show_vision: bool = False, selected: bool = False):
+                   show_head: bool = True, show_vision: bool = False, selected: bool = False,
+                   selected_vision=None):
         """Desenha agente como círculo simples."""
         # Converte posição para tela
         pose_x, pose_y, pose_angle = _interpolated_agent_pose(
@@ -103,12 +108,12 @@ class SimpleRenderer(RendererStrategy):
         screen_x, screen_y = camera.world_to_screen(pose_x, pose_y)
         screen_radius = max(1, int(agent.r * camera.zoom))
         
-        # Cor do corpo
+        # Cor visual de selecao; nao altera agent.color usado pela simulacao.
+        color = SELECTED_BODY_COLOR if selected else agent.color
         if selected:
-            color = (100, 220, 100)  # Verde quando selecionado
-        else:
-            color = agent.color
-        # Desenha corpo
+            outline_width = max(2, int(3 * camera.zoom))
+            pygame.draw.circle(surface, SELECTED_OUTLINE_COLOR, (int(screen_x), int(screen_y)), screen_radius + outline_width)
+        # Desenha corpo por cima do contorno externo.
         pygame.draw.circle(surface, color, (int(screen_x), int(screen_y)), screen_radius)
         
         # Desenha "cabeça" (ponto na frente)
@@ -135,8 +140,10 @@ class SimpleRenderer(RendererStrategy):
                 pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
         
         # Desenha raios de visão se solicitado OU se o agente estiver selecionado
-        if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
-            self._draw_vision_rays(agent, surface, camera, selected=selected)
+        if selected_vision is None:
+            selected_vision = selected
+        if (show_vision or selected_vision) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
+            self._draw_vision_rays(agent, surface, camera, selected=bool(selected_vision))
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo simples."""
@@ -507,7 +514,8 @@ class EllipseRenderer(RendererStrategy):
         self._simple_renderer = SimpleRenderer()
     
     def draw_agent(self, agent: 'Agent', surface: pygame.Surface, camera: 'Camera',
-                   show_head: bool = True, show_vision: bool = False, selected: bool = False):
+                   show_head: bool = True, show_vision: bool = False, selected: bool = False,
+                   selected_vision=None):
         """Desenha agente como elipse rotacionada."""
         pose_x, pose_y, pose_angle = _interpolated_agent_pose(
             agent, float(getattr(self, 'interpolation_alpha', 1.0))
@@ -518,20 +526,24 @@ class EllipseRenderer(RendererStrategy):
         body_length = max(1, int(agent.r * 2 * camera.zoom))  # Comprimento
         body_width = max(1, int(agent.r * 1.0 * camera.zoom))  # Largura
         
-        # Cor do corpo
-        if selected:
-            color = (100, 220, 100)
-        else:
-            color = agent.color
+        # Cor visual de selecao; nao altera agent.color usado pela simulacao.
+        color = SELECTED_BODY_COLOR if selected else agent.color
         
         # Cria superfície para elipse rotacionada
         if getattr(agent, 'body_shape', getattr(getattr(agent, 'locomotion', None), 'body_shape', 'ellipse')) == 'circle':
             self._simple_renderer.interpolation_alpha = float(getattr(self, 'interpolation_alpha', 1.0))
-            self._simple_renderer.draw_agent(agent, surface, camera, show_head=show_head, show_vision=show_vision, selected=selected)
+            self._simple_renderer.draw_agent(agent, surface, camera, show_head=show_head, show_vision=show_vision, selected=selected, selected_vision=selected_vision)
             return
 
-        ellipse_surf = pygame.Surface((body_length, body_width), pygame.SRCALPHA)
-        pygame.draw.ellipse(ellipse_surf, color, pygame.Rect(0, 0, body_length, body_width))
+        outline_width = max(2, int(3 * camera.zoom)) if selected else 0
+        ellipse_surf = pygame.Surface((body_length + outline_width * 2, body_width + outline_width * 2), pygame.SRCALPHA)
+        if selected:
+            pygame.draw.ellipse(
+                ellipse_surf,
+                SELECTED_OUTLINE_COLOR,
+                pygame.Rect(0, 0, body_length + outline_width * 2, body_width + outline_width * 2),
+            )
+        pygame.draw.ellipse(ellipse_surf, color, pygame.Rect(outline_width, outline_width, body_length, body_width))
         
         # Rotaciona
         angle_degrees = -math.degrees(pose_angle)
@@ -562,8 +574,10 @@ class EllipseRenderer(RendererStrategy):
                 pygame.draw.circle(surface, (0, 0, 0), (int(head_screen_x), int(head_screen_y)), head_radius)
         
         # Desenha visão se solicitado OU se o agente estiver selecionado
-        if (show_vision or selected) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
-            self._draw_vision_rays(agent, surface, camera, selected=selected)
+        if selected_vision is None:
+            selected_vision = selected
+        if (show_vision or selected_vision) and hasattr(agent, 'sensor') and agent.sensor.last_inputs:
+            self._draw_vision_rays(agent, surface, camera, selected=bool(selected_vision))
     
     def draw_food(self, food: 'Food', surface: pygame.Surface, camera: 'Camera'):
         """Desenha comida como círculo (igual ao SimpleRenderer)."""

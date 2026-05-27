@@ -88,6 +88,43 @@ class Params:
             'neural_rnn_reset_state_on_copy': True,
             'neural_rnn_mutation_rate': -1.0,
             'neural_rnn_mutation_strength': -1.0,
+            'neural_neat_initial_topology': 'minimal',
+            'neural_neat_weight_init_std': 0.6,
+            'neural_neat_weight_mutation_rate': -1.0,
+            'neural_neat_weight_mutation_strength': -1.0,
+            'neural_neat_add_connection_rate': 0.08,
+            'neural_neat_add_node_rate': 0.03,
+            'neural_neat_toggle_connection_rate': 0.01,
+            'neural_neat_remove_connection_rate': 0.005,
+            'neural_neat_reset_weight_rate': 0.02,
+            'neural_neat_max_hidden_nodes': 64,
+            'neural_neat_max_connections': 512,
+            'neural_proto_neat_initial_topology': 'minimal',
+            'neural_proto_neat_weight_init_std': 0.6,
+            'neural_proto_neat_weight_mutation_rate': -1.0,
+            'neural_proto_neat_weight_mutation_strength': -1.0,
+            'neural_proto_neat_add_connection_rate': 0.04,
+            'neural_proto_neat_add_node_rate': 0.02,
+            'neural_proto_neat_toggle_connection_rate': 0.0,
+            'neural_proto_neat_remove_connection_rate': 0.0,
+            'neural_proto_neat_reset_weight_rate': 0.03,
+            'neural_proto_neat_max_hidden_nodes': 48,
+            'neural_proto_neat_max_connections': 384,
+            'neural_recurrent_neat_initial_topology': 'minimal',
+            'neural_recurrent_neat_weight_init_std': 0.45,
+            'neural_recurrent_neat_weight_mutation_rate': -1.0,
+            'neural_recurrent_neat_weight_mutation_strength': -1.0,
+            'neural_recurrent_neat_add_connection_rate': 0.08,
+            'neural_recurrent_neat_add_node_rate': 0.025,
+            'neural_recurrent_neat_toggle_connection_rate': 0.01,
+            'neural_recurrent_neat_remove_connection_rate': 0.003,
+            'neural_recurrent_neat_reset_weight_rate': 0.02,
+            'neural_recurrent_neat_max_hidden_nodes': 64,
+            'neural_recurrent_neat_max_connections': 640,
+            'neural_recurrent_neat_recurrent_connection_rate': 0.12,
+            'neural_recurrent_neat_memory_decay': 0.85,
+            'neural_recurrent_neat_state_clip': 1.0,
+            'neural_recurrent_neat_reset_state_on_copy': True,
             'reuse_spatial_grid': True,
             
             # Comida/substrato
@@ -280,6 +317,7 @@ class Params:
 
             # UI/Debug
             'show_selected_details': True,
+            'show_multi_selected_vision': False,
             'show_metrics_chart': False,
             'neural_view_dense_layout': 'fixed',
             'camera_follow_selected_agent': True,
@@ -369,7 +407,10 @@ class Params:
             return value if value in {'center', 'center_edges', 'apparent_size'} else 'center'
         if key == 'neural_network_type':
             value = str(value)
-            return value if value in {'mlp', 'gated_mlp', 'shortcut_mlp', 'modulated_mlp', 'simple_rnn'} else 'mlp'
+            return value if value in {'mlp', 'gated_mlp', 'shortcut_mlp', 'modulated_mlp', 'simple_rnn', 'neat_common', 'neat_simplified', 'neat_recurrent'} else 'mlp'
+        if key.endswith('_initial_topology'):
+            value = str(value)
+            return value if value in {'minimal', 'layered'} else 'minimal'
         if key in {'food_bite_seconds'}:
             return max(0.05, float(value))
         if key in {'food_piece_particle_radius', 'food_piece_cluster_radius'}:
@@ -419,12 +460,34 @@ class Params:
             'neural_rnn_recurrent_init_std',
             'neural_rnn_recurrent_scale',
             'neural_rnn_state_clip',
+            'neural_neat_weight_init_std',
+            'neural_neat_add_connection_rate',
+            'neural_neat_add_node_rate',
+            'neural_neat_toggle_connection_rate',
+            'neural_neat_remove_connection_rate',
+            'neural_neat_reset_weight_rate',
+            'neural_proto_neat_weight_init_std',
+            'neural_proto_neat_add_connection_rate',
+            'neural_proto_neat_add_node_rate',
+            'neural_proto_neat_toggle_connection_rate',
+            'neural_proto_neat_remove_connection_rate',
+            'neural_proto_neat_reset_weight_rate',
+            'neural_recurrent_neat_weight_init_std',
+            'neural_recurrent_neat_add_connection_rate',
+            'neural_recurrent_neat_add_node_rate',
+            'neural_recurrent_neat_toggle_connection_rate',
+            'neural_recurrent_neat_remove_connection_rate',
+            'neural_recurrent_neat_reset_weight_rate',
+            'neural_recurrent_neat_recurrent_connection_rate',
+            'neural_recurrent_neat_state_clip',
         }:
             return max(0.0, float(value))
-        elif key in {'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength'}:
+        elif key in {'neural_gate_mutation_rate', 'neural_gate_mutation_strength', 'neural_shortcut_mutation_rate', 'neural_shortcut_mutation_strength', 'neural_rnn_mutation_rate', 'neural_rnn_mutation_strength', 'neural_neat_weight_mutation_rate', 'neural_neat_weight_mutation_strength', 'neural_proto_neat_weight_mutation_rate', 'neural_proto_neat_weight_mutation_strength', 'neural_recurrent_neat_weight_mutation_rate', 'neural_recurrent_neat_weight_mutation_strength'}:
             return max(-1.0, float(value))
-        elif key == 'neural_rnn_memory_decay':
+        elif key in {'neural_rnn_memory_decay', 'neural_recurrent_neat_memory_decay'}:
             return max(0.0, min(0.999, float(value)))
+        elif key in {'neural_neat_max_hidden_nodes', 'neural_neat_max_connections', 'neural_proto_neat_max_hidden_nodes', 'neural_proto_neat_max_connections', 'neural_recurrent_neat_max_hidden_nodes', 'neural_recurrent_neat_max_connections'}:
+            return max(1, int(float(value)))
         elif key == 'render_resolution_scale':
             return max(1.0, min(3.0, float(value)))
         elif key.endswith('_fov_degrees'):

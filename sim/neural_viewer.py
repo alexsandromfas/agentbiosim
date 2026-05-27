@@ -106,6 +106,7 @@ class NeuralViewConfig:
     dense_layout: str = "fixed"
     brain_type: str = "mlp"
     brain_label: str = "MLP padrao"
+    neat_layer_node_ids: tuple[tuple[int, ...], ...] = ()
 
     @classmethod
     def from_agent(cls, agent: Any, dense_layout: str = "fixed") -> "NeuralViewConfig":
@@ -131,6 +132,25 @@ class NeuralViewConfig:
             else:
                 ray_count = sizes[0]
                 slots = (ChannelSlot(raw="input", label="I", source_offset=0),)
+        neat_layer_node_ids: tuple[tuple[int, ...], ...] = ()
+        if brain_type.startswith("neat") and hasattr(brain, "nodes"):
+            try:
+                nodes = [dict(node) for node in getattr(brain, "nodes", [])]
+                inputs = sorted([n for n in nodes if n.get("kind") == "input"], key=lambda n: int(n.get("id", 0)))
+                outputs = sorted([n for n in nodes if n.get("kind") == "output"], key=lambda n: int(n.get("id", 0)))
+                hidden_by_layer: dict[float, list[dict]] = {}
+                for node in nodes:
+                    if node.get("kind") == "hidden":
+                        hidden_by_layer.setdefault(float(node.get("layer", 0.5)), []).append(node)
+                layers = [tuple(int(n.get("id", 0)) for n in inputs)]
+                for layer in sorted(hidden_by_layer):
+                    layers.append(tuple(int(n.get("id", 0)) for n in sorted(hidden_by_layer[layer], key=lambda n: int(n.get("id", 0)))))
+                layers.append(tuple(int(n.get("id", 0)) for n in outputs))
+                neat_layer_node_ids = tuple(layer for layer in layers if layer)
+                if len(neat_layer_node_ids) >= 2:
+                    sizes = tuple(len(layer) for layer in neat_layer_node_ids)
+            except Exception:
+                neat_layer_node_ids = ()
         return cls(
             layer_sizes=sizes,
             retina_groups=ray_count,
@@ -138,6 +158,7 @@ class NeuralViewConfig:
             dense_layout=_dense_layout(dense_layout),
             brain_type=brain_type,
             brain_label=brain_label,
+            neat_layer_node_ids=neat_layer_node_ids,
         )
 
     @property
@@ -461,6 +482,8 @@ class AgentNeuralNetworkView(QGraphicsView):
                 row_title = "SAIDA"
             elif self.config.brain_type == "simple_rnn" and layer_index == 1:
                 row_title = "CAMADA RECORRENTE"
+            elif self.config.brain_type.startswith("neat") and role == "hidden":
+                row_title = f"NEAT NIVEL {layer_index}"
             else:
                 row_title = f"CAMADA {layer_index}"
             label = QGraphicsSimpleTextItem(row_title)
@@ -483,8 +506,18 @@ class AgentNeuralNetworkView(QGraphicsView):
                 for x, slot, group_index, source_index in positions:
                     layer.append(NeuronItem(x, y, radius, f"R{group_index + 1}:{slot.label}", role, source_index, slot.label, slot.label))
             else:
+                neat_ids = self.config.neat_layer_node_ids[layer_index] if layer_index < len(self.config.neat_layer_node_ids) else ()
                 for index, x in enumerate(self._dense_positions(count, content_left, content_right)):
-                    layer.append(NeuronItem(x, y, radius, f"{prefix}.{index + 1}", role, index))
+                    item = NeuronItem(x, y, radius, f"{prefix}.{index + 1}", role, index)
+                    if neat_ids and index < len(neat_ids):
+                        node_id = int(neat_ids[index])
+                        item.node_id = node_id
+                        item.setToolTip(f"NEAT node {node_id}")
+                        if role == "hidden":
+                            item.label = f"N{node_id}"
+                        elif role == "output":
+                            item.label = f"O{index + 1}"
+                    layer.append(item)
                 if self.config.brain_type == "simple_rnn" and layer_index == 1:
                     note = QGraphicsSimpleTextItem("memoria curta")
                     note.setFont(QFont("Segoe UI", 7))
@@ -500,6 +533,29 @@ class AgentNeuralNetworkView(QGraphicsView):
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
 
     def _iter_weight_edges(self, brain: Any, layer_index: int) -> Iterable[tuple[float, NeuronItem, NeuronItem, float]]:
+        if self.config.brain_type.startswith("neat") and hasattr(brain, "connections"):
+            if layer_index != 0:
+                return []
+            node_to_item = {}
+            for layer in self.neuron_layers:
+                for neuron in layer:
+                    node_id = getattr(neuron, "node_id", None)
+                    if node_id is not None:
+                        node_to_item[int(node_id)] = neuron
+            for neuron in self.neuron_layers[0] if self.neuron_layers else []:
+                if 0 <= neuron.value_index < len(self.config.neat_layer_node_ids[0] if self.config.neat_layer_node_ids else ()):
+                    node_to_item[int(self.config.neat_layer_node_ids[0][neuron.value_index])] = neuron
+            edges = []
+            for conn in getattr(brain, "connections", []) or []:
+                if not bool(conn.get("enabled", True)):
+                    continue
+                source = node_to_item.get(int(conn.get("src", -1)))
+                target = node_to_item.get(int(conn.get("dst", -1)))
+                if source is None or target is None:
+                    continue
+                weight = float(conn.get("weight", 0.0))
+                edges.append((abs(weight), source, target, weight))
+            return edges
         weights = getattr(brain, "weights", []) or []
         if layer_index >= len(weights) or layer_index + 1 >= len(self.neuron_layers):
             return []

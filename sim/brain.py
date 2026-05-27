@@ -6,6 +6,15 @@ import random
 import numpy as np
 from typing import List, Protocol, runtime_checkable, Union
 
+_BRAIN_UID_COUNTER = 1
+
+
+def _new_brain_uid() -> int:
+    global _BRAIN_UID_COUNTER
+    uid = _BRAIN_UID_COUNTER
+    _BRAIN_UID_COUNTER += 1
+    return uid
+
 
 @runtime_checkable
 class IBrain(Protocol):
@@ -45,6 +54,7 @@ class NeuralNet:
         """sizes: [input, hidden..., output]; init_std controla escala inicial."""
         self.brain_type = "mlp"
         self.display_name = "MLP padrao"
+        self.cache_uid = _new_brain_uid()
         self.sizes = list(sizes)
         self.version = 0  # incrementado em mutações/alterações estruturais
         self.weights: List[np.ndarray] = []
@@ -352,6 +362,9 @@ BRAIN_TYPE_GATED_MLP = "gated_mlp"
 BRAIN_TYPE_SHORTCUT_MLP = "shortcut_mlp"
 BRAIN_TYPE_MODULATED_MLP = "modulated_mlp"
 BRAIN_TYPE_SIMPLE_RNN = "simple_rnn"
+BRAIN_TYPE_NEAT_COMMON = "neat_common"
+BRAIN_TYPE_NEAT_SIMPLIFIED = "neat_simplified"
+BRAIN_TYPE_NEAT_RECURRENT = "neat_recurrent"
 
 _BRAIN_TYPE_ALIASES = {
     "mlp": BRAIN_TYPE_MLP,
@@ -369,6 +382,18 @@ _BRAIN_TYPE_ALIASES = {
     "modulated_mlp": BRAIN_TYPE_MODULATED_MLP,
     "rnn": BRAIN_TYPE_SIMPLE_RNN,
     "simple_rnn": BRAIN_TYPE_SIMPLE_RNN,
+    "neat": BRAIN_TYPE_NEAT_COMMON,
+    "neat_common": BRAIN_TYPE_NEAT_COMMON,
+    "common_neat": BRAIN_TYPE_NEAT_COMMON,
+    "neat_comum": BRAIN_TYPE_NEAT_COMMON,
+    "proto_neat": BRAIN_TYPE_NEAT_SIMPLIFIED,
+    "protozoa_neat": BRAIN_TYPE_NEAT_SIMPLIFIED,
+    "neat_protozoa": BRAIN_TYPE_NEAT_SIMPLIFIED,
+    "neat_simplified": BRAIN_TYPE_NEAT_SIMPLIFIED,
+    "neat_simplificada": BRAIN_TYPE_NEAT_SIMPLIFIED,
+    "recurrent_neat": BRAIN_TYPE_NEAT_RECURRENT,
+    "neat_recurrent": BRAIN_TYPE_NEAT_RECURRENT,
+    "neat_recorrente": BRAIN_TYPE_NEAT_RECURRENT,
 }
 
 
@@ -384,6 +409,9 @@ def brain_type_label(value: object) -> str:
         BRAIN_TYPE_SHORTCUT_MLP: "MLP com atalho",
         BRAIN_TYPE_MODULATED_MLP: "MLP modulada",
         BRAIN_TYPE_SIMPLE_RNN: "RNN simples",
+        BRAIN_TYPE_NEAT_COMMON: "NEAT comum",
+        BRAIN_TYPE_NEAT_SIMPLIFIED: "NEAT simplificada",
+        BRAIN_TYPE_NEAT_RECURRENT: "NEAT recorrente",
     }.get(normalize_brain_type(value), "MLP padrao")
 
 
@@ -894,7 +922,463 @@ class SimpleRNNBrain(NeuralNet):
         }
 
 
-def create_brain(sizes: List[int], params=None, init_std: float = 1.0, brain_type: object | None = None) -> NeuralNet:
+class NEATGraphBrain:
+    """Rede de topologia variavel para experimentos NEAT.
+
+    Esta classe e isolada do caminho vetorizado. Ela existe para permitir
+    topologias diferentes por organismo sem afetar as MLP/RNN em lote.
+    """
+
+    supports_batch = False
+
+    def __init__(
+        self,
+        sizes: List[int],
+        init_std: float = 1.0,
+        brain_type: str = BRAIN_TYPE_NEAT_COMMON,
+        initial_topology: str = "minimal",
+        weight_init_std: float = 0.6,
+        weight_mutation_rate: float | None = None,
+        weight_mutation_strength: float | None = None,
+        add_connection_rate: float = 0.08,
+        add_node_rate: float = 0.03,
+        toggle_connection_rate: float = 0.01,
+        remove_connection_rate: float = 0.0,
+        reset_weight_rate: float = 0.02,
+        max_hidden_nodes: int = 64,
+        max_connections: int = 512,
+        recurrent_connection_rate: float = 0.08,
+        recurrent_memory_decay: float = 0.85,
+        state_clip: float = 1.0,
+        reset_state_on_copy: bool = True,
+    ):
+        self.brain_type = normalize_brain_type(brain_type)
+        self.display_name = brain_type_label(self.brain_type)
+        self.cache_uid = _new_brain_uid()
+        self.sizes = [max(1, int(v)) for v in (sizes or [1, 2])]
+        if len(self.sizes) < 2:
+            self.sizes = [self.sizes[0], 2]
+        self.version = 0
+        self.weights: List[np.ndarray] = []
+        self.biases: List[np.ndarray] = []
+        self.initial_topology = str(initial_topology or "minimal")
+        if self.initial_topology not in {"minimal", "layered"}:
+            self.initial_topology = "minimal"
+        self.weight_init_std = max(0.0, float(weight_init_std if weight_init_std is not None else init_std))
+        self.weight_mutation_rate = weight_mutation_rate
+        self.weight_mutation_strength = weight_mutation_strength
+        self.add_connection_rate = max(0.0, min(1.0, float(add_connection_rate)))
+        self.add_node_rate = max(0.0, min(1.0, float(add_node_rate)))
+        self.toggle_connection_rate = max(0.0, min(1.0, float(toggle_connection_rate)))
+        self.remove_connection_rate = max(0.0, min(1.0, float(remove_connection_rate)))
+        self.reset_weight_rate = max(0.0, min(1.0, float(reset_weight_rate)))
+        self.max_hidden_nodes = max(0, int(max_hidden_nodes))
+        self.max_connections = max(1, int(max_connections))
+        self.recurrent_connection_rate = max(0.0, min(1.0, float(recurrent_connection_rate)))
+        self.recurrent_memory_decay = max(0.0, min(0.999, float(recurrent_memory_decay)))
+        self.state_clip = max(0.01, float(state_clip))
+        self.reset_state_on_copy = bool(reset_state_on_copy)
+        self.allow_recurrent_edges = self.brain_type == BRAIN_TYPE_NEAT_RECURRENT
+        self.nodes: list[dict] = []
+        self.connections: list[dict] = []
+        self.state: dict[int, float] = {}
+        self._next_node_id = 0
+        self._next_innovation = 1
+        self._init_graph()
+
+    def _random_weight(self) -> float:
+        return float(np.random.normal(0.0, self.weight_init_std))
+
+    def _activation(self, value: float, kind: str) -> float:
+        if kind == "linear":
+            return float(value)
+        if kind == "sigmoid":
+            return float(1.0 / (1.0 + math.exp(-max(-60.0, min(60.0, value)))))
+        return float(math.tanh(value))
+
+    def _new_node(self, kind: str, layer: float, activation: str = "tanh") -> dict:
+        node = {
+            "id": int(self._next_node_id),
+            "kind": str(kind),
+            "layer": float(layer),
+            "activation": str(activation),
+        }
+        self._next_node_id += 1
+        self.nodes.append(node)
+        if kind != "input":
+            self.state[node["id"]] = 0.0
+        return node
+
+    def _node_by_id(self, node_id: int) -> dict | None:
+        for node in self.nodes:
+            if int(node.get("id", -1)) == int(node_id):
+                return node
+        return None
+
+    def _nodes_by_kind(self, kind: str) -> list[dict]:
+        return [node for node in self.nodes if node.get("kind") == kind]
+
+    def _input_nodes(self) -> list[dict]:
+        return sorted(self._nodes_by_kind("input"), key=lambda n: int(n["id"]))
+
+    def _output_nodes(self) -> list[dict]:
+        return sorted(self._nodes_by_kind("output"), key=lambda n: int(n["id"]))
+
+    def _hidden_nodes(self) -> list[dict]:
+        return sorted(self._nodes_by_kind("hidden"), key=lambda n: (float(n["layer"]), int(n["id"])))
+
+    def _init_graph(self):
+        self.nodes.clear()
+        self.connections.clear()
+        self.state.clear()
+        self._next_node_id = 0
+        self._next_innovation = 1
+        input_size = int(self.sizes[0])
+        output_size = int(self.sizes[-1])
+        for _ in range(input_size):
+            self._new_node("input", 0.0, "linear")
+
+        if self.initial_topology == "layered" and len(self.sizes) > 2:
+            hidden_layers = self.sizes[1:-1]
+            denom = max(1, len(hidden_layers) + 1)
+            for layer_index, count in enumerate(hidden_layers, start=1):
+                layer = float(layer_index) / float(denom)
+                for _ in range(max(0, int(count))):
+                    self._new_node("hidden", layer, "tanh")
+
+        for _ in range(output_size):
+            self._new_node("output", 1.0, "linear")
+
+        if self.initial_topology == "layered" and self._hidden_nodes():
+            layers: list[list[dict]] = [self._input_nodes()]
+            hidden_by_layer: dict[float, list[dict]] = {}
+            for node in self._hidden_nodes():
+                hidden_by_layer.setdefault(float(node["layer"]), []).append(node)
+            for layer in sorted(hidden_by_layer):
+                layers.append(hidden_by_layer[layer])
+            layers.append(self._output_nodes())
+            for src_layer, dst_layer in zip(layers[:-1], layers[1:]):
+                for src in src_layer:
+                    for dst in dst_layer:
+                        self._add_connection(src["id"], dst["id"])
+        else:
+            for src in self._input_nodes():
+                for dst in self._output_nodes():
+                    self._add_connection(src["id"], dst["id"])
+
+    def _connection_exists(self, src: int, dst: int, recurrent: bool = False) -> bool:
+        for conn in self.connections:
+            if int(conn["src"]) == int(src) and int(conn["dst"]) == int(dst) and bool(conn.get("recurrent", False)) == bool(recurrent):
+                return True
+        return False
+
+    def _add_connection(self, src: int, dst: int, weight: float | None = None, enabled: bool = True, recurrent: bool = False) -> bool:
+        if len(self.connections) >= self.max_connections:
+            return False
+        src_node = self._node_by_id(src)
+        dst_node = self._node_by_id(dst)
+        if src_node is None or dst_node is None or dst_node.get("kind") == "input":
+            return False
+        recurrent = bool(recurrent and self.allow_recurrent_edges)
+        if not recurrent and float(src_node["layer"]) >= float(dst_node["layer"]):
+            return False
+        if self._connection_exists(src, dst, recurrent):
+            return False
+        self.connections.append({
+            "src": int(src),
+            "dst": int(dst),
+            "weight": float(self._random_weight() if weight is None else weight),
+            "enabled": bool(enabled),
+            "recurrent": recurrent,
+            "innovation": int(self._next_innovation),
+        })
+        self._next_innovation += 1
+        return True
+
+    def forward(self, inputs: Union[List[float], np.ndarray]) -> List[float]:
+        values, _layers = self._compute_values(inputs, update_state=True)
+        return [float(values.get(node["id"], 0.0)) for node in self._output_nodes()]
+
+    def activations(self, inputs: Union[List[float], np.ndarray]) -> List[List[float]]:
+        _values, layers = self._compute_values(inputs, update_state=False)
+        return layers
+
+    def _compute_values(self, inputs: Union[List[float], np.ndarray], update_state: bool) -> tuple[dict[int, float], list[list[float]]]:
+        input_values = np.asarray(inputs, dtype=np.float32).tolist()
+        if len(input_values) != self.sizes[0]:
+            self.resize_input(len(input_values))
+        values: dict[int, float] = {}
+        for idx, node in enumerate(self._input_nodes()):
+            values[int(node["id"])] = float(input_values[idx]) if idx < len(input_values) else 0.0
+
+        incoming: dict[int, list[dict]] = {}
+        for conn in self.connections:
+            if bool(conn.get("enabled", True)):
+                incoming.setdefault(int(conn["dst"]), []).append(conn)
+
+        activation_layers: list[list[float]] = []
+        hidden_by_layer: dict[float, list[dict]] = {}
+        for node in self._hidden_nodes():
+            hidden_by_layer.setdefault(float(node["layer"]), []).append(node)
+
+        new_state = dict(self.state)
+        for layer in sorted(hidden_by_layer):
+            layer_values: list[float] = []
+            for node in hidden_by_layer[layer]:
+                total = self._node_input_sum(node, values, incoming, recurrent_allowed=True)
+                out = self._activation(total, str(node.get("activation", "tanh")))
+                values[int(node["id"])] = out
+                new_state[int(node["id"])] = self._blend_state(int(node["id"]), out)
+                layer_values.append(out)
+            activation_layers.append(layer_values)
+
+        output_values: list[float] = []
+        for node in self._output_nodes():
+            total = self._node_input_sum(node, values, incoming, recurrent_allowed=True)
+            out = self._activation(total, str(node.get("activation", "linear")))
+            values[int(node["id"])] = out
+            new_state[int(node["id"])] = self._blend_state(int(node["id"]), out)
+            output_values.append(out)
+        activation_layers.append(output_values)
+
+        if update_state and self.allow_recurrent_edges:
+            self.state = {
+                int(k): float(max(-self.state_clip, min(self.state_clip, v)))
+                for k, v in new_state.items()
+            }
+        return values, activation_layers
+
+    def _node_input_sum(self, node: dict, values: dict[int, float], incoming: dict[int, list[dict]], recurrent_allowed: bool) -> float:
+        total = 0.0
+        for conn in incoming.get(int(node["id"]), []):
+            src_id = int(conn["src"])
+            if bool(conn.get("recurrent", False)) and recurrent_allowed:
+                src_value = float(self.state.get(src_id, 0.0))
+            else:
+                src_value = float(values.get(src_id, 0.0))
+            total += src_value * float(conn.get("weight", 0.0))
+        return total
+
+    def _blend_state(self, node_id: int, value: float) -> float:
+        if not self.allow_recurrent_edges:
+            return float(value)
+        old = float(self.state.get(int(node_id), 0.0))
+        return float(self.recurrent_memory_decay * old + (1.0 - self.recurrent_memory_decay) * value)
+
+    def copy(self) -> 'NEATGraphBrain':
+        new = NEATGraphBrain(
+            self.sizes,
+            brain_type=self.brain_type,
+            initial_topology=self.initial_topology,
+            weight_init_std=self.weight_init_std,
+            weight_mutation_rate=self.weight_mutation_rate,
+            weight_mutation_strength=self.weight_mutation_strength,
+            add_connection_rate=self.add_connection_rate,
+            add_node_rate=self.add_node_rate,
+            toggle_connection_rate=self.toggle_connection_rate,
+            remove_connection_rate=self.remove_connection_rate,
+            reset_weight_rate=self.reset_weight_rate,
+            max_hidden_nodes=self.max_hidden_nodes,
+            max_connections=self.max_connections,
+            recurrent_connection_rate=self.recurrent_connection_rate,
+            recurrent_memory_decay=self.recurrent_memory_decay,
+            state_clip=self.state_clip,
+            reset_state_on_copy=self.reset_state_on_copy,
+        )
+        new.nodes = [dict(node) for node in self.nodes]
+        new.connections = [dict(conn) for conn in self.connections]
+        new._next_node_id = int(self._next_node_id)
+        new._next_innovation = int(self._next_innovation)
+        new.version = int(self.version)
+        new.state = {int(k): 0.0 for k in self.state} if self.reset_state_on_copy else {int(k): float(v) for k, v in self.state.items()}
+        return new
+
+    def batch_key(self) -> tuple:
+        return (self.brain_type, "individual", id(self), int(self.version))
+
+    def reset_runtime_state(self):
+        self.state = {int(node["id"]): 0.0 for node in self.nodes if node.get("kind") != "input"}
+
+    def resize_input(self, new_input_size: int):
+        new_input_size = max(1, int(new_input_size))
+        old_input_size = int(self.sizes[0])
+        if new_input_size == old_input_size:
+            return
+        input_nodes = self._input_nodes()
+        if new_input_size < old_input_size:
+            remove_ids = {int(node["id"]) for node in input_nodes[new_input_size:]}
+            self.nodes = [node for node in self.nodes if int(node["id"]) not in remove_ids]
+            self.connections = [conn for conn in self.connections if int(conn["src"]) not in remove_ids and int(conn["dst"]) not in remove_ids]
+        else:
+            outputs = self._output_nodes()
+            for _ in range(new_input_size - old_input_size):
+                node = self._new_node("input", 0.0, "linear")
+                for out in outputs:
+                    self._add_connection(node["id"], out["id"])
+        self.sizes[0] = new_input_size
+        self.version += 1
+
+    def mutate(self, rate: float = 0.05, strength: float = 0.1, structural_jitter: int = 0):
+        weight_rate = rate if self.weight_mutation_rate is None else self.weight_mutation_rate
+        weight_strength = strength if self.weight_mutation_strength is None else self.weight_mutation_strength
+        changed = False
+        for conn in self.connections:
+            if random.random() < max(0.0, min(1.0, float(weight_rate))):
+                conn["weight"] = float(conn.get("weight", 0.0)) + random.gauss(0.0, max(0.0, float(weight_strength)))
+                changed = True
+            if random.random() < self.reset_weight_rate:
+                conn["weight"] = self._random_weight()
+                changed = True
+
+        if self.brain_type == BRAIN_TYPE_NEAT_SIMPLIFIED:
+            changed = self._mutate_protozoa_style(rate, strength) or changed
+        else:
+            if random.random() < self.add_connection_rate:
+                changed = self._add_random_connection() or changed
+            if random.random() < self.add_node_rate:
+                changed = self._add_random_node() or changed
+            if random.random() < self.toggle_connection_rate:
+                changed = self._toggle_random_connection() or changed
+            if random.random() < self.remove_connection_rate:
+                changed = self._remove_random_connection() or changed
+        if changed:
+            self.version += 1
+
+    def _mutate_protozoa_style(self, rate: float, strength: float) -> bool:
+        if random.random() > max(0.0, min(1.0, float(rate))):
+            return False
+        enabled = [conn for conn in self.connections if bool(conn.get("enabled", True)) and not bool(conn.get("recurrent", False))]
+        if not enabled:
+            return self._add_random_connection()
+        conn = random.choice(enabled)
+        if random.random() < self.add_node_rate:
+            return self._split_connection(conn)
+        conn["weight"] = self._random_weight() if random.random() < 0.5 else float(conn["weight"]) + random.gauss(0.0, max(0.0, float(strength)))
+        return True
+
+    def _add_random_connection(self) -> bool:
+        if len(self.connections) >= self.max_connections:
+            return False
+        nodes = list(self.nodes)
+        if len(nodes) < 2:
+            return False
+        targets = [n for n in nodes if n.get("kind") != "input"]
+        if not targets:
+            return False
+        for _ in range(80):
+            dst = random.choice(targets)
+            src = random.choice(nodes)
+            if int(src["id"]) == int(dst["id"]):
+                continue
+            recurrent = False
+            if self.allow_recurrent_edges and random.random() < self.recurrent_connection_rate:
+                recurrent = True
+            elif float(src["layer"]) >= float(dst["layer"]):
+                continue
+            if self._add_connection(src["id"], dst["id"], recurrent=recurrent):
+                return True
+        return False
+
+    def _add_random_node(self) -> bool:
+        if len(self._hidden_nodes()) >= self.max_hidden_nodes:
+            return False
+        candidates = [conn for conn in self.connections if bool(conn.get("enabled", True)) and not bool(conn.get("recurrent", False))]
+        if not candidates:
+            return False
+        return self._split_connection(random.choice(candidates))
+
+    def _split_connection(self, conn: dict) -> bool:
+        src = self._node_by_id(int(conn["src"]))
+        dst = self._node_by_id(int(conn["dst"]))
+        if src is None or dst is None:
+            return False
+        if len(self._hidden_nodes()) >= self.max_hidden_nodes:
+            return False
+        src_layer = float(src["layer"])
+        dst_layer = float(dst["layer"])
+        if src_layer >= dst_layer:
+            return False
+        conn["enabled"] = False
+        node = self._new_node("hidden", (src_layer + dst_layer) * 0.5, "tanh")
+        old_weight = float(conn.get("weight", 1.0))
+        ok1 = self._add_connection(int(src["id"]), int(node["id"]), weight=1.0)
+        ok2 = self._add_connection(int(node["id"]), int(dst["id"]), weight=old_weight)
+        return bool(ok1 or ok2)
+
+    def _toggle_random_connection(self) -> bool:
+        if not self.connections:
+            return False
+        conn = random.choice(self.connections)
+        conn["enabled"] = not bool(conn.get("enabled", True))
+        return True
+
+    def _remove_random_connection(self) -> bool:
+        if not self.connections:
+            return False
+        idx = random.randrange(len(self.connections))
+        del self.connections[idx]
+        return True
+
+    def extra_state_dict(self) -> dict:
+        return {
+            "brain_neat_initial_topology": self.initial_topology,
+            "brain_neat_weight_init_std": self.weight_init_std,
+            "brain_neat_weight_mutation_rate": self.weight_mutation_rate,
+            "brain_neat_weight_mutation_strength": self.weight_mutation_strength,
+            "brain_neat_add_connection_rate": self.add_connection_rate,
+            "brain_neat_add_node_rate": self.add_node_rate,
+            "brain_neat_toggle_connection_rate": self.toggle_connection_rate,
+            "brain_neat_remove_connection_rate": self.remove_connection_rate,
+            "brain_neat_reset_weight_rate": self.reset_weight_rate,
+            "brain_neat_max_hidden_nodes": self.max_hidden_nodes,
+            "brain_neat_max_connections": self.max_connections,
+            "brain_neat_recurrent_connection_rate": self.recurrent_connection_rate,
+            "brain_neat_memory_decay": self.recurrent_memory_decay,
+            "brain_neat_state_clip": self.state_clip,
+            "brain_neat_reset_state_on_copy": self.reset_state_on_copy,
+            "brain_neat_next_node_id": self._next_node_id,
+            "brain_neat_next_innovation": self._next_innovation,
+            "brain_neat_nodes": [dict(node) for node in self.nodes],
+            "brain_neat_connections": [dict(conn) for conn in self.connections],
+            "brain_neat_state": {str(k): float(v) for k, v in self.state.items()},
+        }
+
+    def load_extra_state(self, data: dict):
+        try:
+            self.initial_topology = str(data.get("brain_neat_initial_topology", self.initial_topology))
+            self.weight_init_std = float(data.get("brain_neat_weight_init_std", self.weight_init_std))
+            if data.get("brain_neat_weight_mutation_rate", None) not in (None, "", "None"):
+                self.weight_mutation_rate = float(data.get("brain_neat_weight_mutation_rate"))
+            if data.get("brain_neat_weight_mutation_strength", None) not in (None, "", "None"):
+                self.weight_mutation_strength = float(data.get("brain_neat_weight_mutation_strength"))
+            self.add_connection_rate = max(0.0, min(1.0, float(data.get("brain_neat_add_connection_rate", self.add_connection_rate))))
+            self.add_node_rate = max(0.0, min(1.0, float(data.get("brain_neat_add_node_rate", self.add_node_rate))))
+            self.toggle_connection_rate = max(0.0, min(1.0, float(data.get("brain_neat_toggle_connection_rate", self.toggle_connection_rate))))
+            self.remove_connection_rate = max(0.0, min(1.0, float(data.get("brain_neat_remove_connection_rate", self.remove_connection_rate))))
+            self.reset_weight_rate = max(0.0, min(1.0, float(data.get("brain_neat_reset_weight_rate", self.reset_weight_rate))))
+            self.max_hidden_nodes = max(0, int(float(data.get("brain_neat_max_hidden_nodes", self.max_hidden_nodes))))
+            self.max_connections = max(1, int(float(data.get("brain_neat_max_connections", self.max_connections))))
+            self.recurrent_connection_rate = max(0.0, min(1.0, float(data.get("brain_neat_recurrent_connection_rate", self.recurrent_connection_rate))))
+            self.recurrent_memory_decay = max(0.0, min(0.999, float(data.get("brain_neat_memory_decay", self.recurrent_memory_decay))))
+            self.state_clip = max(0.01, float(data.get("brain_neat_state_clip", self.state_clip)))
+            self.reset_state_on_copy = str(data.get("brain_neat_reset_state_on_copy", self.reset_state_on_copy)).lower() in {"1", "true", "yes", "sim"}
+            raw_nodes = _load_jsonish(data.get("brain_neat_nodes"))
+            raw_connections = _load_jsonish(data.get("brain_neat_connections"))
+            if isinstance(raw_nodes, list) and isinstance(raw_connections, list):
+                self.nodes = [dict(node) for node in raw_nodes if isinstance(node, dict)]
+                self.connections = [dict(conn) for conn in raw_connections if isinstance(conn, dict)]
+                self._next_node_id = int(float(data.get("brain_neat_next_node_id", 1 + max((int(n.get("id", 0)) for n in self.nodes), default=0))))
+                self._next_innovation = int(float(data.get("brain_neat_next_innovation", 1 + max((int(c.get("innovation", 0)) for c in self.connections), default=0))))
+            raw_state = _load_jsonish(data.get("brain_neat_state"))
+            if isinstance(raw_state, dict):
+                self.state = {int(k): float(v) for k, v in raw_state.items()}
+            else:
+                self.state = {int(node["id"]): 0.0 for node in self.nodes if node.get("kind") != "input"}
+        except Exception:
+            pass
+
+
+def create_brain(sizes: List[int], params=None, init_std: float = 1.0, brain_type: object | None = None):
     sizes = [max(1, int(v)) for v in (sizes or [1, 2])]
     raw_kind = brain_type
     if raw_kind is None and params is not None and hasattr(params, "get"):
@@ -944,6 +1428,33 @@ def create_brain(sizes: List[int], params=None, init_std: float = 1.0, brain_typ
             reset_state_on_copy=_param_bool(params, "neural_rnn_reset_state_on_copy", True),
             recurrent_mutation_rate=_optional_param_float(params, "neural_rnn_mutation_rate"),
             recurrent_mutation_strength=_optional_param_float(params, "neural_rnn_mutation_strength"),
+        )
+    if kind in {BRAIN_TYPE_NEAT_COMMON, BRAIN_TYPE_NEAT_SIMPLIFIED, BRAIN_TYPE_NEAT_RECURRENT}:
+        prefix = {
+            BRAIN_TYPE_NEAT_COMMON: "neural_neat",
+            BRAIN_TYPE_NEAT_SIMPLIFIED: "neural_proto_neat",
+            BRAIN_TYPE_NEAT_RECURRENT: "neural_recurrent_neat",
+        }[kind]
+        default_topology = "minimal"
+        return NEATGraphBrain(
+            sizes,
+            init_std=init_std,
+            brain_type=kind,
+            initial_topology=str(params.get(f"{prefix}_initial_topology", default_topology)) if params is not None else default_topology,
+            weight_init_std=_param_float(params, f"{prefix}_weight_init_std", 0.6),
+            weight_mutation_rate=_optional_param_float(params, f"{prefix}_weight_mutation_rate"),
+            weight_mutation_strength=_optional_param_float(params, f"{prefix}_weight_mutation_strength"),
+            add_connection_rate=_param_float(params, f"{prefix}_add_connection_rate", 0.08),
+            add_node_rate=_param_float(params, f"{prefix}_add_node_rate", 0.03),
+            toggle_connection_rate=_param_float(params, f"{prefix}_toggle_connection_rate", 0.01),
+            remove_connection_rate=_param_float(params, f"{prefix}_remove_connection_rate", 0.0),
+            reset_weight_rate=_param_float(params, f"{prefix}_reset_weight_rate", 0.02),
+            max_hidden_nodes=int(_param_float(params, f"{prefix}_max_hidden_nodes", 64)),
+            max_connections=int(_param_float(params, f"{prefix}_max_connections", 512)),
+            recurrent_connection_rate=_param_float(params, f"{prefix}_recurrent_connection_rate", 0.08),
+            recurrent_memory_decay=_param_float(params, f"{prefix}_memory_decay", 0.85),
+            state_clip=_param_float(params, f"{prefix}_state_clip", 1.0),
+            reset_state_on_copy=_param_bool(params, f"{prefix}_reset_state_on_copy", True),
         )
     return NeuralNet(sizes, init_std=init_std)
 
@@ -1032,6 +1543,11 @@ def restore_brain_extras(brain: NeuralNet, data: dict):
             arr = _coerce_extra_array(data.get("brain_state"), brain.state.shape)
             if arr is not None:
                 brain.state = np.clip(arr, -brain.state_clip, brain.state_clip).astype(np.float32)
+        except Exception:
+            pass
+    if kind in {BRAIN_TYPE_NEAT_COMMON, BRAIN_TYPE_NEAT_SIMPLIFIED, BRAIN_TYPE_NEAT_RECURRENT} and hasattr(brain, "load_extra_state"):
+        try:
+            brain.load_extra_state(data)
         except Exception:
             pass
 
@@ -1187,7 +1703,7 @@ def _build_stacks(brains: Sequence[NeuralNet]):
             bias_stacks.append(np.stack(layer_biases, axis=0))
         return weight_stacks, bias_stacks
     sizes_key = tuple(brains[0].sizes)
-    brain_identity_key = tuple((id(b), int(getattr(b, 'version', 0))) for b in brains)
+    brain_identity_key = tuple((int(getattr(b, 'cache_uid', id(b))), int(getattr(b, 'version', 0))) for b in brains)
     cache_key = (sizes_key, brain_identity_key)
     cached = _multi_brain_cache.get(cache_key)
     if cached is not None:
@@ -1310,6 +1826,9 @@ def forward_many_brains(brains: Sequence[NeuralNet], inputs: np.ndarray) -> np.n
     """Executa forward para varios cerebros compativeis em lote."""
     if not brains:
         return np.empty((0, 0), dtype=np.float32)
+    if any(not bool(getattr(brain, "supports_batch", True)) for brain in brains):
+        outputs = [brain.forward(inp) for brain, inp in zip(brains, inputs)]
+        return np.asarray(outputs, dtype=np.float32)
     base_sizes = brains[0].sizes
     base_kind = normalize_brain_type(getattr(brains[0], "brain_type", "mlp"))
     base_key = brains[0].batch_key() if hasattr(brains[0], "batch_key") else (base_kind, tuple(base_sizes))
