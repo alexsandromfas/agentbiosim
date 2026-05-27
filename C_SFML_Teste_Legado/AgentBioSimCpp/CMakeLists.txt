@@ -23,6 +23,7 @@ add_executable(AgentBioSimCpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterRegistry.cpp
     src/render/Camera2D.cpp
+    src/render/Renderer.cpp
     src/simulation/AgentStore.cpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp

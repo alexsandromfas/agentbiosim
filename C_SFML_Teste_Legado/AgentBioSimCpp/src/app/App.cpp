@@ -4,9 +4,7 @@
 #include "config/Parameter.hpp"
 #include "core/Version.hpp"
 
-#include <SFML/Graphics/CircleShape.hpp>
 #include <SFML/Graphics/Color.hpp>
-#include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Window/Event.hpp>
 #include <SFML/Window/Keyboard.hpp>
 #include <SFML/Window/Mouse.hpp>
@@ -124,9 +122,9 @@ simulation::ColorRgb toEntityColor(const config::ColorRgb color)
     return {colorChannel(color.r), colorChannel(color.g), colorChannel(color.b)};
 }
 
-sf::Color toSfmlColor(const simulation::ColorRgb color, const sf::Uint8 alpha = 255)
+sf::Color toRenderColor(const config::ColorRgb color)
 {
-    return {color.r, color.g, color.b, alpha};
+    return {colorChannel(color.r), colorChannel(color.g), colorChannel(color.b)};
 }
 
 simulation::Vec2 randomPointInsideWorld(const simulation::World& world,
@@ -158,6 +156,7 @@ App::App()
 {
     window_.setFramerateLimit(kFrameLimit);
     configureFromParameters();
+    configureRenderOptions();
     fitCameraToWorld();
     spawnDemoEntities();
 
@@ -277,6 +276,30 @@ void App::fitCameraToWorld()
     camera_.fitWorld(toSfml(world_.minBounds()), toSfml(world_.maxBounds()), window_.getSize(), kWorldPaddingPixels);
 }
 
+void App::configureRenderOptions()
+{
+    renderOptions_.renderEnabled = parameterBool(parameters_, "render_enabled", true);
+    renderOptions_.simpleRender = parameterBool(parameters_, "simple_render", false);
+    renderOptions_.renderResolutionScale = static_cast<float>(parameterDouble(parameters_, "render_resolution_scale", 1.0));
+
+    renderOptions_.backgroundColor =
+        toRenderColor(parameterColor(parameters_, "substrate_bg_color", {10, 10, 20}));
+    renderOptions_.backgroundGradientEnabled = parameterBool(parameters_, "background_gradient_enabled", false);
+    renderOptions_.backgroundColorTop =
+        toRenderColor(parameterColor(parameters_, "background_color_top", {10, 10, 20}));
+    renderOptions_.backgroundColorBottom =
+        toRenderColor(parameterColor(parameters_, "background_color_bottom", {10, 10, 20}));
+
+    renderOptions_.substrateGradientEnabled = parameterBool(parameters_, "substrate_gradient_enabled", false);
+    renderOptions_.substrateColorTop =
+        toRenderColor(parameterColor(parameters_, "substrate_color_top", {10, 10, 20}));
+    renderOptions_.substrateColorBottom =
+        toRenderColor(parameterColor(parameters_, "substrate_color_bottom", {10, 10, 20}));
+    renderOptions_.substrateBorderEnabled = parameterBool(parameters_, "substrate_border_enabled", true);
+    renderOptions_.substrateBorderColor =
+        toRenderColor(parameterColor(parameters_, "substrate_border_color", {40, 200, 40}));
+}
+
 void App::spawnDemoEntities()
 {
     agents_.clear();
@@ -338,93 +361,9 @@ void App::update()
 
 void App::render()
 {
-    window_.clear(sf::Color(11, 14, 18));
-    renderWorldBoundary();
-    renderEntities();
+    lastRenderStats_ = renderer_.render(window_, camera_, world_, agents_, foods_, renderOptions_);
     window_.display();
     ++frames_;
-}
-
-void App::renderWorldBoundary()
-{
-    const sf::Vector2u viewport = window_.getSize();
-    const sf::Color fillColor(18, 24, 30);
-    const sf::Color outlineColor(70, 210, 120);
-
-    if (world_.shape() == simulation::WorldShape::Circular)
-    {
-        const sf::Vector2f center = camera_.worldToScreen(toSfml(world_.center()), viewport);
-        const float radius = static_cast<float>(world_.radius()) * camera_.zoom();
-
-        sf::CircleShape circle(radius, 160);
-        circle.setOrigin(radius, radius);
-        circle.setPosition(center);
-        circle.setFillColor(fillColor);
-        circle.setOutlineColor(outlineColor);
-        circle.setOutlineThickness(2.0F);
-        window_.draw(circle);
-        return;
-    }
-
-    const sf::Vector2f topLeft = camera_.worldToScreen(toSfml(world_.minBounds()), viewport);
-    const sf::Vector2f bottomRight = camera_.worldToScreen(toSfml(world_.maxBounds()), viewport);
-    const sf::Vector2f position{std::min(topLeft.x, bottomRight.x), std::min(topLeft.y, bottomRight.y)};
-    const sf::Vector2f size{std::abs(bottomRight.x - topLeft.x), std::abs(bottomRight.y - topLeft.y)};
-
-    sf::RectangleShape rectangle(size);
-    rectangle.setPosition(position);
-    rectangle.setFillColor(fillColor);
-    rectangle.setOutlineColor(outlineColor);
-    rectangle.setOutlineThickness(2.0F);
-    window_.draw(rectangle);
-}
-
-void App::renderEntities()
-{
-    const sf::Vector2u viewport = window_.getSize();
-
-    for (std::size_t i = 0; i < foods_.size(); ++i)
-    {
-        const sf::Vector2f position = camera_.worldToScreen(toSfml(foods_.positionAt(i)), viewport);
-        const float radius = std::max(1.0F, static_cast<float>(foods_.radiusAt(i)) * camera_.zoom());
-
-        sf::CircleShape food(radius, 24);
-        food.setOrigin(radius, radius);
-        food.setPosition(position);
-        food.setFillColor(toSfmlColor(foods_.colorAt(i)));
-        if (foods_.kindAt(i) == simulation::FoodKind::Chunk)
-        {
-            food.setOutlineThickness(std::max(1.0F, camera_.zoom()));
-            food.setOutlineColor(sf::Color(35, 25, 20));
-        }
-        window_.draw(food);
-    }
-
-    for (std::size_t i = 0; i < agents_.size(); ++i)
-    {
-        const sf::Vector2f position = camera_.worldToScreen(toSfml(agents_.positionAt(i)), viewport);
-        const float radius = std::max(1.0F, static_cast<float>(agents_.radiusAt(i)) * camera_.zoom());
-
-        sf::CircleShape agent(radius, 32);
-        agent.setOrigin(radius, radius);
-        agent.setPosition(position);
-        agent.setFillColor(toSfmlColor(agents_.colorAt(i)));
-        window_.draw(agent);
-
-        const double angle = agents_.angleAt(i);
-        const simulation::Vec2 worldPosition = agents_.positionAt(i);
-        const simulation::Vec2 headWorld{
-            worldPosition.x + std::cos(angle) * agents_.radiusAt(i),
-            worldPosition.y + std::sin(angle) * agents_.radiusAt(i),
-        };
-        const sf::Vector2f headPosition = camera_.worldToScreen(toSfml(headWorld), viewport);
-        const float headRadius = std::max(1.0F, radius * 0.25F);
-        sf::CircleShape head(headRadius, 12);
-        head.setOrigin(headRadius, headRadius);
-        head.setPosition(headPosition);
-        head.setFillColor(sf::Color::Black);
-        window_.draw(head);
-    }
 }
 
 void App::updateFpsTitle()
@@ -441,8 +380,8 @@ void App::updateFpsTitle()
 
     std::ostringstream title;
     title << "AgentBioSimCpp " << kVersionString << " | FPS " << static_cast<int>(lastFps_ + 0.5F)
-          << " | agents " << agents_.size()
-          << " | food " << foods_.size()
+          << " | agents " << lastRenderStats_.agentsDrawn << "/" << agents_.size()
+          << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
           << " | world " << shapeName << " | zoom " << camera_.zoom()
           << " | dt " << timestep_.fixedDeltaSeconds()
           << " | steps " << simulatedSteps_;
