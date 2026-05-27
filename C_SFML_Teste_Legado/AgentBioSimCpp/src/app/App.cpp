@@ -159,9 +159,10 @@ App::App()
     configureRenderOptions();
     fitCameraToWorld();
     spawnDemoEntities();
+    seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 6: spatial hash foundation initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 7: food, energy and basic interaction initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -359,6 +360,16 @@ void App::spawnDemoEntities()
     }
 }
 
+void App::seedDemoFoodContact()
+{
+    if (agents_.empty() || foods_.empty())
+    {
+        return;
+    }
+    const simulation::Vec2 firstAgentPosition = agents_.positionAt(0);
+    static_cast<void>(foods_.setPosition(foods_.idAt(0), firstAgentPosition));
+}
+
 double App::computeSpatialCellSize() const
 {
     const double foodMaxRadius = parameterDouble(parameters_, "food_max_r", 5.0);
@@ -386,10 +397,36 @@ void App::rebuildSpatialHash()
     ++spatialHashRebuilds_;
 }
 
+void App::runSimulationStep(const double dt)
+{
+    const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
+    lastEnergyStats_ = energySystem_.apply(agents_, dt, energyConfig);
+
+    rebuildSpatialHash();
+
+    const systems::InteractionConfig interactionConfig = systems::InteractionSystem::fromRegistry(parameters_);
+    simulation::SpatialHash* spatialPtr = spatialEnabled_ ? &spatialHash_ : nullptr;
+    lastInteractionStats_ = interactionSystem_.apply(agents_, foods_, spatialPtr, interactionConfig);
+    foodEatenCount_ += lastInteractionStats_.foodsConsumed;
+
+    const systems::DeathConfig deathConfig = systems::DeathSystem::fromRegistry(parameters_);
+    lastDeathStats_ = deathSystem_.apply(agents_, deathConfig);
+    deathsCount_ += lastDeathStats_.deaths;
+
+    if (lastInteractionStats_.foodsConsumed > 0U || lastDeathStats_.deaths > 0U)
+    {
+        rebuildSpatialHash();
+    }
+}
+
 void App::update()
 {
     const double realDeltaSeconds = frameClock_.restart().asSeconds();
     lastStepsThisFrame_ = timestep_.beginFrame(realDeltaSeconds);
+    for (unsigned int step = 0; step < lastStepsThisFrame_; ++step)
+    {
+        runSimulationStep(timestep_.fixedDeltaSeconds());
+    }
     simulatedSteps_ += lastStepsThisFrame_;
 }
 
@@ -416,6 +453,8 @@ void App::updateFpsTitle()
     title << "AgentBioSimCpp " << kVersionString << " | FPS " << static_cast<int>(lastFps_ + 0.5F)
           << " | agents " << lastRenderStats_.agentsDrawn << "/" << agents_.size()
           << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
+          << " | eaten " << foodEatenCount_
+          << " | deaths " << deathsCount_
           << " | world " << shapeName << " | zoom " << camera_.zoom()
           << " | dt " << timestep_.fixedDeltaSeconds()
           << " | steps " << simulatedSteps_;

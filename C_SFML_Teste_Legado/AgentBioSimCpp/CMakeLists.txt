@@ -29,6 +29,10 @@ add_executable(AgentBioSimCpp
     src/simulation/FoodStore.cpp
     src/simulation/SpatialHash.cpp
     src/simulation/World.cpp
+    src/systems/DeathSystem.cpp
+    src/systems/EnergySystem.cpp
+    src/systems/InteractionSystem.cpp
+    src/systems/Phase7Diagnostics.cpp
 )
 
 target_include_directories(AgentBioSimCpp

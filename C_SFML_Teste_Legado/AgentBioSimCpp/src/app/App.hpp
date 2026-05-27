@@ -8,10 +8,15 @@
 #include "simulation/FoodStore.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "simulation/World.hpp"
+#include "systems/DeathSystem.hpp"
+#include "systems/EnergySystem.hpp"
+#include "systems/InteractionSystem.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/System/Clock.hpp>
 #include <SFML/System/Vector2.hpp>
+
+#include <cstdint>
 
 namespace agentbiosim
 {
@@ -29,8 +34,10 @@ private:
     void fitCameraToWorld();
     void configureRenderOptions();
     void spawnDemoEntities();
+    void seedDemoFoodContact();
     [[nodiscard]] double computeSpatialCellSize() const;
     void rebuildSpatialHash();
+    void runSimulationStep(double dt);
     void update();
     void render();
     void updateFpsTitle();
@@ -41,10 +48,16 @@ private:
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
     simulation::SpatialHash spatialHash_;
+    systems::EnergySystem energySystem_;
+    systems::InteractionSystem interactionSystem_;
+    systems::DeathSystem deathSystem_;
     render::Camera2D camera_;
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;
     render::RenderStats lastRenderStats_;
+    systems::EnergyStats lastEnergyStats_{};
+    systems::InteractionStats lastInteractionStats_{};
+    systems::DeathStats lastDeathStats_{};
     sf::RenderWindow window_;
     sf::Clock frameClock_;
     sf::Clock fpsClock_;
@@ -55,6 +68,8 @@ private:
     unsigned int frames_ = 0;
     unsigned long long simulatedSteps_ = 0;
     unsigned long long spatialHashRebuilds_ = 0;
+    std::uint64_t foodEatenCount_ = 0;
+    std::uint64_t deathsCount_ = 0;
     unsigned int lastStepsThisFrame_ = 0;
     float lastFps_ = 0.0F;
     double spatialCellSize_ = 36.0;

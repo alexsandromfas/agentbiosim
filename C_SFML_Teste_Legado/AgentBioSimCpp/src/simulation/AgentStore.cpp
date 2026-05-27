@@ -1,5 +1,6 @@
 #include "simulation/AgentStore.hpp"
 
+#include <algorithm>
 #include <utility>
 
 namespace agentbiosim::simulation
@@ -172,6 +173,49 @@ void AgentStore::setVelocity(const EntityId id, const Vec2 velocity)
     }
     vx_[*index] = velocity.x;
     vy_[*index] = velocity.y;
+}
+
+bool AgentStore::setEnergy(const EntityId id, const double energy)
+{
+    const std::optional<std::size_t> index = indexOf(id);
+    if (!index.has_value())
+    {
+        return false;
+    }
+    setEnergyAt(*index, energy);
+    return true;
+}
+
+double AgentStore::addEnergy(const EntityId id, const double delta, const double cap)
+{
+    const std::optional<std::size_t> index = indexOf(id);
+    if (!index.has_value())
+    {
+        return 0.0;
+    }
+    return addEnergyAt(*index, delta, cap);
+}
+
+void AgentStore::setEnergyAt(const std::size_t index, const double energy)
+{
+    energy_.at(index) = std::max(0.0, energy);
+}
+
+double AgentStore::addEnergyAt(const std::size_t index, const double delta, const double cap)
+{
+    const double before = energy_.at(index);
+    double next = std::max(0.0, before + delta);
+    if (cap >= 0.0)
+    {
+        next = std::min(next, cap);
+    }
+    energy_.at(index) = next;
+    return std::max(0.0, next - before);
+}
+
+void AgentStore::addAgeAt(const std::size_t index, const double deltaSeconds)
+{
+    age_.at(index) = std::max(0.0, age_.at(index) + deltaSeconds);
 }
 
 void AgentStore::removeAtIndex(const std::size_t index)

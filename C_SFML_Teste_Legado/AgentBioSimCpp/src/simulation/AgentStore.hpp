@@ -41,6 +41,11 @@ public:
     [[nodiscard]] bool aliveAt(std::size_t index) const;
 
     void setVelocity(EntityId id, Vec2 velocity);
+    [[nodiscard]] bool setEnergy(EntityId id, double energy);
+    [[nodiscard]] double addEnergy(EntityId id, double delta, double cap);
+    void setEnergyAt(std::size_t index, double energy);
+    [[nodiscard]] double addEnergyAt(std::size_t index, double delta, double cap);
+    void addAgeAt(std::size_t index, double deltaSeconds);
 
 private:
     void removeAtIndex(std::size_t index);

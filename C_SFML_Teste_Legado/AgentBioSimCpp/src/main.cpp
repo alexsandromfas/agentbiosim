@@ -1,6 +1,7 @@
 #include "app/App.hpp"
 #include "config/ParameterDefaults.hpp"
 #include "simulation/SpatialHash.hpp"
+#include "systems/Phase7Diagnostics.hpp"
 
 #include <exception>
 #include <iomanip>
@@ -13,6 +14,8 @@ int main(const int argc, char* argv[])
     {
         bool runSpatialValidation = false;
         bool runSpatialBenchmark = false;
+        bool runPhase7Validation = false;
+        bool runPhase7Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -35,6 +38,19 @@ int main(const int argc, char* argv[])
             {
                 runSpatialValidation = true;
                 runSpatialBenchmark = true;
+            }
+            else if (argument == "--phase7-selftest")
+            {
+                runPhase7Validation = true;
+            }
+            else if (argument == "--phase7-benchmark")
+            {
+                runPhase7Benchmark = true;
+            }
+            else if (argument == "--phase7-diagnostics")
+            {
+                runPhase7Validation = true;
+                runPhase7Benchmark = true;
             }
         }
 
@@ -69,6 +85,40 @@ int main(const int argc, char* argv[])
         }
 
         if (runSpatialValidation || runSpatialBenchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase7Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase7Validation();
+            std::cout << "Phase7 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 3;
+            }
+        }
+
+        if (runPhase7Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase7Microbenchmark();
+            std::cout << "Phase7 food/energy/interaction microbenchmark\n";
+            std::cout << "agents,foods,use_spatial,step_ms,foods_consumed,deaths\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.agents << ','
+                          << row.foods << ','
+                          << (row.useSpatial ? "true" : "false") << ','
+                          << row.stepMilliseconds << ','
+                          << row.foodsConsumed << ','
+                          << row.deaths << '\n';
+            }
+        }
+
+        if (runPhase7Validation || runPhase7Benchmark)
         {
             return 0;
         }
