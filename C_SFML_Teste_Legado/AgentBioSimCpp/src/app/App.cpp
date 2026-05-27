@@ -159,11 +159,18 @@ App::App()
     configureRenderOptions();
     fitCameraToWorld();
     spawnDemoEntities();
+    rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 4: basic entity stores initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 6: spatial hash foundation initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
+    if (spatialEnabled_)
+    {
+        std::cout << "SpatialHash: " << lastSpatialStats_.totalItems << " items, "
+                  << lastSpatialStats_.occupiedCells << "/" << lastSpatialStats_.totalCells
+                  << " occupied cells, cell size " << spatialCellSize_ << ".\n";
+    }
 }
 
 int App::run()
@@ -352,6 +359,33 @@ void App::spawnDemoEntities()
     }
 }
 
+double App::computeSpatialCellSize() const
+{
+    const double foodMaxRadius = parameterDouble(parameters_, "food_max_r", 5.0);
+    const double bacteriaMaxRadius = parameterDouble(parameters_, "bacteria_max_r", 12.0);
+    const double predatorMaxRadius = parameterDouble(parameters_, "predator_max_r", 18.0);
+    const double largestRadius = std::max({foodMaxRadius, bacteriaMaxRadius, predatorMaxRadius, 1.0});
+    return largestRadius * 2.0;
+}
+
+void App::rebuildSpatialHash()
+{
+    spatialEnabled_ = parameterBool(parameters_, "use_spatial", true);
+    reuseSpatialGrid_ = parameterBool(parameters_, "reuse_spatial_grid", true);
+    if (!spatialEnabled_)
+    {
+        spatialHash_.clear();
+        lastSpatialStats_ = {};
+        return;
+    }
+
+    spatialCellSize_ = computeSpatialCellSize();
+    spatialHash_.configure(simulation::spatialConfigForWorld(world_, spatialCellSize_));
+    spatialHash_.rebuild(agents_, foods_);
+    lastSpatialStats_ = spatialHash_.stats();
+    ++spatialHashRebuilds_;
+}
+
 void App::update()
 {
     const double realDeltaSeconds = frameClock_.restart().asSeconds();
@@ -385,6 +419,15 @@ void App::updateFpsTitle()
           << " | world " << shapeName << " | zoom " << camera_.zoom()
           << " | dt " << timestep_.fixedDeltaSeconds()
           << " | steps " << simulatedSteps_;
+    if (spatialEnabled_)
+    {
+        title << " | spatial " << lastSpatialStats_.occupiedCells << "/" << lastSpatialStats_.totalCells
+              << " cells | rebuilds " << spatialHashRebuilds_;
+        if (reuseSpatialGrid_)
+        {
+            title << " | reuse";
+        }
+    }
     if (timestep_.paused())
     {
         title << " | paused";

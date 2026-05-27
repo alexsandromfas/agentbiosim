@@ -27,6 +27,7 @@ add_executable(AgentBioSimCpp
     src/simulation/AgentStore.cpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp
+    src/simulation/SpatialHash.cpp
     src/simulation/World.cpp
 )
 

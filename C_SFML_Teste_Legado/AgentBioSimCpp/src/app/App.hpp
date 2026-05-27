@@ -6,6 +6,7 @@
 #include "simulation/AgentStore.hpp"
 #include "simulation/FixedTimestep.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/SpatialHash.hpp"
 #include "simulation/World.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
@@ -28,6 +29,8 @@ private:
     void fitCameraToWorld();
     void configureRenderOptions();
     void spawnDemoEntities();
+    [[nodiscard]] double computeSpatialCellSize() const;
+    void rebuildSpatialHash();
     void update();
     void render();
     void updateFpsTitle();
@@ -37,6 +40,7 @@ private:
     simulation::FixedTimestep timestep_;
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
+    simulation::SpatialHash spatialHash_;
     render::Camera2D camera_;
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;
@@ -46,9 +50,14 @@ private:
     sf::Clock fpsClock_;
     sf::Vector2i lastMousePosition_{0, 0};
     bool isPanning_ = false;
+    bool spatialEnabled_ = true;
+    bool reuseSpatialGrid_ = true;
     unsigned int frames_ = 0;
     unsigned long long simulatedSteps_ = 0;
+    unsigned long long spatialHashRebuilds_ = 0;
     unsigned int lastStepsThisFrame_ = 0;
     float lastFps_ = 0.0F;
+    double spatialCellSize_ = 36.0;
+    simulation::SpatialHashStats lastSpatialStats_{};
 };
 } // namespace agentbiosim
