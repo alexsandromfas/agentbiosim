@@ -20,6 +20,8 @@ endif()
 add_executable(AgentBioSimCpp
     src/main.cpp
     src/app/App.cpp
+    src/config/ParameterDefaults.cpp
+    src/config/ParameterRegistry.cpp
 )
 
 target_include_directories(AgentBioSimCpp

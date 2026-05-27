@@ -1,8 +1,8 @@
 # AgentBioSimCpp
 
-Esqueleto minimo da Fase 1 da migracao C++/SFML/CMake do AgentBioSim.
+Esqueleto minimo da migracao C++/SFML/CMake do AgentBioSim.
 
-Este projeto ainda nao implementa simulacao, agentes, comida, visao, redes neurais, UI completa ou parametros. O objetivo da Fase 1 e apenas validar que o projeto C++ compila e abre uma janela SFML vazia com loop principal simples.
+Este projeto ainda nao implementa simulacao, agentes, comida, visao, redes neurais ou UI completa. A Fase 1 validou a janela SFML vazia. A Fase 2 adicionou um `ParameterRegistry` inicial para catalogar parametros herdados do projeto Python antes da simulacao existir em C++.
 
 ## Requisitos
 
@@ -53,13 +53,30 @@ Com geradores single-config, o executavel pode ficar diretamente em:
 C_SFML_Teste_Legado/AgentBioSimCpp/build/AgentBioSimCpp.exe
 ```
 
-## Estado da Fase 1
+## Dump de parametros
+
+O `ParameterRegistry` registra nome interno, tipo, valor padrao, categoria, descricao curta, aliases legados, faixas numericas e dominios como `runtime`, `ui`, `debug`, `world`, `vision`, `neural`, `food`, `physics`, `render`, `save` e `performance`.
+
+Para verificar o cadastro inicial sem abrir a janela SFML:
+
+```powershell
+C_SFML_Teste_Legado/AgentBioSimCpp/build/Release/AgentBioSimCpp.exe --dump-params
+```
+
+ou, em Debug:
+
+```powershell
+C_SFML_Teste_Legado/AgentBioSimCpp/build/Debug/AgentBioSimCpp.exe --dump-params
+```
+
+## Estado atual
 
 - Abre janela SFML vazia.
 - Permite fechar a janela.
 - Mostra FPS no titulo da janela.
+- Contem `ParameterRegistry` inicial.
+- Permite dump de parametros via `--dump-params`.
 - Nao contem simulacao.
 - Nao contem entidades.
 - Nao contem sistemas.
 - Nao contem UI tecnica completa.
-- Nao contem registry de parametros.
