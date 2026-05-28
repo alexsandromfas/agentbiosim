@@ -52,4 +52,9 @@ inline bool isVisionModeImplementedInPhase11(const VisionMode mode)
 {
     return mode == VisionMode::Single || mode == VisionMode::Fullbody;
 }
+
+inline bool isVisionModeImplemented(const VisionMode mode)
+{
+    return mode == VisionMode::Single || mode == VisionMode::Fullbody || mode == VisionMode::Sector;
+}
 } // namespace agentbiosim::perception

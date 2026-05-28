@@ -3,6 +3,7 @@
 #include "neural/Phase9Diagnostics.hpp"
 #include "perception/Phase10Diagnostics.hpp"
 #include "perception/Phase11Diagnostics.hpp"
+#include "perception/Phase12Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
 #include "systems/Phase8Diagnostics.hpp"
@@ -28,6 +29,8 @@ int main(const int argc, char* argv[])
         bool runPhase10Benchmark = false;
         bool runPhase11Validation = false;
         bool runPhase11Benchmark = false;
+        bool runPhase12Validation = false;
+        bool runPhase12Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -115,6 +118,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase11Validation = true;
                 runPhase11Benchmark = true;
+            }
+            else if (argument == "--phase12-selftest")
+            {
+                runPhase12Validation = true;
+            }
+            else if (argument == "--phase12-benchmark")
+            {
+                runPhase12Benchmark = true;
+            }
+            else if (argument == "--phase12-diagnostics")
+            {
+                runPhase12Validation = true;
+                runPhase12Benchmark = true;
             }
         }
 
@@ -335,6 +351,56 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase11Validation || runPhase11Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase12Validation)
+        {
+            const auto summary = agentbiosim::perception::runPhase12Validation();
+            std::cout << "Phase12 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 8;
+            }
+        }
+
+        if (runPhase12Benchmark)
+        {
+            const auto rows = agentbiosim::perception::runPhase12Microbenchmark();
+            std::cout << "Phase12 perception microbenchmark\n";
+            std::cout << "scenario,vision_mode,bins_mode,distribution,falloff,projection,agents,retina_count,eye_count,channels,input_size,subdivisions,cand_limit,repeats,total_ms,avg_perception_us,avg_candidates,avg_cand_after_limit,avg_hits,spatial,debug,auto_sector\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.visionMode << ','
+                          << row.binsMode << ','
+                          << row.binsDistribution << ','
+                          << row.binsFalloff << ','
+                          << row.binsProjection << ','
+                          << row.agents << ','
+                          << row.retinaCount << ','
+                          << row.eyeCount << ','
+                          << row.channelCount << ','
+                          << row.inputSize << ','
+                          << row.subdivisions << ','
+                          << row.candidateLimit << ','
+                          << row.repeats << ','
+                          << row.totalMilliseconds << ','
+                          << row.averagePerceptionMicroseconds << ','
+                          << row.averageCandidatesPerAgent << ','
+                          << row.averageCandidatesAfterLimit << ','
+                          << row.averageHitsPerAgent << ','
+                          << (row.usedSpatialHash ? "true" : "false") << ','
+                          << (row.debugActive ? "true" : "false") << ','
+                          << (row.autoSectorActive ? "true" : "false") << '\n';
+            }
+        }
+
+        if (runPhase12Validation || runPhase12Benchmark)
         {
             return 0;
         }

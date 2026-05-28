@@ -27,9 +27,12 @@ struct PerceptionStats
 {
     std::size_t agentsProcessed = 0;
     std::size_t totalCandidatesQueried = 0;
+    std::size_t totalCandidatesAfterLimit = 0;
     double averageCandidatesPerAgent = 0.0;
+    double averageCandidatesAfterLimit = 0.0;
     std::string visionMode;
     VisionMode visionModeEnum = VisionMode::Single;
+    VisionMode requestedModeEnum = VisionMode::Single;
     std::size_t inputSize = 0;
     std::size_t channelCount = 0;
     std::size_t retinaCount = 0;
@@ -38,6 +41,7 @@ struct PerceptionStats
     bool usedSpatialHash = false;
     bool fallbackMode = false;
     std::string fallbackReason;
+    bool autoSectorActive = false;
 };
 
 struct PerceptionDebugRequest

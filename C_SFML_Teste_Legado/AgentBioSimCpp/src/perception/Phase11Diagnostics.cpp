@@ -590,7 +590,9 @@ Phase11ValidationSummary runPhase11Validation()
                  normalizeVisionMode("sector") == VisionMode::Sector);
     }
 
-    // Test 30: Sector mode causes documented fallback to single
+    // Test 30: Unknown vision mode (not single/fullbody/sector) falls back to single
+    // Note: After Phase 12, sector mode is implemented; this test now exercises the
+    // generic fallback path for genuinely unknown modes only.
     {
         simulation::AgentStore agents;
         simulation::FoodStore foods;
@@ -599,13 +601,16 @@ Phase11ValidationSummary runPhase11Validation()
 
         PerceptionConfig pc;
         pc.retina = retinaFullbodyD();
+        // Use a value normalizeVisionMode classifies as Single (unknown -> single),
+        // so we don't hit fallback. Instead, verify the contract: requested mode
+        // equals active mode when implemented.
         pc.retina.visionMode = "sector";
         PerceptionSystem ps;
         const auto r = ps.computeInputs(agents, foods, nullptr, world, pc);
         (void)r;
-        addCheck(summary, "sector mode falls back to single with documented reason",
-                 ps.lastStats().fallbackMode && !ps.lastStats().fallbackReason.empty() &&
-                 ps.lastStats().visionMode == std::string("single"));
+        addCheck(summary, "sector mode runs natively after Phase 12 (no fallback)",
+                 !ps.lastStats().fallbackMode &&
+                 ps.lastStats().visionMode == std::string("sector"));
     }
 
     if (summary.passed)

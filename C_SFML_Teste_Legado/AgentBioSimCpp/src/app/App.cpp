@@ -176,7 +176,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 11: fullbody/raycast vision and debug overlay initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 12: sector/bins vision with high-scale auto sector initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";

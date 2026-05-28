@@ -1,6 +1,7 @@
 #pragma once
 
 #include "config/ParameterRegistry.hpp"
+#include "perception/SectorBinsConfig.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -125,6 +126,11 @@ struct RetinaConfig
     bool channelG = false;
     bool channelB = false;
     bool channelD = true;
+
+    SectorBinsConfig sectorBins{};
+    bool highScaleAutoSector = false;
+    int highScaleSectorMinAgents = 800;
+    bool highScaleGlobalSector = false;
 
     [[nodiscard]] std::vector<RetinaChannel> activeChannels() const
     {
