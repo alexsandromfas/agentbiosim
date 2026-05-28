@@ -22,6 +22,9 @@ add_executable(AgentBioSimCpp
     src/app/App.cpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterRegistry.cpp
+    src/neural/BrainFactory.cpp
+    src/neural/MLPBrain.cpp
+    src/neural/Phase9Diagnostics.cpp
     src/render/Camera2D.cpp
     src/render/Renderer.cpp
     src/simulation/AgentStore.cpp
@@ -33,6 +36,7 @@ add_executable(AgentBioSimCpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp
     src/systems/MovementSystem.cpp
+    src/systems/NeuralSystem.cpp
     src/systems/Phase7Diagnostics.cpp
     src/systems/Phase8Diagnostics.cpp
 )

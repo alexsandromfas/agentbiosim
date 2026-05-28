@@ -17,6 +17,7 @@
 #include <random>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <variant>
 
 namespace agentbiosim
@@ -175,7 +176,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 8: locomotion foundation initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 9: extensible MLP brain foundation initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -415,7 +416,11 @@ void App::rebuildSpatialHash()
 void App::runSimulationStep(const double dt)
 {
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
-    lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig);
+    const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(parameters_, movementConfig);
+    const std::vector<systems::MovementControl> neuralControls =
+        neuralSystem_.produceMovementControls(agents_, world_, neuralConfig);
+    lastNeuralStats_ = neuralSystem_.lastStats();
+    lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls);
 
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
     lastEnergyStats_ = energySystem_.apply(agents_, dt, energyConfig);
@@ -473,6 +478,8 @@ void App::updateFpsTitle()
           << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
           << " | eaten " << foodEatenCount_
           << " | deaths " << deathsCount_
+          << " | brains " << lastNeuralStats_.brainCount
+          << " " << lastNeuralStats_.activeType
           << " | moved " << lastMovementStats_.agentsProcessed
           << " | world " << shapeName << " | zoom " << camera_.zoom()
           << " | dt " << timestep_.fixedDeltaSeconds()

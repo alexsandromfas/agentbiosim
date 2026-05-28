@@ -1,5 +1,6 @@
 #include "app/App.hpp"
 #include "config/ParameterDefaults.hpp"
+#include "neural/Phase9Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
 #include "systems/Phase8Diagnostics.hpp"
@@ -19,6 +20,8 @@ int main(const int argc, char* argv[])
         bool runPhase7Benchmark = false;
         bool runPhase8Validation = false;
         bool runPhase8Benchmark = false;
+        bool runPhase9Validation = false;
+        bool runPhase9Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -67,6 +70,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase8Validation = true;
                 runPhase8Benchmark = true;
+            }
+            else if (argument == "--phase9-selftest")
+            {
+                runPhase9Validation = true;
+            }
+            else if (argument == "--phase9-benchmark")
+            {
+                runPhase9Benchmark = true;
+            }
+            else if (argument == "--phase9-diagnostics")
+            {
+                runPhase9Validation = true;
+                runPhase9Benchmark = true;
             }
         }
 
@@ -170,6 +186,42 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase8Validation || runPhase8Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase9Validation)
+        {
+            const auto summary = agentbiosim::neural::runPhase9Validation();
+            std::cout << "Phase9 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 5;
+            }
+        }
+
+        if (runPhase9Benchmark)
+        {
+            const auto rows = agentbiosim::neural::runPhase9Microbenchmark();
+            std::cout << "Phase9 MLP forward microbenchmark\n";
+            std::cout << "architecture,input_size,output_size,hidden_layers,agents,forwards,total_ms,avg_forward_us\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.architecture << ','
+                          << row.inputSize << ','
+                          << row.outputSize << ','
+                          << row.hiddenLayers << ','
+                          << row.agents << ','
+                          << row.forwards << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageForwardMicroseconds << '\n';
+            }
+        }
+
+        if (runPhase9Validation || runPhase9Benchmark)
         {
             return 0;
         }
