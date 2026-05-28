@@ -398,3 +398,18 @@ Comecar C++ com:
 4. Param schema antes de UI completa.
 5. Benchmarks antes de otimizar.
 6. Visao sector e MLP batch como primeiras areas de performance.
+
+## Dividas Tecnicas Reconhecidas Pos-Fase 9
+
+Registrado em 2026-05-27 apos auditoria arquitetural da Fase 9. Ver `TECHNICAL_DEBT_REGISTER.md` para detalhes completos.
+
+Resumo:
+
+1. **Helpers de parametros duplicados**: `parameterDouble`/`parameterInt`/`parameterBool`/`parameterString` copiados em 4 arquivos. Extrair para `ParameterHelpers.hpp` antes da Fase 13.
+2. **BrainSlot acoplado a MLPBrain**: `NeuralSystem` usa `unique_ptr<MLPBrain>` direto. Trocar para variant/polimorfismo antes da Fase 14.
+3. **Nomes Numba no C++**: campos como `useNumbaBrainForward` devem ser renomeados para conceitos C++ de batch. Antes da Fase 14.
+4. **App acumulando responsabilidades**: fatorar em SimulationRunner/AppController/InputRouter antes da Fase 22.
+5. **Alocacoes temporarias no NeuralSystem**: substituir por buffers persistentes e batch forward. Fase 30 ou antes se gargalo medido.
+6. **Version.hpp desatualizado**: atualizar em qualquer housekeeping.
+
+Nenhuma dessas dividas bloqueia a Fase 10. Todas sao rastreadas com fase sugerida para resolucao.

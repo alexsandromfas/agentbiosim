@@ -229,11 +229,12 @@ Mapeamento por fase:
 
 ## G. Benchmarks de Arquitetura
 
-Comparar:
+Comparar (inclui itens adicionados pos-auditoria da Fase 9 para rastrear dividas tecnicas):
 
 - Objeto por agente vs `AgentStore/SoA`.
 - Visao individual vs visao em lote.
 - Forward neural individual vs batch.
+- Forward neural com alocacoes temporarias vs buffers persistentes (mede Divida 5 de `TECHNICAL_DEBT_REGISTER.md`).
 - Renderizacao simples vs detalhada.
 - Spatial hash reconstruido todo frame vs reutilizado.
 - Com e sem alocacao dentro do loop.
@@ -249,6 +250,9 @@ Comparar:
 - Save/load pequeno vs grande.
 - UI de parametros aberta/fechada.
 - Neural viewer oculto/visivel.
+- Custo de alocacoes temporarias do NeuralSystem antes/depois de buffers persistentes.
+- Engine headless puro vs App com janela SFML (mede custo de orquestracao do App — Divida 4).
+- UI ligada/desligada em cenarios com 600/1000/2000 agentes.
 
 ## H. Formato de Saida
 

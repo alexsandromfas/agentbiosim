@@ -131,6 +131,8 @@ Status: concluida.
 
 ## Fase 10: Sensores, Canais de Retina e Visao Single
 
+Nota tecnica: a Fase 10 nao e bloqueada por nenhuma divida tecnica pendente. Ver `TECHNICAL_DEBT_REGISTER.md` para a lista completa.
+
 - Objetivo: ligar input neural real da retina single ao cerebro e locomocao.
 - Escopo:
   - `RetinaConfig` e `SceneQuery` basico.
@@ -215,6 +217,8 @@ Status: concluida.
 
 ## Fase 13: Reproducao, Mutacao Base e Genoma
 
+Prerequisito tecnico: antes de iniciar esta fase, resolver a Divida 1 (helpers de parametros duplicados) de `TECHNICAL_DEBT_REGISTER.md`. A adicao de `ReproductionSystem` e `GenomeStore` adicionaria mais copias dos helpers se nao forem extraidos primeiro.
+
 - Objetivo: implementar reproducao por energia, genoma inicial e mutacao base.
 - Escopo:
   - Split energy.
@@ -239,6 +243,11 @@ Status: concluida.
   - Evolucao, reproducao e mutacao MLP base.
 
 ## Fase 14: Redes Densas Avancadas
+
+Prerequisitos tecnicos de `TECHNICAL_DEBT_REGISTER.md`:
+- Resolver Divida 2: trocar `BrainSlot` de `unique_ptr<MLPBrain>` para variant/polimorfismo extensivel.
+- Resolver Divida 3: renomear campos Numba (`useNumbaBrainForward`, `numbaBrainForwardMinBatch`) para conceitos C++ genericos de batch.
+- Preparar executor batch por assinatura neural e fallback individual para NEAT.
 
 - Objetivo: implementar Gated MLP, Shortcut MLP e Modulated MLP.
 - Escopo:
@@ -456,6 +465,8 @@ Status: concluida.
 
 ## Fase 22: UI Base, Menus e Canvas
 
+Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNICAL_DEBT_REGISTER.md` — fatorar `App` em `SimulationRunner`, `AppController` e `InputRouter` para que a UI nao fique acoplada a orquestracao do engine.
+
 - Objetivo: criar a base de UI tecnica e ferramentas de viewport.
 - Escopo:
   - Janela SFML + Dear ImGui, se mantido.
@@ -671,6 +682,8 @@ Status: concluida.
   - Paridade completa de UI.
 
 ## Fase 30: Otimizacao Data-Oriented e Escala
+
+Prerequisito tecnico: resolver a Divida 5 de `TECHNICAL_DEBT_REGISTER.md` — substituir alocacoes temporarias de `std::vector<double>` por agente no `NeuralSystem` por buffers persistentes pre-alocados por assinatura neural. Se benchmarks de fases anteriores (12, 14) ja mostrarem gargalo, antecipar a correcao.
 
 - Objetivo: otimizar gargalos medidos sem remover comportamento.
 - Escopo:

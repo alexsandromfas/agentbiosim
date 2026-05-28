@@ -33,6 +33,11 @@
 | Parametro cadastrado mas nunca usado funcionalmente | Alto | Alta | Tabela de cobertura por parametros deve indicar fase de uso, UI e validacao | Para cada parametro comportamental, teste efeito no sistema | `PARAMETER_INVENTORY.md`, `PLANNING_COVERAGE_AUDIT.md` |
 | Save/load/export/import deixados para o fim sem schema | Alto | Media | Fase 27 explicita com schema versionado e aliases | Roundtrip e abertura de saves/genomas legados | `PARAMETER_INVENTORY.md`, `MIGRATION_PHASES.md` |
 | Benchmarks planejados sem fase real de execucao | Alto | Media | Fase 28 para runner formal e Fase 31 para campanha final | CSV/JSON/MD gerados com commit/build/seed | `BENCHMARK_PLAN.md`, `MIGRATION_PHASES.md` |
+| Helpers de parametros duplicados em multiplos sistemas | Medio | Alta | Extrair para `ParameterHelpers.hpp` antes da Fase 13 | Grep por `parameterDouble` em namespaces anonimos; confirmar copia unica | `TECHNICAL_DEBT_REGISTER.md` |
+| App acumulando responsabilidades demais | Medio | Media | Fatorar em SimulationRunner/AppController antes da Fase 22 | App.cpp nao deve crescer alem de ~600 linhas sem fatoracao | `TECHNICAL_DEBT_REGISTER.md` |
+| Alocacoes temporarias por agente no hot loop neural | Alto | Media | Buffers persistentes e batch forward antes da Fase 30 ou quando gargalo medido | Benchmark antes/depois de buffer persistente | `TECHNICAL_DEBT_REGISTER.md`, `BENCHMARK_PLAN.md` |
+| Terminologia Python/Numba vazando para C++ | Baixo | Alta | Renomear campos Numba para conceitos C++ genericos antes da Fase 14 | Grep por `numba` no codigo C++ | `TECHNICAL_DEBT_REGISTER.md` |
+| BrainSlot acoplado a MLPBrain concreto | Alto | Media | Trocar para variant/polimorfismo antes de implementar redes avancadas na Fase 14 | Instanciar GatedMLP sem alterar NeuralSystem publico | `TECHNICAL_DEBT_REGISTER.md` |
 
 ## Riscos Criticos Detalhados
 
