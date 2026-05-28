@@ -176,8 +176,8 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 10: retina perception with single vision initialized.\n";
-    std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
+    std::cout << "AgentBioSimCpp Phase 11: fullbody/raycast vision and debug overlay initialized.\n";
+    std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
     if (spatialEnabled_)
@@ -255,6 +255,14 @@ void App::processEvents()
             else if (event.key.code == sf::Keyboard::Space)
             {
                 timestep_.setPaused(!timestep_.paused());
+            }
+            else if (event.key.code == sf::Keyboard::V)
+            {
+                visionDebugEnabled_ = !visionDebugEnabled_;
+                if (!visionDebugEnabled_)
+                {
+                    visionDebug_.clear();
+                }
             }
         }
     }
@@ -416,8 +424,19 @@ void App::rebuildSpatialHash()
 void App::runSimulationStep(const double dt)
 {
     const auto perceptionConfig = perception::PerceptionSystem::fromRegistry(parameters_, "bacteria");
+    perception::PerceptionDebugRequest debugRequest;
+    if (visionDebugEnabled_ && !agents_.empty())
+    {
+        debugRequest.agentId = agents_.idAt(0).value;
+        debugRequest.out = &visionDebug_;
+    }
+    else
+    {
+        visionDebug_.clear();
+    }
     const auto perceptionResult = perceptionSystem_.computeInputs(
-        agents_, foods_, spatialEnabled_ ? &spatialHash_ : nullptr, world_, perceptionConfig);
+        agents_, foods_, spatialEnabled_ ? &spatialHash_ : nullptr, world_, perceptionConfig,
+        debugRequest);
     lastPerceptionStats_ = perceptionSystem_.lastStats();
 
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
@@ -461,7 +480,9 @@ void App::update()
 
 void App::render()
 {
-    lastRenderStats_ = renderer_.render(window_, camera_, world_, agents_, foods_, renderOptions_);
+    const perception::VisionDebugData* debugPtr = visionDebugEnabled_ ? &visionDebug_ : nullptr;
+    lastRenderStats_ = renderer_.render(window_, camera_, world_, agents_, foods_, renderOptions_,
+                                         debugPtr);
     window_.display();
     ++frames_;
 }
@@ -487,6 +508,7 @@ void App::updateFpsTitle()
           << " | vision " << lastPerceptionStats_.visionMode
           << " " << lastPerceptionStats_.inputSize << "in"
           << " " << (lastNeuralStats_.usingPerception ? "real" : "synthetic")
+          << (visionDebugEnabled_ ? " [debug]" : "")
           << " | brains " << lastNeuralStats_.brainCount
           << " " << lastNeuralStats_.activeType
           << " | moved " << lastMovementStats_.agentsProcessed

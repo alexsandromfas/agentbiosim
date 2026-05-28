@@ -37,7 +37,8 @@ RenderStats Renderer::render(sf::RenderTarget& target,
                              const simulation::World& world,
                              const simulation::AgentStore& agents,
                              const simulation::FoodStore& foods,
-                             const RenderOptions& options) const
+                             const RenderOptions& options,
+                             const perception::VisionDebugData* visionDebug) const
 {
     RenderStats stats;
     if (!options.renderEnabled)
@@ -50,7 +51,51 @@ RenderStats Renderer::render(sf::RenderTarget& target,
     drawWorldBoundary(target, camera, world, options);
     stats.foodsDrawn = drawFoods(target, camera, foods, options);
     stats.agentsDrawn = drawAgents(target, camera, agents, options);
+    if (visionDebug != nullptr && visionDebug->active && !visionDebug->rays.empty())
+    {
+        stats.visionRaysDrawn = drawVisionDebug(target, camera, *visionDebug);
+    }
     return stats;
+}
+
+std::size_t Renderer::drawVisionDebug(sf::RenderTarget& target,
+                                      const Camera2D& camera,
+                                      const perception::VisionDebugData& debug) const
+{
+    const sf::Vector2u viewport = target.getSize();
+    sf::VertexArray lines(sf::Lines);
+    lines.resize(debug.rays.size() * 2U);
+    std::size_t idx = 0;
+    for (const auto& ray : debug.rays)
+    {
+        const sf::Vector2f startW{static_cast<float>(ray.startX), static_cast<float>(ray.startY)};
+        const sf::Vector2f endW{static_cast<float>(ray.hitX), static_cast<float>(ray.hitY)};
+        const sf::Vector2f startS = camera.worldToScreen(startW, viewport);
+        const sf::Vector2f endS = camera.worldToScreen(endW, viewport);
+
+        sf::Color color;
+        if (ray.hit)
+        {
+            const sf::Uint8 r = static_cast<sf::Uint8>(std::clamp(ray.hitColorR * 255.0, 0.0, 255.0));
+            const sf::Uint8 g = static_cast<sf::Uint8>(std::clamp(ray.hitColorG * 255.0, 0.0, 255.0));
+            const sf::Uint8 b = static_cast<sf::Uint8>(std::clamp(ray.hitColorB * 255.0, 0.0, 255.0));
+            const sf::Uint8 a = static_cast<sf::Uint8>(std::clamp(ray.activation * 255.0 + 64.0, 64.0, 255.0));
+            color = sf::Color(r, g, b, a);
+        }
+        else
+        {
+            color = sf::Color(80, 80, 100, 80);
+        }
+
+        lines[idx].position = startS;
+        lines[idx].color = color;
+        ++idx;
+        lines[idx].position = endS;
+        lines[idx].color = color;
+        ++idx;
+    }
+    target.draw(lines);
+    return debug.rays.size();
 }
 
 void Renderer::drawBackground(sf::RenderTarget& target, const RenderOptions& options) const

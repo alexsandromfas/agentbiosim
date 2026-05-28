@@ -27,6 +27,7 @@ add_executable(AgentBioSimCpp
     src/neural/Phase9Diagnostics.cpp
     src/perception/PerceptionSystem.cpp
     src/perception/Phase10Diagnostics.cpp
+    src/perception/Phase11Diagnostics.cpp
     src/perception/SceneQuery.cpp
     src/render/Camera2D.cpp
     src/render/Renderer.cpp

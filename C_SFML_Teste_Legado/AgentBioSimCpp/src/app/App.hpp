@@ -83,5 +83,7 @@ private:
     float lastFps_ = 0.0F;
     double spatialCellSize_ = 36.0;
     simulation::SpatialHashStats lastSpatialStats_{};
+    bool visionDebugEnabled_ = false;
+    perception::VisionDebugData visionDebug_{};
 };
 } // namespace agentbiosim
