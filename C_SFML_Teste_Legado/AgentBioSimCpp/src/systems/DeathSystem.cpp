@@ -1,67 +1,16 @@
 #include "systems/DeathSystem.hpp"
 
-#include "config/Parameter.hpp"
+#include "config/ParameterHelpers.hpp"
 
 #include <algorithm>
-#include <string>
 #include <utility>
-#include <variant>
 #include <vector>
 
 namespace agentbiosim::systems
 {
-namespace
-{
-double parameterDouble(const config::ParameterRegistry& parameters, const std::string& name, const double fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return static_cast<double>(*value);
-    }
-    return fallback;
-}
-
-int parameterInt(const config::ParameterRegistry& parameters, const std::string& name, const int fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return static_cast<int>(*value);
-    }
-    return fallback;
-}
-
-bool parameterBool(const config::ParameterRegistry& parameters, const std::string& name, const bool fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<bool>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
-}
-} // namespace
+using config::parameterBool;
+using config::parameterDouble;
+using config::parameterInt;
 
 DeathConfig DeathSystem::fromRegistry(const config::ParameterRegistry& parameters)
 {

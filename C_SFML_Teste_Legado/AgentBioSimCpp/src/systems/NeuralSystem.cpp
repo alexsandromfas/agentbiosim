@@ -1,6 +1,6 @@
 #include "systems/NeuralSystem.hpp"
 
-#include "config/Parameter.hpp"
+#include "config/ParameterHelpers.hpp"
 #include "neural/BrainFactory.hpp"
 #include "perception/PerceptionResult.hpp"
 
@@ -8,48 +8,14 @@
 #include <cmath>
 #include <random>
 #include <unordered_set>
-#include <variant>
 
 namespace agentbiosim::systems
 {
+using config::parameterDouble;
+using config::parameterInt;
+
 namespace
 {
-double parameterDouble(const config::ParameterRegistry& parameters, const std::string& name, const double fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return static_cast<double>(*value);
-    }
-    return fallback;
-}
-
-int parameterInt(const config::ParameterRegistry& parameters, const std::string& name, const int fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return static_cast<int>(*value);
-    }
-    return fallback;
-}
-
 double normalizedCoordinate(const double value, const double minValue, const double maxValue)
 {
     const double span = std::max(1.0e-9, maxValue - minValue);
@@ -132,6 +98,38 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
     }
     lastStats_.brainCount = brainsByAgentId_.size();
     return controls;
+}
+
+bool NeuralSystem::inheritBrain(const std::uint64_t childAgentId,
+                                const std::uint64_t parentAgentId,
+                                const neural::BrainConfig& signatureConfig,
+                                const double mutationRate,
+                                const double mutationStrength,
+                                std::mt19937_64& rng)
+{
+    const auto parentIt = brainsByAgentId_.find(parentAgentId);
+    if (parentIt == brainsByAgentId_.end() || parentIt->second.brain == nullptr)
+    {
+        return false;
+    }
+
+    BrainSlot slot;
+    // Deep copy of parent brain: MLPBrain::clone returns a fresh value, not shared state.
+    slot.brain = std::make_unique<neural::MLPBrain>(parentIt->second.brain->clone());
+    slot.signature = signatureConfig.architectureSignature();
+
+    if (mutationRate > 0.0 && mutationStrength > 0.0)
+    {
+        static_cast<void>(slot.brain->mutate(mutationRate, mutationStrength, rng));
+    }
+
+    brainsByAgentId_[childAgentId] = std::move(slot);
+    return true;
+}
+
+void NeuralSystem::removeBrainFor(const std::uint64_t agentId) noexcept
+{
+    brainsByAgentId_.erase(agentId);
 }
 
 void NeuralSystem::clear()

@@ -34,6 +34,9 @@ struct ColorRgb
     std::uint8_t b = 255;
 };
 
+using GenomeId = std::uint64_t;
+inline constexpr GenomeId kInvalidGenomeId = 0;
+
 struct AgentSpawn
 {
     Vec2 position{};
@@ -43,8 +46,10 @@ struct AgentSpawn
     double energy = 100.0;
     double age = 0.0;
     double angularVelocity = 0.0;
+    double reproductionCooldown = 0.0;
     ColorRgb color{220, 220, 220};
     SpeciesId speciesId = 0;
+    GenomeId genomeId = kInvalidGenomeId;
     AgentTypeCode typeCode = AgentTypeCode::LegacyBacteria;
     BodyShapeCode bodyShape = BodyShapeCode::Ellipse;
 };

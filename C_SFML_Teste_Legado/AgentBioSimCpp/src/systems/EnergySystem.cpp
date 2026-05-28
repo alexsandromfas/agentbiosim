@@ -1,42 +1,19 @@
 #include "systems/EnergySystem.hpp"
 
-#include "config/Parameter.hpp"
+#include "config/ParameterHelpers.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <string>
-#include <variant>
 
 namespace agentbiosim::systems
 {
-namespace
-{
-double parameterDouble(const config::ParameterRegistry& parameters, const std::string& name, const double fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return static_cast<double>(*value);
-    }
-    return fallback;
-}
-} // namespace
-
 EnergyConfig EnergySystem::fromRegistry(const config::ParameterRegistry& parameters)
 {
     EnergyConfig config;
-    config.v0Cost = parameterDouble(parameters, "bacteria_metab_v0_cost", config.v0Cost);
-    config.vmaxCost = parameterDouble(parameters, "bacteria_metab_vmax_cost", config.vmaxCost);
-    config.vmaxRef = std::max(1.0e-6, parameterDouble(parameters, "bacteria_max_speed", config.vmaxRef));
-    config.energyCap = parameterDouble(parameters, "bacteria_energy_cap", config.energyCap);
+    config.v0Cost = config::parameterDouble(parameters, "bacteria_metab_v0_cost", config.v0Cost);
+    config.vmaxCost = config::parameterDouble(parameters, "bacteria_metab_vmax_cost", config.vmaxCost);
+    config.vmaxRef = std::max(1.0e-6, config::parameterDouble(parameters, "bacteria_max_speed", config.vmaxRef));
+    config.energyCap = config::parameterDouble(parameters, "bacteria_energy_cap", config.energyCap);
     return config;
 }
 

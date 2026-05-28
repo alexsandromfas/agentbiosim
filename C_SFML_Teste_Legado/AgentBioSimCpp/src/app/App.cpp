@@ -1,7 +1,7 @@
 #include "app/App.hpp"
 
 #include "config/ParameterDefaults.hpp"
-#include "config/Parameter.hpp"
+#include "config/ParameterHelpers.hpp"
 #include "core/Version.hpp"
 
 #include <SFML/Graphics/Color.hpp>
@@ -22,6 +22,12 @@
 
 namespace agentbiosim
 {
+using config::parameterBool;
+using config::parameterColor;
+using config::parameterDouble;
+using config::parameterInt;
+using config::parameterString;
+
 namespace
 {
 constexpr unsigned int kWindowWidth = 1280;
@@ -29,89 +35,9 @@ constexpr unsigned int kWindowHeight = 720;
 constexpr unsigned int kFrameLimit = 120;
 constexpr float kWorldPaddingPixels = 48.0F;
 
-double parameterDouble(const config::ParameterRegistry& parameters, const std::string& name, const double fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return static_cast<double>(*value);
-    }
-    return fallback;
-}
-
-int parameterInt(const config::ParameterRegistry& parameters, const std::string& name, const int fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return static_cast<int>(*value);
-    }
-    return fallback;
-}
-
-bool parameterBool(const config::ParameterRegistry& parameters, const std::string& name, const bool fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<bool>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
-}
-
-std::string parameterString(const config::ParameterRegistry& parameters, const std::string& name, const std::string& fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<std::string>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
-}
-
 sf::Vector2f toSfml(const simulation::Vec2 value)
 {
     return {static_cast<float>(value.x), static_cast<float>(value.y)};
-}
-
-config::ColorRgb parameterColor(const config::ParameterRegistry& parameters,
-                                const std::string& name,
-                                const config::ColorRgb fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<config::ColorRgb>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
 }
 
 std::uint8_t colorChannel(const int value)
@@ -176,7 +102,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 12: sector/bins vision with high-scale auto sector initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 13: reproduction, genome and base mutation initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -334,6 +260,7 @@ void App::spawnDemoEntities()
 {
     agents_.clear();
     foods_.clear();
+    genomes_.clear();
 
     const int seedParameter = parameterInt(parameters_, "random_seed", -1);
     const std::uint32_t seed = seedParameter >= 0 ? static_cast<std::uint32_t>(seedParameter) : 1337U;
@@ -345,6 +272,20 @@ void App::spawnDemoEntities()
     const simulation::ColorRgb agentColor = toEntityColor(parameterColor(parameters_, "bacteria_color", {220, 220, 220}));
     const simulation::BodyShapeCode bodyShape = toBodyShapeCode(parameterString(parameters_, "bacteria_body_shape", "ellipse"));
 
+    // Seed a founder genome for the initial bacteria population (Phase 13).
+    simulation::GenomeRecord founder;
+    founder.bodySize = agentRadius;
+    founder.bodyShape = bodyShape;
+    founder.color = agentColor;
+    founder.mutationRate = parameterDouble(parameters_, "bacteria_mutation_rate", 0.05);
+    founder.mutationStrength = parameterDouble(parameters_, "bacteria_mutation_strength", 0.08);
+    founder.splitEnergy = parameterDouble(parameters_, "bacteria_split_energy", 150.0);
+    founder.initialEnergy = initialEnergy;
+    founder.energyCap = parameterDouble(parameters_, "bacteria_energy_cap", 400.0);
+    founder.speciesPrefix = "bacteria";
+    founder.typeCode = simulation::AgentTypeCode::LegacyBacteria;
+    const simulation::GenomeHandle founderHandle = genomes_.createGenome(founder);
+
     std::uniform_real_distribution<double> angleDistribution(0.0, 2.0 * 3.14159265358979323846);
     for (int i = 0; i < agentCount; ++i)
     {
@@ -355,6 +296,7 @@ void App::spawnDemoEntities()
         spawn.energy = initialEnergy;
         spawn.color = agentColor;
         spawn.speciesId = 0;
+        spawn.genomeId = founderHandle.id;
         spawn.typeCode = simulation::AgentTypeCode::LegacyBacteria;
         spawn.bodyShape = bodyShape;
         [[maybe_unused]] const simulation::EntityId createdAgent = agents_.createAgent(spawn);
@@ -457,11 +399,22 @@ void App::runSimulationStep(const double dt)
     lastInteractionStats_ = interactionSystem_.apply(agents_, foods_, spatialPtr, interactionConfig);
     foodEatenCount_ += lastInteractionStats_.foodsConsumed;
 
+    // Phase 13: reproduction between interaction (food/energy gained) and death.
+    const systems::ReproductionConfig reproductionConfig =
+        systems::ReproductionSystem::fromRegistry(parameters_, "bacteria", neuralConfig.brainConfig);
+    lastReproductionStats_ = reproductionSystem_.apply(
+        agents_, genomes_, neuralSystem_, world_,
+        neuralConfig.brainConfig, reproductionConfig, dt);
+
     const systems::DeathConfig deathConfig = systems::DeathSystem::fromRegistry(parameters_);
     lastDeathStats_ = deathSystem_.apply(agents_, deathConfig);
     deathsCount_ += lastDeathStats_.deaths;
+    // Clean up brains of removed agents (best-effort: NeuralSystem.syncBrains also prunes,
+    // but doing it eagerly here keeps the count current in stats).
+    // Note: NeuralSystem.syncBrains is called on next step; this is fine.
 
-    if (lastInteractionStats_.foodsConsumed > 0U || lastDeathStats_.deaths > 0U)
+    if (lastInteractionStats_.foodsConsumed > 0U || lastDeathStats_.deaths > 0U ||
+        lastReproductionStats_.birthsThisStep > 0U)
     {
         rebuildSpatialHash();
     }
@@ -504,6 +457,7 @@ void App::updateFpsTitle()
           << " | agents " << lastRenderStats_.agentsDrawn << "/" << agents_.size()
           << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
           << " | eaten " << foodEatenCount_
+          << " | births " << reproductionSystem_.totalBirths()
           << " | deaths " << deathsCount_
           << " | vision " << lastPerceptionStats_.visionMode
           << " " << lastPerceptionStats_.inputSize << "in"

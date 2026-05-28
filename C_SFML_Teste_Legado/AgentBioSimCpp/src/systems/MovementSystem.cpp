@@ -1,65 +1,22 @@
 #include "systems/MovementSystem.hpp"
 
-#include "config/Parameter.hpp"
+#include "config/ParameterHelpers.hpp"
 
 #include <algorithm>
-#include <cmath>
 #include <cctype>
+#include <cmath>
 #include <string>
-#include <variant>
 
 namespace agentbiosim::systems
 {
+using config::parameterBool;
+using config::parameterDouble;
+using config::parameterString;
+
 namespace
 {
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kTwoPi = kPi * 2.0;
-
-double parameterDouble(const config::ParameterRegistry& parameters, const std::string& name, const double fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<double>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    if (const auto* value = std::get_if<int>(&definition->defaultValue))
-    {
-        return static_cast<double>(*value);
-    }
-    return fallback;
-}
-
-bool parameterBool(const config::ParameterRegistry& parameters, const std::string& name, const bool fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<bool>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
-}
-
-std::string parameterString(const config::ParameterRegistry& parameters, const std::string& name, const std::string& fallback)
-{
-    const config::ParameterDefinition* definition = parameters.find(name);
-    if (definition == nullptr)
-    {
-        return fallback;
-    }
-    if (const auto* value = std::get_if<std::string>(&definition->defaultValue))
-    {
-        return *value;
-    }
-    return fallback;
-}
 
 std::string normalizedText(std::string value)
 {

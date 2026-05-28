@@ -4,6 +4,7 @@
 #include "perception/Phase10Diagnostics.hpp"
 #include "perception/Phase11Diagnostics.hpp"
 #include "perception/Phase12Diagnostics.hpp"
+#include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
 #include "systems/Phase8Diagnostics.hpp"
@@ -31,6 +32,8 @@ int main(const int argc, char* argv[])
         bool runPhase11Benchmark = false;
         bool runPhase12Validation = false;
         bool runPhase12Benchmark = false;
+        bool runPhase13Validation = false;
+        bool runPhase13Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -131,6 +134,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase12Validation = true;
                 runPhase12Benchmark = true;
+            }
+            else if (argument == "--phase13-selftest")
+            {
+                runPhase13Validation = true;
+            }
+            else if (argument == "--phase13-benchmark")
+            {
+                runPhase13Benchmark = true;
+            }
+            else if (argument == "--phase13-diagnostics")
+            {
+                runPhase13Validation = true;
+                runPhase13Benchmark = true;
             }
         }
 
@@ -401,6 +417,45 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase12Validation || runPhase12Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase13Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase13Validation();
+            std::cout << "Phase13 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 9;
+            }
+        }
+
+        if (runPhase13Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase13Microbenchmark();
+            std::cout << "Phase13 reproduction microbenchmark\n";
+            std::cout << "scenario,initial_agents,final_agents,total_births,steps,repeats,total_ms,avg_step_us,us_per_birth,mutation,hidden\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.initialAgents << ','
+                          << row.finalAgents << ','
+                          << row.totalBirths << ','
+                          << row.steps << ','
+                          << row.repeats << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageStepMicroseconds << ','
+                          << row.microsecondsPerBirth << ','
+                          << (row.mutationEnabled ? "on" : "off") << ','
+                          << row.hiddenLayers << '\n';
+            }
+        }
+
+        if (runPhase13Validation || runPhase13Benchmark)
         {
             return 0;
         }

@@ -6,6 +6,7 @@
 #include "simulation/AgentStore.hpp"
 #include "simulation/FixedTimestep.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/GenomeStore.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "simulation/World.hpp"
 #include "systems/DeathSystem.hpp"
@@ -14,6 +15,7 @@
 #include "systems/MovementSystem.hpp"
 #include "perception/PerceptionSystem.hpp"
 #include "systems/NeuralSystem.hpp"
+#include "systems/ReproductionSystem.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
 #include <SFML/System/Clock.hpp>
@@ -50,12 +52,14 @@ private:
     simulation::FixedTimestep timestep_;
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
+    simulation::GenomeStore genomes_;
     simulation::SpatialHash spatialHash_;
     perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;
     systems::NeuralSystem neuralSystem_;
     systems::EnergySystem energySystem_;
     systems::InteractionSystem interactionSystem_;
+    systems::ReproductionSystem reproductionSystem_;
     systems::DeathSystem deathSystem_;
     render::Camera2D camera_;
     render::Renderer renderer_;
@@ -66,6 +70,7 @@ private:
     systems::NeuralStats lastNeuralStats_{};
     systems::EnergyStats lastEnergyStats_{};
     systems::InteractionStats lastInteractionStats_{};
+    systems::ReproductionStats lastReproductionStats_{};
     systems::DeathStats lastDeathStats_{};
     sf::RenderWindow window_;
     sf::Clock frameClock_;

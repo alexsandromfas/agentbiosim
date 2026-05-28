@@ -20,8 +20,10 @@ EntityId AgentStore::createAgent(const AgentSpawn& spawn)
     radius_.push_back(spawn.radius);
     energy_.push_back(spawn.energy);
     age_.push_back(spawn.age);
+    reproductionCooldown_.push_back(spawn.reproductionCooldown);
     color_.push_back(spawn.color);
     speciesId_.push_back(spawn.speciesId);
+    genomeId_.push_back(spawn.genomeId);
     typeCode_.push_back(spawn.typeCode);
     bodyShape_.push_back(spawn.bodyShape);
     alive_.push_back(1U);
@@ -53,8 +55,10 @@ void AgentStore::clear()
     radius_.clear();
     energy_.clear();
     age_.clear();
+    reproductionCooldown_.clear();
     color_.clear();
     speciesId_.clear();
+    genomeId_.clear();
     typeCode_.clear();
     bodyShape_.clear();
     alive_.clear();
@@ -153,6 +157,11 @@ double AgentStore::ageAt(const std::size_t index) const
     return age_.at(index);
 }
 
+double AgentStore::reproductionCooldownAt(const std::size_t index) const
+{
+    return reproductionCooldown_.at(index);
+}
+
 ColorRgb AgentStore::colorAt(const std::size_t index) const
 {
     return color_.at(index);
@@ -161,6 +170,11 @@ ColorRgb AgentStore::colorAt(const std::size_t index) const
 SpeciesId AgentStore::speciesIdAt(const std::size_t index) const
 {
     return speciesId_.at(index);
+}
+
+GenomeId AgentStore::genomeIdAt(const std::size_t index) const
+{
+    return genomeId_.at(index);
 }
 
 AgentTypeCode AgentStore::typeCodeAt(const std::size_t index) const
@@ -254,6 +268,21 @@ void AgentStore::addAgeAt(const std::size_t index, const double deltaSeconds)
     age_.at(index) = std::max(0.0, age_.at(index) + deltaSeconds);
 }
 
+void AgentStore::setReproductionCooldownAt(const std::size_t index, const double cooldown)
+{
+    reproductionCooldown_.at(index) = std::max(0.0, cooldown);
+}
+
+void AgentStore::addReproductionCooldownAt(const std::size_t index, const double deltaSeconds)
+{
+    reproductionCooldown_.at(index) = std::max(0.0, reproductionCooldown_.at(index) + deltaSeconds);
+}
+
+void AgentStore::setGenomeIdAt(const std::size_t index, const GenomeId genomeId)
+{
+    genomeId_.at(index) = genomeId;
+}
+
 void AgentStore::removeAtIndex(const std::size_t index)
 {
     const std::size_t last = ids_.size() - 1U;
@@ -271,8 +300,10 @@ void AgentStore::removeAtIndex(const std::size_t index)
         radius_[index] = radius_[last];
         energy_[index] = energy_[last];
         age_[index] = age_[last];
+        reproductionCooldown_[index] = reproductionCooldown_[last];
         color_[index] = color_[last];
         speciesId_[index] = speciesId_[last];
+        genomeId_[index] = genomeId_[last];
         typeCode_[index] = typeCode_[last];
         bodyShape_[index] = bodyShape_[last];
         alive_[index] = alive_[last];
@@ -289,8 +320,10 @@ void AgentStore::removeAtIndex(const std::size_t index)
     radius_.pop_back();
     energy_.pop_back();
     age_.pop_back();
+    reproductionCooldown_.pop_back();
     color_.pop_back();
     speciesId_.pop_back();
+    genomeId_.pop_back();
     typeCode_.pop_back();
     bodyShape_.pop_back();
     alive_.pop_back();

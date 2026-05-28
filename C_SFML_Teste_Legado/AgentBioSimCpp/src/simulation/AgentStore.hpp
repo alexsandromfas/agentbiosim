@@ -36,8 +36,10 @@ public:
     [[nodiscard]] double radiusAt(std::size_t index) const;
     [[nodiscard]] double energyAt(std::size_t index) const;
     [[nodiscard]] double ageAt(std::size_t index) const;
+    [[nodiscard]] double reproductionCooldownAt(std::size_t index) const;
     [[nodiscard]] ColorRgb colorAt(std::size_t index) const;
     [[nodiscard]] SpeciesId speciesIdAt(std::size_t index) const;
+    [[nodiscard]] GenomeId genomeIdAt(std::size_t index) const;
     [[nodiscard]] AgentTypeCode typeCodeAt(std::size_t index) const;
     [[nodiscard]] BodyShapeCode bodyShapeAt(std::size_t index) const;
     [[nodiscard]] bool aliveAt(std::size_t index) const;
@@ -52,6 +54,9 @@ public:
     void setEnergyAt(std::size_t index, double energy);
     [[nodiscard]] double addEnergyAt(std::size_t index, double delta, double cap);
     void addAgeAt(std::size_t index, double deltaSeconds);
+    void setReproductionCooldownAt(std::size_t index, double cooldown);
+    void addReproductionCooldownAt(std::size_t index, double deltaSeconds);
+    void setGenomeIdAt(std::size_t index, GenomeId genomeId);
 
 private:
     void removeAtIndex(std::size_t index);
@@ -66,8 +71,10 @@ private:
     std::vector<double> radius_;
     std::vector<double> energy_;
     std::vector<double> age_;
+    std::vector<double> reproductionCooldown_;
     std::vector<ColorRgb> color_;
     std::vector<SpeciesId> speciesId_;
+    std::vector<GenomeId> genomeId_;
     std::vector<AgentTypeCode> typeCode_;
     std::vector<BodyShapeCode> bodyShape_;
     std::vector<std::uint8_t> alive_;

@@ -4,44 +4,30 @@ Este registro acompanha dividas tecnicas identificadas durante a migracao C++/SF
 
 Data de criacao: 2026-05-27 (pos-auditoria da Fase 9).
 
-## Divida 1 — Helpers de parametros duplicados
+## Divida 1 — Helpers de parametros duplicados [RESOLVIDA NA FASE 13]
 
-Descricao:
-Os helpers `parameterDouble`, `parameterInt`, `parameterBool` e `parameterString` aparecem copiados em pelo menos quatro arquivos:
+Status: **RESOLVIDA** (commit da Fase 13, 2026-05-28).
+
+Descricao original:
+Os helpers `parameterDouble`, `parameterInt`, `parameterBool` e `parameterString` apareciam copiados em pelo menos sete arquivos:
 
 - `src/app/App.cpp`
 - `src/systems/MovementSystem.cpp`
 - `src/systems/NeuralSystem.cpp`
+- `src/systems/EnergySystem.cpp`
+- `src/systems/InteractionSystem.cpp`
+- `src/systems/DeathSystem.cpp`
 - `src/neural/BrainFactory.cpp`
 
-Cada copia e uma funcao anonima identica em namespace anonimo local. Novos sistemas tendem a adicionar mais copias.
+Resolucao:
+- `src/config/ParameterHelpers.hpp` ja existia desde a Fase 10 com as funcoes inline em `agentbiosim::config`.
+- Na Fase 13, todas as 7 copias locais em namespace anonimo foram removidas. Cada arquivo agora inclui `config/ParameterHelpers.hpp` e usa `using config::parameterDouble;` (etc.) ou chamadas qualificadas `config::parameterDouble(...)`.
+- `ReproductionSystem.cpp` (novo) usa o header desde o inicio — nenhuma nova duplicacao.
 
-Impacto:
-- Aumenta manutencao: uma correcao deve ser replicada em todas as copias.
-- Aumenta risco de comportamento inconsistente entre sistemas.
-- Tende a piorar conforme novos sistemas forem adicionados (Fases 10 a 21).
-
-Acao recomendada:
-Extrair para um header utilitario como:
-
-```
-src/config/ParameterHelpers.hpp
-```
-
-Ou como metodos de conveniencia em `ParameterRegistry`.
-
-Momento sugerido:
-Antes da Fase 13 (reproducao e genoma) ou na primeira fase de cleanup tecnico.
-
-Prioridade:
-Media.
-
-Bloqueia Fase 10?
-Nao.
-
-Arquivos afetados:
-- `App.cpp`, `MovementSystem.cpp`, `NeuralSystem.cpp`, `BrainFactory.cpp`.
-- Futuros: `PerceptionSystem`, `ReproductionSystem`, `CollisionSystem` e qualquer sistema que leia parametros.
+Verificacao:
+- Build Debug/Release: OK.
+- Phase 7-13 selftests: PASS.
+- Grep por anonymous `parameterDouble` retorna 0 resultados nos arquivos listados.
 
 ## Divida 2 — BrainSlot dependente de MLPBrain
 
@@ -201,7 +187,7 @@ Arquivos afetados:
 
 | Divida | Fase recomendada para resolver | Prioridade |
 |---|---|---|
-| 1. Helpers duplicados | Antes da Fase 13 | Media |
+| 1. Helpers duplicados | **RESOLVIDA na Fase 13** | Media |
 | 2. BrainSlot/MLPBrain concreto | Antes da Fase 14 | Alta futura |
 | 3. Nomes Numba/Python | Antes da Fase 14 ou 30 | Baixa/media |
 | 4. App acumulando responsabilidades | Antes da Fase 22 | Media |

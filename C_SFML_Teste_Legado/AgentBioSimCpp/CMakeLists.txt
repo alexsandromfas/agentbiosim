@@ -35,6 +35,7 @@ add_executable(AgentBioSimCpp
     src/simulation/AgentStore.cpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp
+    src/simulation/GenomeStore.cpp
     src/simulation/SpatialHash.cpp
     src/simulation/World.cpp
     src/systems/DeathSystem.cpp
@@ -44,6 +45,8 @@ add_executable(AgentBioSimCpp
     src/systems/NeuralSystem.cpp
     src/systems/Phase7Diagnostics.cpp
     src/systems/Phase8Diagnostics.cpp
+    src/systems/Phase13Diagnostics.cpp
+    src/systems/ReproductionSystem.cpp
 )
 
 target_include_directories(AgentBioSimCpp

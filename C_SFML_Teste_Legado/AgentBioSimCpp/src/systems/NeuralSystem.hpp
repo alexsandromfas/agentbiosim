@@ -57,6 +57,18 @@ public:
         const NeuralSystemConfig& config,
         const perception::PerceptionResult* perception = nullptr);
 
+    // Phase 13: inject child brain by cloning the parent brain and mutating.
+    // The architecture signature recorded matches the provided config to prevent
+    // syncBrains from recreating it as a fresh random brain.
+    bool inheritBrain(std::uint64_t childAgentId,
+                      std::uint64_t parentAgentId,
+                      const neural::BrainConfig& signatureConfig,
+                      double mutationRate,
+                      double mutationStrength,
+                      std::mt19937_64& rng);
+
+    void removeBrainFor(std::uint64_t agentId) noexcept;
+
     void clear();
 
     [[nodiscard]] const NeuralStats& lastStats() const noexcept;
