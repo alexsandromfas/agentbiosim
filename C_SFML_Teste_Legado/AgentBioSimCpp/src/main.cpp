@@ -1,6 +1,7 @@
 #include "app/App.hpp"
 #include "config/ParameterDefaults.hpp"
 #include "neural/Phase9Diagnostics.hpp"
+#include "perception/Phase10Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
 #include "systems/Phase8Diagnostics.hpp"
@@ -22,6 +23,8 @@ int main(const int argc, char* argv[])
         bool runPhase8Benchmark = false;
         bool runPhase9Validation = false;
         bool runPhase9Benchmark = false;
+        bool runPhase10Validation = false;
+        bool runPhase10Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -83,6 +86,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase9Validation = true;
                 runPhase9Benchmark = true;
+            }
+            else if (argument == "--phase10-selftest")
+            {
+                runPhase10Validation = true;
+            }
+            else if (argument == "--phase10-benchmark")
+            {
+                runPhase10Benchmark = true;
+            }
+            else if (argument == "--phase10-diagnostics")
+            {
+                runPhase10Validation = true;
+                runPhase10Benchmark = true;
             }
         }
 
@@ -222,6 +238,45 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase9Validation || runPhase9Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase10Validation)
+        {
+            const auto summary = agentbiosim::perception::runPhase10Validation();
+            std::cout << "Phase10 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 6;
+            }
+        }
+
+        if (runPhase10Benchmark)
+        {
+            const auto rows = agentbiosim::perception::runPhase10Microbenchmark();
+            std::cout << "Phase10 perception microbenchmark\n";
+            std::cout << "scenario,agents,retina_count,eye_count,channels,input_size,repeats,total_ms,avg_perception_us,avg_candidates,spatial\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.agents << ','
+                          << row.retinaCount << ','
+                          << row.eyeCount << ','
+                          << row.channelCount << ','
+                          << row.inputSize << ','
+                          << row.repeats << ','
+                          << row.totalMilliseconds << ','
+                          << row.averagePerceptionMicroseconds << ','
+                          << row.averageCandidatesPerAgent << ','
+                          << (row.usedSpatialHash ? "true" : "false") << '\n';
+            }
+        }
+
+        if (runPhase10Validation || runPhase10Benchmark)
         {
             return 0;
         }

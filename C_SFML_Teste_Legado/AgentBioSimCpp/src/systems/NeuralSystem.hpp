@@ -15,6 +15,8 @@
 #include <unordered_map>
 #include <vector>
 
+namespace agentbiosim::perception { struct PerceptionResult; }
+
 namespace agentbiosim::systems
 {
 struct NeuralSystemConfig
@@ -32,23 +34,28 @@ struct NeuralStats
     std::size_t fallbacksToMlp = 0;
     std::string requestedType;
     std::string activeType;
+    bool usingPerception = false;
+    std::size_t inputSize = 0;
 };
 
 class NeuralSystem
 {
 public:
-    [[nodiscard]] static constexpr std::size_t temporaryInputSize() noexcept
+    [[nodiscard]] static constexpr std::size_t syntheticInputSize() noexcept
     {
         return 4U;
     }
 
     [[nodiscard]] static std::size_t outputSizeForMovementMode(MovementMode mode) noexcept;
     [[nodiscard]] static NeuralSystemConfig fromRegistry(const config::ParameterRegistry& parameters,
-                                                         const MovementConfig& movementConfig);
+                                                         const MovementConfig& movementConfig,
+                                                         std::size_t inputSize);
 
-    [[nodiscard]] std::vector<MovementControl> produceMovementControls(const simulation::AgentStore& agents,
-                                                                       const simulation::World& world,
-                                                                       const NeuralSystemConfig& config);
+    [[nodiscard]] std::vector<MovementControl> produceMovementControls(
+        const simulation::AgentStore& agents,
+        const simulation::World& world,
+        const NeuralSystemConfig& config,
+        const perception::PerceptionResult* perception = nullptr);
 
     void clear();
 
@@ -63,7 +70,7 @@ private:
     };
 
     void syncBrains(const simulation::AgentStore& agents, const NeuralSystemConfig& config);
-    [[nodiscard]] std::vector<double> temporaryInputForAgent(const simulation::AgentStore& agents,
+    [[nodiscard]] std::vector<double> syntheticInputForAgent(const simulation::AgentStore& agents,
                                                             const simulation::World& world,
                                                             const NeuralSystemConfig& config,
                                                             std::size_t agentIndex) const;

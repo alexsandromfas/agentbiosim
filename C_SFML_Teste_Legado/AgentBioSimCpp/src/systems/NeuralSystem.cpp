@@ -2,6 +2,7 @@
 
 #include "config/Parameter.hpp"
 #include "neural/BrainFactory.hpp"
+#include "perception/PerceptionResult.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -62,24 +63,33 @@ std::size_t NeuralSystem::outputSizeForMovementMode(const MovementMode mode) noe
 }
 
 NeuralSystemConfig NeuralSystem::fromRegistry(const config::ParameterRegistry& parameters,
-                                              const MovementConfig& movementConfig)
+                                              const MovementConfig& movementConfig,
+                                              const std::size_t inputSize)
 {
     NeuralSystemConfig config;
     const std::size_t outputSize = outputSizeForMovementMode(movementConfig.mode);
-    config.brainConfig = neural::BrainFactory::configFromRegistry(parameters, "bacteria", temporaryInputSize(), outputSize);
+    const std::size_t effectiveInputSize = inputSize > 0 ? inputSize : syntheticInputSize();
+    config.brainConfig = neural::BrainFactory::configFromRegistry(parameters, "bacteria", effectiveInputSize, outputSize);
     config.energyNormalizer = std::max(1.0e-9, parameterDouble(parameters, "bacteria_energy_cap", 400.0));
     const int seed = parameterInt(parameters, "random_seed", -1);
     config.seed = seed >= 0 ? static_cast<std::uint64_t>(seed) : 20260527ULL;
     return config;
 }
 
-std::vector<MovementControl> NeuralSystem::produceMovementControls(const simulation::AgentStore& agents,
-                                                                   const simulation::World& world,
-                                                                   const NeuralSystemConfig& config)
+std::vector<MovementControl> NeuralSystem::produceMovementControls(
+    const simulation::AgentStore& agents,
+    const simulation::World& world,
+    const NeuralSystemConfig& config,
+    const perception::PerceptionResult* perception)
 {
     lastStats_ = {};
     lastStats_.requestedType = neural::brainTypeName(config.brainConfig.requestedType);
     lastStats_.activeType = neural::brainTypeName(config.brainConfig.type);
+    lastStats_.inputSize = config.brainConfig.inputSize;
+
+    const bool usePerception = perception != nullptr && perception->active &&
+                               perception->inputSize > 0 && perception->agentCount == agents.size();
+    lastStats_.usingPerception = usePerception;
 
     syncBrains(agents, config);
 
@@ -93,7 +103,17 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(const simulat
             continue;
         }
 
-        const std::vector<double> input = temporaryInputForAgent(agents, world, config, index);
+        std::vector<double> input;
+        if (usePerception)
+        {
+            const double* data = perception->inputForAgent(index);
+            input.assign(data, data + perception->inputSize);
+        }
+        else
+        {
+            input = syntheticInputForAgent(agents, world, config, index);
+        }
+
         const std::vector<double> output = executor_.forward(*it->second.brain, input);
         MovementControl control;
         if (output.size() >= 3U)
@@ -172,7 +192,7 @@ void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const Neural
     }
 }
 
-std::vector<double> NeuralSystem::temporaryInputForAgent(const simulation::AgentStore& agents,
+std::vector<double> NeuralSystem::syntheticInputForAgent(const simulation::AgentStore& agents,
                                                         const simulation::World& world,
                                                         const NeuralSystemConfig& config,
                                                         const std::size_t agentIndex) const

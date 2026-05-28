@@ -176,7 +176,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 9: extensible MLP brain foundation initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 10: retina perception with single vision initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -415,10 +415,16 @@ void App::rebuildSpatialHash()
 
 void App::runSimulationStep(const double dt)
 {
+    const auto perceptionConfig = perception::PerceptionSystem::fromRegistry(parameters_, "bacteria");
+    const auto perceptionResult = perceptionSystem_.computeInputs(
+        agents_, foods_, spatialEnabled_ ? &spatialHash_ : nullptr, world_, perceptionConfig);
+    lastPerceptionStats_ = perceptionSystem_.lastStats();
+
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
-    const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(parameters_, movementConfig);
+    const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(
+        parameters_, movementConfig, perceptionResult.inputSize);
     const std::vector<systems::MovementControl> neuralControls =
-        neuralSystem_.produceMovementControls(agents_, world_, neuralConfig);
+        neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
     lastNeuralStats_ = neuralSystem_.lastStats();
     lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls);
 
@@ -478,6 +484,9 @@ void App::updateFpsTitle()
           << " | food " << lastRenderStats_.foodsDrawn << "/" << foods_.size()
           << " | eaten " << foodEatenCount_
           << " | deaths " << deathsCount_
+          << " | vision " << lastPerceptionStats_.visionMode
+          << " " << lastPerceptionStats_.inputSize << "in"
+          << " " << (lastNeuralStats_.usingPerception ? "real" : "synthetic")
           << " | brains " << lastNeuralStats_.brainCount
           << " " << lastNeuralStats_.activeType
           << " | moved " << lastMovementStats_.agentsProcessed

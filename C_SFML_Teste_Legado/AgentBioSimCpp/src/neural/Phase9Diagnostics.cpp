@@ -55,7 +55,7 @@ BrainConfig smallConfig(const std::string& name, const std::vector<std::size_t>&
 {
     (void)name;
     BrainConfig config;
-    config.inputSize = systems::NeuralSystem::temporaryInputSize();
+    config.inputSize = systems::NeuralSystem::syntheticInputSize();
     config.outputSize = outputSize;
     config.hiddenLayers = hiddenLayers;
     config.mutationRate = 0.05;
@@ -137,14 +137,14 @@ Phase9ValidationSummary runPhase9Validation()
 
     const auto registry = config::createDefaultParameterRegistry();
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(registry);
-    const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(registry, movementConfig);
-    addCheck(summary, "BrainConfig uses temporary input size", neuralConfig.brainConfig.inputSize == systems::NeuralSystem::temporaryInputSize());
+    const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(registry, movementConfig, systems::NeuralSystem::syntheticInputSize());
+    addCheck(summary, "BrainConfig uses synthetic input size", neuralConfig.brainConfig.inputSize == systems::NeuralSystem::syntheticInputSize());
     addCheck(summary, "BrainConfig forward output size is two", neuralConfig.brainConfig.outputSize == 2U);
     addCheck(summary, "BrainConfig reads default hidden layers", neuralConfig.brainConfig.hiddenLayers == std::vector<std::size_t>({20U, 20U, 20U, 20U}));
     addCheck(summary, "BrainConfig reads mutation parameters",
              std::abs(neuralConfig.brainConfig.mutationRate - 0.05) <= kEpsilon &&
                  std::abs(neuralConfig.brainConfig.mutationStrength - 0.08) <= kEpsilon);
-    const BrainConfig predatorConfig = BrainFactory::configFromRegistry(registry, "predator", systems::NeuralSystem::temporaryInputSize(), 2U);
+    const BrainConfig predatorConfig = BrainFactory::configFromRegistry(registry, "predator", systems::NeuralSystem::syntheticInputSize(), 2U);
     addCheck(summary, "BrainConfig can read predator neural defaults for future species",
              predatorConfig.hiddenLayers == std::vector<std::size_t>({16U, 8U}) &&
                  std::abs(predatorConfig.mutationRate - 0.05) <= kEpsilon);
@@ -224,7 +224,7 @@ Phase9ValidationSummary runPhase9Validation()
     {
         systems::MovementConfig omniMovement = movementConfig;
         omniMovement.mode = systems::MovementMode::Omni;
-        const systems::NeuralSystemConfig omniConfig = systems::NeuralSystem::fromRegistry(registry, omniMovement);
+        const systems::NeuralSystemConfig omniConfig = systems::NeuralSystem::fromRegistry(registry, omniMovement, systems::NeuralSystem::syntheticInputSize());
         addCheck(summary, "Omni movement receives three outputs", omniConfig.brainConfig.outputSize == 3U);
     }
 
@@ -249,7 +249,7 @@ Phase9ValidationSummary runPhase9Validation()
         std::ostringstream details;
         details << "All Phase 9 validation checks passed. brainTypesRecognized="
                 << summary.brainTypesRecognized << " agentsTested=" << summary.agentsTested
-                << " inputSize=" << systems::NeuralSystem::temporaryInputSize() << " outputSize=2";
+                << " inputSize=" << systems::NeuralSystem::syntheticInputSize() << " outputSize=2";
         summary.details = details.str();
     }
     return summary;
@@ -312,7 +312,7 @@ std::vector<Phase9BenchmarkResult> runPhase9Microbenchmark()
             const int forwards = agentCount * repeats;
             results.push_back({
                 architecture.first,
-                systems::NeuralSystem::temporaryInputSize(),
+                systems::NeuralSystem::syntheticInputSize(),
                 2U,
                 hiddenLayerText(architecture.second),
                 agentCount,

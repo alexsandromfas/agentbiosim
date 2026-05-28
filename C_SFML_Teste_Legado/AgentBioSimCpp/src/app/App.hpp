@@ -12,6 +12,7 @@
 #include "systems/EnergySystem.hpp"
 #include "systems/InteractionSystem.hpp"
 #include "systems/MovementSystem.hpp"
+#include "perception/PerceptionSystem.hpp"
 #include "systems/NeuralSystem.hpp"
 
 #include <SFML/Graphics/RenderWindow.hpp>
@@ -50,6 +51,7 @@ private:
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
     simulation::SpatialHash spatialHash_;
+    perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;
     systems::NeuralSystem neuralSystem_;
     systems::EnergySystem energySystem_;
@@ -60,6 +62,7 @@ private:
     render::RenderOptions renderOptions_;
     render::RenderStats lastRenderStats_;
     systems::MovementStats lastMovementStats_{};
+    perception::PerceptionStats lastPerceptionStats_{};
     systems::NeuralStats lastNeuralStats_{};
     systems::EnergyStats lastEnergyStats_{};
     systems::InteractionStats lastInteractionStats_{};

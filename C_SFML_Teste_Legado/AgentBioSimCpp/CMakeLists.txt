@@ -25,6 +25,9 @@ add_executable(AgentBioSimCpp
     src/neural/BrainFactory.cpp
     src/neural/MLPBrain.cpp
     src/neural/Phase9Diagnostics.cpp
+    src/perception/PerceptionSystem.cpp
+    src/perception/Phase10Diagnostics.cpp
+    src/perception/SceneQuery.cpp
     src/render/Camera2D.cpp
     src/render/Renderer.cpp
     src/simulation/AgentStore.cpp
