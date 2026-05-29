@@ -1,5 +1,6 @@
 #pragma once
 
+#include "simulation/DietConfig.hpp"
 #include "simulation/EntityTypes.hpp"
 
 #include <cstddef>
@@ -33,6 +34,9 @@ struct SpeciesRecord
     std::vector<std::string> legacyAliases;
     AgentTypeCode typeCode = AgentTypeCode::Organism;
     BodyShapeCode bodyShape = BodyShapeCode::Ellipse;
+    // Phase 18: snapshot of the default-genome diet (for UI / diagnostics).
+    // The source of truth lives on the GenomeRecord pointed to by defaultGenomeId.
+    DietConfig dietSnapshot;
 };
 
 // SpeciesStore is the headless registry of species. It has no dependency on
@@ -61,6 +65,7 @@ public:
     bool setColor(SpeciesId id, ColorRgb color);
     bool setEnabled(SpeciesId id, bool enabled);
     bool addAlias(SpeciesId id, const std::string& alias);
+    bool setDietSnapshot(SpeciesId id, const DietConfig& diet);
 
     [[nodiscard]] const std::vector<SpeciesRecord>& records() const noexcept;
 

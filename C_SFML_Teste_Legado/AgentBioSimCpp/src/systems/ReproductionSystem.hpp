@@ -52,11 +52,15 @@ public:
                                                           const std::string& speciesPrefix,
                                                           const neural::BrainConfig& brainConfig);
 
+    // Phase 18: brainSignatureConfig is now passed BY VALUE (Debt 7 resolution).
+    // Previously a const reference could dangle when `genomes.cloneFrom()` reallocated
+    // the GenomeStore record vector mid-apply if the caller had captured a ref into
+    // the same store. Copy is ~200 bytes and removes the latent UB.
     [[nodiscard]] ReproductionStats apply(simulation::AgentStore& agents,
                                            simulation::GenomeStore& genomes,
                                            NeuralSystem& neuralSystem,
                                            const simulation::World& world,
-                                           const neural::BrainConfig& brainSignatureConfig,
+                                           neural::BrainConfig brainSignatureConfig,
                                            const ReproductionConfig& config,
                                            double dt);
 

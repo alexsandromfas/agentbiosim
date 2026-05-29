@@ -8,6 +8,7 @@
 #include "neural/Phase15Diagnostics.hpp"
 #include "neural/Phase16Diagnostics.hpp"
 #include "simulation/Phase17Diagnostics.hpp"
+#include "systems/Phase18Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -46,6 +47,8 @@ int main(const int argc, char* argv[])
         bool runPhase16Benchmark = false;
         bool runPhase17Validation = false;
         bool runPhase17Benchmark = false;
+        bool runPhase18Validation = false;
+        bool runPhase18Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -211,6 +214,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase17Validation = true;
                 runPhase17Benchmark = true;
+            }
+            else if (argument == "--phase18-selftest")
+            {
+                runPhase18Validation = true;
+            }
+            else if (argument == "--phase18-benchmark")
+            {
+                runPhase18Benchmark = true;
+            }
+            else if (argument == "--phase18-diagnostics")
+            {
+                runPhase18Validation = true;
+                runPhase18Benchmark = true;
             }
         }
 
@@ -685,6 +701,48 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase17Validation || runPhase17Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase18Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase18Validation();
+            std::cout << "Phase18 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 14;
+            }
+        }
+
+        if (runPhase18Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase18Microbenchmark();
+            std::cout << "Phase18 predation/diet microbenchmark\n";
+            std::cout << "scenario,agents,predators,foods,steps,total_ms,avg_step_us,avg_per_agent_us,foods_consumed,predation_events,corpses_to_food,energy_food,energy_pred,notes\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.agents << ','
+                          << row.predators << ','
+                          << row.foods << ','
+                          << row.steps << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageStepMicroseconds << ','
+                          << row.averagePerAgentMicroseconds << ','
+                          << row.foodsConsumed << ','
+                          << row.predationEvents << ','
+                          << row.corpsesToFoodSpawned << ','
+                          << row.energyGainedByFood << ','
+                          << row.energyGainedByPredation << ','
+                          << row.notes << '\n';
+            }
+        }
+
+        if (runPhase18Validation || runPhase18Benchmark)
         {
             return 0;
         }

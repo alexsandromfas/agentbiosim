@@ -158,6 +158,16 @@ bool SpeciesStore::addAlias(const SpeciesId id, const std::string& alias)
     return false;
 }
 
+bool SpeciesStore::setDietSnapshot(const SpeciesId id, const DietConfig& diet)
+{
+    if (auto* r = find(id))
+    {
+        r->dietSnapshot = diet;
+        return true;
+    }
+    return false;
+}
+
 const std::vector<SpeciesRecord>& SpeciesStore::records() const noexcept
 {
     return records_;

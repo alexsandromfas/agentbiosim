@@ -1,6 +1,7 @@
 #pragma once
 
 #include "neural/BrainConfig.hpp"
+#include "simulation/DietConfig.hpp"
 #include "simulation/EntityTypes.hpp"
 
 #include <cstdint>
@@ -39,6 +40,8 @@ struct GenomeRecord
     AgentTypeCode typeCode = AgentTypeCode::LegacyBacteria;
     neural::BrainConfig brainConfig;
     std::string speciesPrefix;
+    // Phase 18: diet config is owned by genome (heritable via cloneFrom).
+    DietConfig diet;
 };
 
 class GenomeStore

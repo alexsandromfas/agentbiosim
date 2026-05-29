@@ -167,9 +167,19 @@ Nao.
 Arquivos afetados:
 - `src/core/Version.hpp`
 
-## Divida 7 — ReproductionSystem::apply assume que brainSignatureConfig nao alia GenomeStore [REGISTRADA NA FASE 17]
+## Divida 7 — ReproductionSystem::apply assume que brainSignatureConfig nao alia GenomeStore [RESOLVIDA NA FASE 18]
 
-Status: **REGISTRADA** (2026-05-29, durante Fase 17).
+Status: **RESOLVIDA** (Fase 18, 2026-05-29).
+
+Resolucao:
+- Assinatura de `ReproductionSystem::apply()` mudou de `const neural::BrainConfig& brainSignatureConfig` para `neural::BrainConfig brainSignatureConfig` (passagem por valor). A copia (~200 bytes) e o argumento e materializado antes do corpo do metodo executar `cloneFrom()`, removendo a possibilidade de dangling reference.
+- Phase18Diagnostics test 90 reproduz explicitamente o cenario perigoso: passa `genomes.find(id)->brainConfig` direto para `apply()` e verifica que a reproducao funciona sem crash em Debug e Release.
+
+Verificacao:
+- `--phase18-selftest`: PASS (Debug e Release).
+- Regressoes Phase 7-17: PASS.
+
+Historico original:
 
 Descricao:
 `ReproductionSystem::apply(..., const neural::BrainConfig& brainSignatureConfig, ...)` recebe a config por const-ref. Internamente chama `genomes.cloneFrom(parentGenomeId)` que pode aceitar relocacao do `std::vector<GenomeRecord>` se a capacidade for excedida. Se o chamador passar uma referencia obtida de `genomes.find(...)`, essa referencia fica DANGLING durante o resto do `apply()` e e usada para ler `brainSignatureConfig.future.*` -> UB.
@@ -208,7 +218,7 @@ Arquivos afetados:
 | 4. App acumulando responsabilidades | Antes da Fase 22 | Media |
 | 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
-| 7. ReproductionSystem brainSignatureConfig alias | Fase 18 ou 27 | Media |
+| 7. ReproductionSystem brainSignatureConfig alias | **RESOLVIDA na Fase 18** (pass-by-value) | Media |
 
 ## Regra
 

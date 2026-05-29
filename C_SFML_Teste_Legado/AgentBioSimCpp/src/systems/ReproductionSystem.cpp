@@ -88,7 +88,7 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
                                              simulation::GenomeStore& genomes,
                                              NeuralSystem& neuralSystem,
                                              const simulation::World& world,
-                                             const neural::BrainConfig& brainSignatureConfig,
+                                             neural::BrainConfig brainSignatureConfig,
                                              const ReproductionConfig& config,
                                              const double dt)
 {

@@ -87,9 +87,26 @@ SpeciesBootstrapResult bootstrapSpecies(SpeciesStore& species,
     genome.speciesPrefix = p;
     genome.brainConfig = neural::BrainFactory::configFromRegistry(registry, p, inputSize, outputSize);
 
+    // Phase 18: dietary configuration. `diet_same_label` is the legacy Python name;
+    // we treat it as synonymous with `diet_same_species`. Predator default for `diet_food`
+    // is false (it preys on agents); bacteria default for `diet_food` is true.
+    const bool predatorPrefix = (p == "predator");
+    genome.diet.eatFood = parameterBool(registry, p + "_diet_food",
+                                         predatorPrefix ? false : true);
+    genome.diet.eatAgents = parameterBool(registry, p + "_diet_agents",
+                                           predatorPrefix ? true : false);
+    genome.diet.eatSameSpecies = parameterBool(registry, p + "_diet_same_label", false);
+    genome.diet.foodEfficiency = std::max(0.0,
+        parameterDouble(registry, p + "_diet_food_efficiency", 1.0));
+    genome.diet.agentEfficiency = std::max(0.0,
+        parameterDouble(registry, p + "_diet_agent_efficiency", 0.7));
+    genome.diet.corpseToFood = parameterBool(registry, p + "_corpse_to_food", false);
+
+    const DietConfig dietSnapshot = genome.diet;
     const GenomeHandle handle = genomes.createGenome(std::move(genome));
     result.genomeId = handle.id;
     species.setDefaultGenome(result.speciesId, handle.id);
+    species.setDietSnapshot(result.speciesId, dietSnapshot);
     return result;
 }
 

@@ -103,7 +103,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 17: Species, labels and genomes initialized ("
+    std::cout << "AgentBioSimCpp Phase 18: Predation and generic diet initialized ("
               << species_.size() << " species, " << genomes_.size() << " genomes).\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
@@ -416,10 +416,23 @@ void App::runSimulationStep(const double dt)
 
     rebuildSpatialHash();
 
-    const systems::InteractionConfig interactionConfig = systems::InteractionSystem::fromRegistry(parameters_);
+    // Phase 18: diet-aware interaction handles both food consumption and predation
+    // per-agent via the genome's DietConfig. Phase 7 legacy `apply` remains for
+    // tests that exercise food-only paths.
+    const systems::DietInteractionConfig dietInteractionConfig =
+        systems::InteractionSystem::dietConfigFromRegistry(parameters_);
     simulation::SpatialHash* spatialPtr = spatialEnabled_ ? &spatialHash_ : nullptr;
-    lastInteractionStats_ = interactionSystem_.apply(agents_, foods_, spatialPtr, interactionConfig);
-    foodEatenCount_ += lastInteractionStats_.foodsConsumed;
+    const systems::DietInteractionStats dietStats =
+        interactionSystem_.applyWithDiet(agents_, foods_, genomes_, spatialPtr, dietInteractionConfig);
+    lastInteractionStats_ = {};
+    lastInteractionStats_.agentsProcessed = dietStats.agentsProcessed;
+    lastInteractionStats_.foodsConsumed = dietStats.foodsConsumed;
+    lastInteractionStats_.chunkFoodsSkipped = dietStats.chunkFoodsSkipped;
+    lastInteractionStats_.foodEnergyConsumed = dietStats.foodEnergyConsumed;
+    lastInteractionStats_.agentEnergyGained = dietStats.agentEnergyGainedByFood +
+                                               dietStats.agentEnergyGainedByPredation;
+    foodEatenCount_ += dietStats.foodsConsumed;
+    deathsCount_ += dietStats.predationEvents;
 
     // Phase 13: reproduction between interaction (food/energy gained) and death.
     const systems::ReproductionConfig reproductionConfig =
