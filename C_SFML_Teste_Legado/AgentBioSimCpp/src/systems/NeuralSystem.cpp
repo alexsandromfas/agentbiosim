@@ -64,7 +64,7 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
     {
         const auto id = agents.idAt(index);
         const auto it = brainsByAgentId_.find(id.value);
-        if (it == brainsByAgentId_.end() || it->second.brain == nullptr)
+        if (it == brainsByAgentId_.end())
         {
             continue;
         }
@@ -80,7 +80,7 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
             input = syntheticInputForAgent(agents, world, config, index);
         }
 
-        const std::vector<double> output = executor_.forward(*it->second.brain, input);
+        const std::vector<double> output = executor_.forward(it->second.brain, input);
         MovementControl control;
         if (output.size() >= 3U)
         {
@@ -107,21 +107,30 @@ bool NeuralSystem::inheritBrain(const std::uint64_t childAgentId,
                                 const double mutationStrength,
                                 std::mt19937_64& rng)
 {
+    neural::NeuralMutationConfig cfg;
+    cfg.baseRate = mutationRate;
+    cfg.baseStrength = mutationStrength;
+    return inheritBrain(childAgentId, parentAgentId, signatureConfig, cfg, rng);
+}
+
+bool NeuralSystem::inheritBrain(const std::uint64_t childAgentId,
+                                const std::uint64_t parentAgentId,
+                                const neural::BrainConfig& signatureConfig,
+                                const neural::NeuralMutationConfig& mutCfg,
+                                std::mt19937_64& rng)
+{
     const auto parentIt = brainsByAgentId_.find(parentAgentId);
-    if (parentIt == brainsByAgentId_.end() || parentIt->second.brain == nullptr)
+    if (parentIt == brainsByAgentId_.end())
     {
         return false;
     }
 
     BrainSlot slot;
-    // Deep copy of parent brain: MLPBrain::clone returns a fresh value, not shared state.
-    slot.brain = std::make_unique<neural::MLPBrain>(parentIt->second.brain->clone());
+    // Deep copy via variant clone (no aliasing, no heap alloc per brain).
+    slot.brain = neural::cloneOf(parentIt->second.brain);
     slot.signature = signatureConfig.architectureSignature();
 
-    if (mutationRate > 0.0 && mutationStrength > 0.0)
-    {
-        static_cast<void>(slot.brain->mutate(mutationRate, mutationStrength, rng));
-    }
+    static_cast<void>(neural::mutateOf(slot.brain, mutCfg, rng));
 
     brainsByAgentId_[childAgentId] = std::move(slot);
     return true;
@@ -159,7 +168,7 @@ void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const Neural
         const std::uint64_t id = agents.idAt(index).value;
         liveIds.insert(id);
         auto it = brainsByAgentId_.find(id);
-        if (it != brainsByAgentId_.end() && it->second.signature == signature && it->second.brain != nullptr)
+        if (it != brainsByAgentId_.end() && it->second.signature == signature)
         {
             continue;
         }
@@ -167,7 +176,7 @@ void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const Neural
         std::mt19937_64 rng(config.seed + id * 0x9E3779B97F4A7C15ULL);
         neural::BrainCreationResult created = neural::BrainFactory::createBrain(config.brainConfig, rng);
         BrainSlot slot;
-        slot.brain = std::move(created.mlp);
+        slot.brain = std::move(created.brain);
         slot.signature = signature;
         brainsByAgentId_[id] = std::move(slot);
         ++lastStats_.brainsCreated;

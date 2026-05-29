@@ -271,8 +271,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addInt(registry, "brain_cache_max_entries", 32, "performance.neural", "Maximum grouped brain cache entries.", 0.0, std::nullopt, {}, {"runtime", "performance", "neural"});
     addInt(registry, "brain_cache_max_mb", 512, "performance.neural", "Approximate brain cache memory cap in MB.", 0.0, std::nullopt, {}, {"runtime", "performance", "neural"});
     addBool(registry, "brain_cache_log", false, "performance.neural", "Log brain cache diagnostics.", {}, {"debug", "performance", "neural"});
-    addBool(registry, "use_numba_brain_forward", false, "performance.python_compat", "Legacy Python Numba brain forward toggle.", {"use_native_brain_forward"}, {"performance", "neural"});
-    addInt(registry, "numba_brain_forward_min_batch", 256, "performance.neural", "Minimum batch size for native brain forward.", 1.0, std::nullopt, {}, {"runtime", "performance", "neural"});
+    // Phase 14: canonical names; legacy Numba/native aliases preserved for compatibility.
+    addBool(registry, "use_batch_forward", false, "performance.neural", "Enable batched brain forward path.", {"use_numba_brain_forward", "use_native_brain_forward"}, {"performance", "neural"});
+    addInt(registry, "batch_forward_min_size", 256, "performance.neural", "Minimum batch size for batched brain forward.", 1.0, std::nullopt, {"numba_brain_forward_min_batch"}, {"runtime", "performance", "neural"});
 
     addString(registry, "retina_bins_mode", "nearest", "vision.bins", "Sector-bin aggregation mode.", {}, {"runtime", "vision"});
     addInt(registry, "retina_bins_distance_subdivisions", 5, "vision.bins", "Radial subdivisions used by sector vision.", 1.0, 99.0, {}, {"runtime", "vision"});

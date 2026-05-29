@@ -4,6 +4,7 @@
 #include "perception/Phase10Diagnostics.hpp"
 #include "perception/Phase11Diagnostics.hpp"
 #include "perception/Phase12Diagnostics.hpp"
+#include "neural/Phase14Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -34,6 +35,8 @@ int main(const int argc, char* argv[])
         bool runPhase12Benchmark = false;
         bool runPhase13Validation = false;
         bool runPhase13Benchmark = false;
+        bool runPhase14Validation = false;
+        bool runPhase14Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -147,6 +150,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase13Validation = true;
                 runPhase13Benchmark = true;
+            }
+            else if (argument == "--phase14-selftest")
+            {
+                runPhase14Validation = true;
+            }
+            else if (argument == "--phase14-benchmark")
+            {
+                runPhase14Benchmark = true;
+            }
+            else if (argument == "--phase14-diagnostics")
+            {
+                runPhase14Validation = true;
+                runPhase14Benchmark = true;
             }
         }
 
@@ -456,6 +472,45 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase13Validation || runPhase13Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase14Validation)
+        {
+            const auto summary = agentbiosim::neural::runPhase14Validation();
+            std::cout << "Phase14 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 10;
+            }
+        }
+
+        if (runPhase14Benchmark)
+        {
+            const auto rows = agentbiosim::neural::runPhase14Microbenchmark();
+            std::cout << "Phase14 dense advanced brain microbenchmark\n";
+            std::cout << "scenario,brain_type,hidden,input_size,output_size,agents,repeats,total_ms,avg_forward_us,avg_clone_us,avg_mutation_us\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.brainType << ','
+                          << row.hiddenLayers << ','
+                          << row.inputSize << ','
+                          << row.outputSize << ','
+                          << row.agents << ','
+                          << row.repeats << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageForwardMicroseconds << ','
+                          << row.averageCloneMicroseconds << ','
+                          << row.averageMutationMicroseconds << '\n';
+            }
+        }
+
+        if (runPhase14Validation || runPhase14Benchmark)
         {
             return 0;
         }

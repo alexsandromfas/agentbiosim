@@ -177,7 +177,8 @@ Phase9ValidationSummary runPhase9Validation()
     std::mt19937_64 futureTypeRng(1235U);
     const BrainCreationResult fallbackBrain = BrainFactory::createBrain(unsupportedConfig, futureTypeRng);
     addCheck(summary, "BrainFactory falls back cleanly for future types",
-             fallbackBrain.fallbackToMlp && fallbackBrain.mlp != nullptr &&
+             fallbackBrain.fallbackToMlp &&
+                 std::holds_alternative<MLPBrain>(fallbackBrain.brain) &&
                  fallbackBrain.instantiatedType == BrainType::Mlp);
 
     BrainConfig linearConfig;

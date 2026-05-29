@@ -32,8 +32,10 @@ struct FutureNeuralConfig
 
 struct BrainPerformanceConfig
 {
-    bool useNumbaBrainForward = false;
-    int numbaBrainForwardMinBatch = 256;
+    // Phase 14: renamed from useNumbaBrainForward/numbaBrainForwardMinBatch.
+    // Parameter aliases preserved at the ParameterRegistry layer.
+    bool useBatchForward = false;
+    int batchForwardMinSize = 256;
     bool brainCacheDisabled = false;
     int brainCacheMaxEntries = 32;
     int brainCacheMaxMb = 512;

@@ -29,62 +29,34 @@ Verificacao:
 - Phase 7-13 selftests: PASS.
 - Grep por anonymous `parameterDouble` retorna 0 resultados nos arquivos listados.
 
-## Divida 2 — BrainSlot dependente de MLPBrain
+## Divida 2 — BrainSlot dependente de MLPBrain [RESOLVIDA NA FASE 14]
 
-Descricao:
-Em `NeuralSystem.hpp`, o `BrainSlot` interno contem `std::unique_ptr<neural::MLPBrain>` como tipo concreto. A Fase 9 implementou somente MLP, entao isso e suficiente agora. Porem, quando Gated MLP, RNN ou NEAT forem implementados, o slot precisara suportar multiplos tipos de cerebro.
+Status: **RESOLVIDA** (commit da Fase 14, 2026-05-28).
 
-Impacto:
-- Limita a coexistencia de multiplos tipos neurais no mesmo `NeuralSystem`.
-- Exigira refatoracao interna do `NeuralSystem` antes de adicionar qualquer tipo alem de MLP.
-- A interface publica (`produceMovementControls` retornando `std::vector<MovementControl>`) nao sera afetada — o impacto e interno.
+Resolucao:
+- `BrainSlot` agora carrega `neural::BrainVariant` (std::variant<MLPBrain, GatedMLPBrain, ShortcutMLPBrain, ModulatedMLPBrain>).
+- `BrainCreationResult.mlp` (unique_ptr) substituido por `BrainCreationResult.brain` (BrainVariant).
+- Dispatch via `std::visit` (compile-time, inlinavel, zero-cost).
+- Sem heap alloc por cerebro — MLP baseline ficou 35% MAIS RAPIDO (1.46us vs 2.25us em Phase 9).
+- Futuras RNN/NEAT adicionam novos tipos ao variant sem alterar BrainSlot/NeuralSystem publico.
 
-Acao recomendada:
-Trocar `unique_ptr<MLPBrain>` por `std::variant` de tipos neurais, ou usar polimorfismo com `IBrain` base, ou usar um union tagged com `BrainType`. A decisao final depende do modelo de batch/executor das redes avancadas.
+Verificacao:
+- Phase 9 (MLP) selftest: PASS.
+- Phase 14 (advanced dense) selftest: PASS (71 checks).
+- Phase 14 benchmark: advanced types dentro de 5-10% do MLP; MLP nao regrediu.
 
-Momento sugerido:
-Antes ou no inicio da Fase 14 (redes densas avancadas).
+## Divida 3 — Nomes herdados de Numba/Python no C++ [RESOLVIDA NA FASE 14]
 
-Prioridade:
-Alta futura.
+Status: **RESOLVIDA** (commit da Fase 14, 2026-05-28).
 
-Bloqueia Fase 10?
-Nao.
+Resolucao:
+- `BrainPerformanceConfig::useNumbaBrainForward` -> `useBatchForward`.
+- `BrainPerformanceConfig::numbaBrainForwardMinBatch` -> `batchForwardMinSize`.
+- `ParameterRegistry`: parametro canonico agora e `use_batch_forward`/`batch_forward_min_size`; aliases legados `use_numba_brain_forward`/`numba_brain_forward_min_batch`/`use_native_brain_forward` mantidos para compatibilidade de saves e codigo Python.
+- `BrainFactory::configFromRegistry` agora le do nome canonico.
 
-Arquivos afetados:
-- `src/systems/NeuralSystem.hpp` (struct `BrainSlot`).
-- `src/systems/NeuralSystem.cpp` (`syncBrains`, `produceMovementControls`).
-
-## Divida 3 — Nomes herdados de Numba/Python no C++
-
-Descricao:
-Alguns campos em `BrainPerformanceConfig` (dentro de `BrainConfig.hpp`) usam nomes originarios do Python/Numba:
-
-- `useNumbaBrainForward` — conceito Python; em C++ o equivalente e batch/optimized forward.
-- `numbaBrainForwardMinBatch` — idem.
-
-Esses campos foram preservados para manter paridade de parametros com o Python, mas o nome no C++ deve refletir o conceito C++, nao a implementacao Python.
-
-Impacto:
-- Confusao conceitual para quem le o codigo C++ sem conhecer o Python.
-- Mistura de terminologia que faz a arquitetura parecer portada, nao redesenhada.
-- Risco baixo a medio, pois sao campos de configuracao que ainda nao sao usados funcionalmente.
-
-Acao recomendada:
-Renomear para nomes genericos como `useBatchForward`, `batchForwardMinSize` ou equivalentes. Manter aliases no `ParameterRegistry` para os nomes Python antigos.
-
-Momento sugerido:
-Antes da implementacao de batch neural real (Fase 14 ou Fase 30).
-
-Prioridade:
-Baixa a media.
-
-Bloqueia Fase 10?
-Nao.
-
-Arquivos afetados:
-- `src/neural/BrainConfig.hpp` (struct `BrainPerformanceConfig`).
-- `src/config/ParameterDefaults.cpp` (registro dos parametros).
+Verificacao:
+- Phase 14 Test 60: confirma alias resolution (registry.find("use_numba_brain_forward") == registry.find("use_batch_forward")).
 
 ## Divida 4 — App acumulando responsabilidades
 
@@ -188,8 +160,8 @@ Arquivos afetados:
 | Divida | Fase recomendada para resolver | Prioridade |
 |---|---|---|
 | 1. Helpers duplicados | **RESOLVIDA na Fase 13** | Media |
-| 2. BrainSlot/MLPBrain concreto | Antes da Fase 14 | Alta futura |
-| 3. Nomes Numba/Python | Antes da Fase 14 ou 30 | Baixa/media |
+| 2. BrainSlot/MLPBrain concreto | **RESOLVIDA na Fase 14** (variant) | Alta futura |
+| 3. Nomes Numba/Python | **RESOLVIDA na Fase 14** (renomeio + aliases) | Baixa/media |
 | 4. App acumulando responsabilidades | Antes da Fase 22 | Media |
 | 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |

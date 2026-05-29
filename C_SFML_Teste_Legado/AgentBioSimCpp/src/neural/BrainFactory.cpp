@@ -41,10 +41,10 @@ BrainConfig BrainFactory::configFromRegistry(const config::ParameterRegistry& pa
     BrainConfig config;
     config.requestedType = normalizeBrainType(parameterString(parameters, "neural_network_type", "mlp"));
     config.type = config.requestedType;
-    if (!isImplementedInPhase9(config.type))
+    if (!isImplementedInPhase14(config.type))
     {
         config.fallbackToMlp = true;
-        config.fallbackReason = std::string(brainTypeName(config.type)) + " is planned but not implemented in Phase 9";
+        config.fallbackReason = std::string(brainTypeName(config.type)) + " is planned but not implemented yet";
         config.type = BrainType::Mlp;
     }
 
@@ -74,8 +74,9 @@ BrainConfig BrainFactory::configFromRegistry(const config::ParameterRegistry& pa
     config.future.rnnMutationRate = parameterDouble(parameters, "neural_rnn_mutation_rate", config.future.rnnMutationRate);
     config.future.rnnMutationStrength = parameterDouble(parameters, "neural_rnn_mutation_strength", config.future.rnnMutationStrength);
 
-    config.performance.useNumbaBrainForward = parameterBool(parameters, "use_numba_brain_forward", config.performance.useNumbaBrainForward);
-    config.performance.numbaBrainForwardMinBatch = parameterInt(parameters, "numba_brain_forward_min_batch", config.performance.numbaBrainForwardMinBatch);
+    // Phase 14: prefer renamed parameters; aliases below cover legacy names.
+    config.performance.useBatchForward = parameterBool(parameters, "use_batch_forward", config.performance.useBatchForward);
+    config.performance.batchForwardMinSize = parameterInt(parameters, "batch_forward_min_size", config.performance.batchForwardMinSize);
     config.performance.brainCacheDisabled = parameterBool(parameters, "brain_cache_disable", config.performance.brainCacheDisabled);
     config.performance.brainCacheMaxEntries = parameterInt(parameters, "brain_cache_max_entries", config.performance.brainCacheMaxEntries);
     config.performance.brainCacheMaxMb = parameterInt(parameters, "brain_cache_max_mb", config.performance.brainCacheMaxMb);
@@ -87,14 +88,37 @@ BrainCreationResult BrainFactory::createBrain(const BrainConfig& config, std::mt
 {
     BrainCreationResult result;
     result.requestedType = config.requestedType;
-    result.instantiatedType = BrainType::Mlp;
-    result.fallbackToMlp = config.fallbackToMlp || config.type != BrainType::Mlp;
+    result.fallbackToMlp = config.fallbackToMlp;
     if (result.fallbackToMlp)
     {
-        result.message = config.fallbackReason.empty() ? "non-MLP brain requested before implementation phase"
-                                                       : config.fallbackReason;
+        result.message = config.fallbackReason.empty()
+                             ? "non-implemented brain requested; falling back to MLP"
+                             : config.fallbackReason;
+        result.brain = createMlp(config, rng);
+        result.instantiatedType = BrainType::Mlp;
+        return result;
     }
-    result.mlp = std::make_unique<MLPBrain>(createMlp(config, rng));
+
+    switch (config.type)
+    {
+    case BrainType::GatedMlp:
+        result.brain = GatedMLPBrain(config, rng);
+        result.instantiatedType = BrainType::GatedMlp;
+        break;
+    case BrainType::ShortcutMlp:
+        result.brain = ShortcutMLPBrain(config, rng);
+        result.instantiatedType = BrainType::ShortcutMlp;
+        break;
+    case BrainType::ModulatedMlp:
+        result.brain = ModulatedMLPBrain(config, rng);
+        result.instantiatedType = BrainType::ModulatedMlp;
+        break;
+    case BrainType::Mlp:
+    default:
+        result.brain = createMlp(config, rng);
+        result.instantiatedType = BrainType::Mlp;
+        break;
+    }
     return result;
 }
 

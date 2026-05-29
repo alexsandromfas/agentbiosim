@@ -106,6 +106,7 @@ std::vector<double> MLPBrain::forward(const std::vector<double>& input, Activati
     if (trace != nullptr)
     {
         trace->clear();
+        trace->brainType = BrainType::Mlp;
     }
 
     std::vector<double> activations = normalizedInput(input, inputSize());
@@ -193,6 +194,11 @@ std::size_t MLPBrain::parameterCount() const
         total += layer.size();
     }
     return total;
+}
+
+bool MLPBrain::mutate(const NeuralMutationConfig& config, std::mt19937_64& rng)
+{
+    return mutate(config.baseRate, config.baseStrength, rng);
 }
 
 bool MLPBrain::mutate(const double rate, const double strength, std::mt19937_64& rng)

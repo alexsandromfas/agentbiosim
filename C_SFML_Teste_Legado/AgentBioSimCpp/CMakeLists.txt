@@ -23,8 +23,12 @@ add_executable(AgentBioSimCpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterRegistry.cpp
     src/neural/BrainFactory.cpp
+    src/neural/GatedMLPBrain.cpp
     src/neural/MLPBrain.cpp
+    src/neural/ModulatedMLPBrain.cpp
     src/neural/Phase9Diagnostics.cpp
+    src/neural/Phase14Diagnostics.cpp
+    src/neural/ShortcutMLPBrain.cpp
     src/perception/PerceptionSystem.cpp
     src/perception/Phase10Diagnostics.cpp
     src/perception/Phase11Diagnostics.cpp

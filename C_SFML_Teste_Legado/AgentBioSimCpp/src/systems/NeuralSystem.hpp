@@ -3,7 +3,9 @@
 #include "config/ParameterRegistry.hpp"
 #include "neural/BrainConfig.hpp"
 #include "neural/BrainExecutor.hpp"
+#include "neural/BrainVariant.hpp"
 #include "neural/MLPBrain.hpp"
+#include "neural/NeuralMutationConfig.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/World.hpp"
 #include "systems/MovementSystem.hpp"
@@ -57,14 +59,18 @@ public:
         const NeuralSystemConfig& config,
         const perception::PerceptionResult* perception = nullptr);
 
-    // Phase 13: inject child brain by cloning the parent brain and mutating.
-    // The architecture signature recorded matches the provided config to prevent
-    // syncBrains from recreating it as a fresh random brain.
+    // Phase 13/14: inject child brain by cloning the parent brain and mutating.
+    // Mutation uses NeuralMutationConfig so gate/shortcut overrides are honored.
     bool inheritBrain(std::uint64_t childAgentId,
                       std::uint64_t parentAgentId,
                       const neural::BrainConfig& signatureConfig,
                       double mutationRate,
                       double mutationStrength,
+                      std::mt19937_64& rng);
+    bool inheritBrain(std::uint64_t childAgentId,
+                      std::uint64_t parentAgentId,
+                      const neural::BrainConfig& signatureConfig,
+                      const neural::NeuralMutationConfig& mutCfg,
                       std::mt19937_64& rng);
 
     void removeBrainFor(std::uint64_t agentId) noexcept;
@@ -75,9 +81,11 @@ public:
     [[nodiscard]] std::size_t brainCount() const noexcept;
 
 private:
+    // Phase 14: BrainSlot holds a BrainVariant (no heap allocation per brain).
+    // Future RNN/NEAT types extend the variant without changing BrainSlot.
     struct BrainSlot
     {
-        std::unique_ptr<neural::MLPBrain> brain;
+        neural::BrainVariant brain;
         std::string signature;
     };
 

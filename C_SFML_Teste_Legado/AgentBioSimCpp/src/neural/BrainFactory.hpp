@@ -2,6 +2,7 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "neural/BrainConfig.hpp"
+#include "neural/BrainVariant.hpp"
 #include "neural/MLPBrain.hpp"
 
 #include <memory>
@@ -12,7 +13,7 @@ namespace agentbiosim::neural
 {
 struct BrainCreationResult
 {
-    std::unique_ptr<MLPBrain> mlp;
+    BrainVariant brain;
     BrainType requestedType = BrainType::Mlp;
     BrainType instantiatedType = BrainType::Mlp;
     bool fallbackToMlp = false;
