@@ -8,6 +8,7 @@
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
 #include "simulation/SpatialHash.hpp"
+#include "simulation/SpeciesStore.hpp"
 #include "simulation/World.hpp"
 #include "systems/DeathSystem.hpp"
 #include "systems/EnergySystem.hpp"
@@ -53,6 +54,7 @@ private:
     simulation::AgentStore agents_;
     simulation::FoodStore foods_;
     simulation::GenomeStore genomes_;
+    simulation::SpeciesStore species_;
     simulation::SpatialHash spatialHash_;
     perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;

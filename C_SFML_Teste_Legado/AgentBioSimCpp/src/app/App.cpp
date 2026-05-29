@@ -3,6 +3,7 @@
 #include "config/ParameterDefaults.hpp"
 #include "config/ParameterHelpers.hpp"
 #include "core/Version.hpp"
+#include "simulation/SpeciesBootstrap.hpp"
 
 #include <SFML/Graphics/Color.hpp>
 #include <SFML/Window/Event.hpp>
@@ -102,7 +103,8 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 16: NEAT family (common, simplified, recurrent) initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 17: Species, labels and genomes initialized ("
+              << species_.size() << " species, " << genomes_.size() << " genomes).\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -261,30 +263,28 @@ void App::spawnDemoEntities()
     agents_.clear();
     foods_.clear();
     genomes_.clear();
+    species_.clear();
 
     const int seedParameter = parameterInt(parameters_, "random_seed", -1);
     const std::uint32_t seed = seedParameter >= 0 ? static_cast<std::uint32_t>(seedParameter) : 1337U;
     std::mt19937 rng(seed);
 
-    const int agentCount = std::max(0, parameterInt(parameters_, "bacteria_count", 150));
+    // Phase 17: bootstrap canonical species (bacteria + predator) from registry.
+    // Predator stays registered but disabled when predators_enabled=false so the
+    // alias still resolves. PerceptionSystem will rebind input_size at runtime.
+    constexpr std::size_t kBootstrapInputSize = 4;
+    constexpr std::size_t kBootstrapOutputSize = 2;
+    const auto defaultSpecies = simulation::bootstrapDefaultSpecies(
+        species_, genomes_, parameters_, kBootstrapInputSize, kBootstrapOutputSize);
+
+    const auto* bacteriaSpecies = species_.find(defaultSpecies.bacteria.speciesId);
+    if (bacteriaSpecies == nullptr) return;
+
+    const int agentCount = bacteriaSpecies->initialCount;
     const double agentRadius = std::max(0.1, parameterDouble(parameters_, "bacteria_body_size", 9.0));
     const double initialEnergy = std::max(0.0, parameterDouble(parameters_, "bacteria_initial_energy", 100.0));
-    const simulation::ColorRgb agentColor = toEntityColor(parameterColor(parameters_, "bacteria_color", {220, 220, 220}));
-    const simulation::BodyShapeCode bodyShape = toBodyShapeCode(parameterString(parameters_, "bacteria_body_shape", "ellipse"));
-
-    // Seed a founder genome for the initial bacteria population (Phase 13).
-    simulation::GenomeRecord founder;
-    founder.bodySize = agentRadius;
-    founder.bodyShape = bodyShape;
-    founder.color = agentColor;
-    founder.mutationRate = parameterDouble(parameters_, "bacteria_mutation_rate", 0.05);
-    founder.mutationStrength = parameterDouble(parameters_, "bacteria_mutation_strength", 0.08);
-    founder.splitEnergy = parameterDouble(parameters_, "bacteria_split_energy", 150.0);
-    founder.initialEnergy = initialEnergy;
-    founder.energyCap = parameterDouble(parameters_, "bacteria_energy_cap", 400.0);
-    founder.speciesPrefix = "bacteria";
-    founder.typeCode = simulation::AgentTypeCode::LegacyBacteria;
-    const simulation::GenomeHandle founderHandle = genomes_.createGenome(founder);
+    const simulation::ColorRgb agentColor = bacteriaSpecies->color;
+    const simulation::BodyShapeCode bodyShape = bacteriaSpecies->bodyShape;
 
     std::uniform_real_distribution<double> angleDistribution(0.0, 2.0 * 3.14159265358979323846);
     for (int i = 0; i < agentCount; ++i)
@@ -295,11 +295,33 @@ void App::spawnDemoEntities()
         spawn.radius = agentRadius;
         spawn.energy = initialEnergy;
         spawn.color = agentColor;
-        spawn.speciesId = 0;
-        spawn.genomeId = founderHandle.id;
-        spawn.typeCode = simulation::AgentTypeCode::LegacyBacteria;
+        spawn.speciesId = bacteriaSpecies->id;
+        spawn.genomeId = bacteriaSpecies->defaultGenomeId;
+        spawn.typeCode = bacteriaSpecies->typeCode;
         spawn.bodyShape = bodyShape;
         [[maybe_unused]] const simulation::EntityId createdAgent = agents_.createAgent(spawn);
+    }
+
+    // Predator initial spawn when enabled.
+    const auto* predatorSpecies = species_.find(defaultSpecies.predator.speciesId);
+    if (predatorSpecies != nullptr && predatorSpecies->enabled && predatorSpecies->initialCount > 0)
+    {
+        const double predRadius = std::max(0.1, parameterDouble(parameters_, "predator_body_size", 14.0));
+        const double predEnergy = std::max(0.0, parameterDouble(parameters_, "predator_initial_energy", 100.0));
+        for (int i = 0; i < predatorSpecies->initialCount; ++i)
+        {
+            simulation::AgentSpawn spawn;
+            spawn.position = world_.clampPosition(randomPointInsideWorld(world_, predRadius, rng), predRadius);
+            spawn.angle = angleDistribution(rng);
+            spawn.radius = predRadius;
+            spawn.energy = predEnergy;
+            spawn.color = predatorSpecies->color;
+            spawn.speciesId = predatorSpecies->id;
+            spawn.genomeId = predatorSpecies->defaultGenomeId;
+            spawn.typeCode = predatorSpecies->typeCode;
+            spawn.bodyShape = predatorSpecies->bodyShape;
+            [[maybe_unused]] const simulation::EntityId createdAgent = agents_.createAgent(spawn);
+        }
     }
 
     const int foodCount = std::max(0, parameterInt(parameters_, "food_target", 50));

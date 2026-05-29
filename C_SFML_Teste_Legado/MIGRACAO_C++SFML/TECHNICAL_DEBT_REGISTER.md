@@ -167,6 +167,37 @@ Nao.
 Arquivos afetados:
 - `src/core/Version.hpp`
 
+## Divida 7 — ReproductionSystem::apply assume que brainSignatureConfig nao alia GenomeStore [REGISTRADA NA FASE 17]
+
+Status: **REGISTRADA** (2026-05-29, durante Fase 17).
+
+Descricao:
+`ReproductionSystem::apply(..., const neural::BrainConfig& brainSignatureConfig, ...)` recebe a config por const-ref. Internamente chama `genomes.cloneFrom(parentGenomeId)` que pode aceitar relocacao do `std::vector<GenomeRecord>` se a capacidade for excedida. Se o chamador passar uma referencia obtida de `genomes.find(...)`, essa referencia fica DANGLING durante o resto do `apply()` e e usada para ler `brainSignatureConfig.future.*` -> UB.
+
+Detectado durante implementacao do `Phase17Diagnostics`: testes 36 e 41 originalmente passavam `gg->brainConfig` (pointer interno do `g3.records_`) para `apply()`. Debug em MSVC com layout de memoria sem padding ficava sem ser detectado por sorte; Release com optimization expoe o crash. A correcao no teste foi simples: copiar para `const BrainConfig brainCfg = g.get(...).brainConfig;` antes do `apply()`.
+
+Impacto:
+- O caminho atual no `App` usa `NeuralSystemConfig nc.brainConfig` que e uma copia, entao `App` esta seguro.
+- O caminho seria perigoso se algum codigo futuro decidisse passar `genome->brainConfig` direto para `apply()`.
+- Documentacao publica de `apply()` nao explicita esse contrato.
+
+Acao recomendada:
+- Trocar a assinatura para receber `neural::BrainConfig brainSignatureConfig` por valor (copia barata, ~200 bytes). Ou
+- Documentar no header que `brainSignatureConfig` nao pode aliar `genomes`. Adicionar `[[deprecated]]` se o caller for `genomes.find(...)->brainConfig`.
+
+Momento sugerido:
+Fase 18 (predador/dieta) ou Fase 27 (save/load) quando o caminho de reproducao for revisado de qualquer maneira.
+
+Prioridade:
+Media. Nao bloqueia nada hoje porque os callers atuais nunca passam ref interna a GenomeStore, mas e uma armadilha latente para autores futuros.
+
+Bloqueia Fase 18?
+Nao.
+
+Arquivos afetados:
+- `src/systems/ReproductionSystem.hpp` (assinatura).
+- `src/systems/ReproductionSystem.cpp` (implementacao).
+
 ## Resumo por fase futura impactada
 
 | Divida | Fase recomendada para resolver | Prioridade |
@@ -177,6 +208,7 @@ Arquivos afetados:
 | 4. App acumulando responsabilidades | Antes da Fase 22 | Media |
 | 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
+| 7. ReproductionSystem brainSignatureConfig alias | Fase 18 ou 27 | Media |
 
 ## Regra
 

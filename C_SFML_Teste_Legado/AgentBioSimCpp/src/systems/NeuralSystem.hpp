@@ -73,6 +73,14 @@ public:
                       const neural::NeuralMutationConfig& mutCfg,
                       std::mt19937_64& rng);
 
+    // Phase 17: reset (or recreate) brains of agents belonging to a specific species,
+    // using the provided brain config. Returns the number of brains recreated.
+    // Recurrent state is zeroed via cloneOf/createBrain. Deterministic when seed is set.
+    std::size_t resetForSpecies(const simulation::AgentStore& agents,
+                                 simulation::SpeciesId speciesId,
+                                 const neural::BrainConfig& brainConfig,
+                                 std::uint64_t seed);
+
     void removeBrainFor(std::uint64_t agentId) noexcept;
 
     void clear();

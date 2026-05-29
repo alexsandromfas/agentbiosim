@@ -136,6 +136,28 @@ bool NeuralSystem::inheritBrain(const std::uint64_t childAgentId,
     return true;
 }
 
+std::size_t NeuralSystem::resetForSpecies(const simulation::AgentStore& agents,
+                                            const simulation::SpeciesId speciesId,
+                                            const neural::BrainConfig& brainConfig,
+                                            const std::uint64_t seed)
+{
+    const std::string signature = brainConfig.architectureSignature();
+    std::size_t resetCount = 0;
+    for (std::size_t index = 0; index < agents.size(); ++index)
+    {
+        if (agents.speciesIdAt(index) != speciesId) continue;
+        const std::uint64_t agentId = agents.idAt(index).value;
+        const auto it = brainsByAgentId_.find(agentId);
+        if (it == brainsByAgentId_.end()) continue;
+        std::mt19937_64 rng(seed + agentId * 0x9E3779B97F4A7C15ULL);
+        neural::BrainCreationResult created = neural::BrainFactory::createBrain(brainConfig, rng);
+        it->second.brain = std::move(created.brain);
+        it->second.signature = signature;
+        ++resetCount;
+    }
+    return resetCount;
+}
+
 void NeuralSystem::removeBrainFor(const std::uint64_t agentId) noexcept
 {
     brainsByAgentId_.erase(agentId);

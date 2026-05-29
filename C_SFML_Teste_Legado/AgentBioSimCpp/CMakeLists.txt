@@ -44,7 +44,10 @@ add_executable(AgentBioSimCpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp
     src/simulation/GenomeStore.cpp
+    src/simulation/Phase17Diagnostics.cpp
     src/simulation/SpatialHash.cpp
+    src/simulation/SpeciesBootstrap.cpp
+    src/simulation/SpeciesStore.cpp
     src/simulation/World.cpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
