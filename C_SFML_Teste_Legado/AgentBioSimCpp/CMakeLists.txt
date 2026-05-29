@@ -26,9 +26,11 @@ add_executable(AgentBioSimCpp
     src/neural/GatedMLPBrain.cpp
     src/neural/MLPBrain.cpp
     src/neural/ModulatedMLPBrain.cpp
+    src/neural/NEATGraphBrain.cpp
     src/neural/Phase9Diagnostics.cpp
     src/neural/Phase14Diagnostics.cpp
     src/neural/Phase15Diagnostics.cpp
+    src/neural/Phase16Diagnostics.cpp
     src/neural/ShortcutMLPBrain.cpp
     src/neural/SimpleRNNBrain.cpp
     src/perception/PerceptionSystem.cpp

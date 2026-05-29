@@ -1,6 +1,7 @@
 #include "neural/BrainFactory.hpp"
 
 #include "config/ParameterHelpers.hpp"
+#include "neural/NEATGraphBrain.hpp"
 #include "neural/SimpleRNNBrain.hpp"
 
 #include <algorithm>
@@ -42,7 +43,7 @@ BrainConfig BrainFactory::configFromRegistry(const config::ParameterRegistry& pa
     BrainConfig config;
     config.requestedType = normalizeBrainType(parameterString(parameters, "neural_network_type", "mlp"));
     config.type = config.requestedType;
-    if (!isImplementedInPhase15(config.type))
+    if (!isImplementedInPhase16(config.type))
     {
         config.fallbackToMlp = true;
         config.fallbackReason = std::string(brainTypeName(config.type)) + " is planned but not implemented yet";
@@ -74,6 +75,47 @@ BrainConfig BrainFactory::configFromRegistry(const config::ParameterRegistry& pa
     config.future.rnnResetStateOnCopy = parameterBool(parameters, "neural_rnn_reset_state_on_copy", config.future.rnnResetStateOnCopy);
     config.future.rnnMutationRate = parameterDouble(parameters, "neural_rnn_mutation_rate", config.future.rnnMutationRate);
     config.future.rnnMutationStrength = parameterDouble(parameters, "neural_rnn_mutation_strength", config.future.rnnMutationStrength);
+
+    // Phase 16: NEAT-family config. Same shape for all three NEAT types; we just
+    // pick the right parameter prefix based on the requested brain. Recurrent-only
+    // params still get loaded for non-recurrent variants because the registry
+    // defines them only under neural_recurrent_neat; non-recurrent prefixes fall
+    // back to the struct defaults via the third argument.
+    const char* neatPrefix = nullptr;
+    if (config.requestedType == BrainType::Neat)
+    {
+        neatPrefix = "neural_neat";
+    }
+    else if (config.requestedType == BrainType::SimpleNeat)
+    {
+        neatPrefix = "neural_proto_neat";
+    }
+    else if (config.requestedType == BrainType::RecurrentNeat)
+    {
+        neatPrefix = "neural_recurrent_neat";
+    }
+    if (neatPrefix != nullptr)
+    {
+        const std::string p = neatPrefix;
+        config.neat.initialTopology = parameterString(parameters, p + "_initial_topology", config.neat.initialTopology);
+        config.neat.weightInitStd = parameterDouble(parameters, p + "_weight_init_std", config.neat.weightInitStd);
+        config.neat.weightMutationRate = parameterDouble(parameters, p + "_weight_mutation_rate", config.neat.weightMutationRate);
+        config.neat.weightMutationStrength = parameterDouble(parameters, p + "_weight_mutation_strength", config.neat.weightMutationStrength);
+        config.neat.addConnectionRate = parameterDouble(parameters, p + "_add_connection_rate", config.neat.addConnectionRate);
+        config.neat.addNodeRate = parameterDouble(parameters, p + "_add_node_rate", config.neat.addNodeRate);
+        config.neat.toggleConnectionRate = parameterDouble(parameters, p + "_toggle_connection_rate", config.neat.toggleConnectionRate);
+        config.neat.removeConnectionRate = parameterDouble(parameters, p + "_remove_connection_rate", config.neat.removeConnectionRate);
+        config.neat.resetWeightRate = parameterDouble(parameters, p + "_reset_weight_rate", config.neat.resetWeightRate);
+        config.neat.maxHiddenNodes = parameterInt(parameters, p + "_max_hidden_nodes", config.neat.maxHiddenNodes);
+        config.neat.maxConnections = parameterInt(parameters, p + "_max_connections", config.neat.maxConnections);
+        if (config.requestedType == BrainType::RecurrentNeat)
+        {
+            config.neat.recurrentConnectionRate = parameterDouble(parameters, p + "_recurrent_connection_rate", config.neat.recurrentConnectionRate);
+            config.neat.memoryDecay = parameterDouble(parameters, p + "_memory_decay", config.neat.memoryDecay);
+            config.neat.stateClip = parameterDouble(parameters, p + "_state_clip", config.neat.stateClip);
+            config.neat.resetStateOnCopy = parameterBool(parameters, p + "_reset_state_on_copy", config.neat.resetStateOnCopy);
+        }
+    }
 
     // Phase 14: prefer renamed parameters; aliases below cover legacy names.
     config.performance.useBatchForward = parameterBool(parameters, "use_batch_forward", config.performance.useBatchForward);
@@ -117,6 +159,18 @@ BrainCreationResult BrainFactory::createBrain(const BrainConfig& config, std::mt
     case BrainType::SimpleRnn:
         result.brain = SimpleRNNBrain(config, rng);
         result.instantiatedType = BrainType::SimpleRnn;
+        break;
+    case BrainType::Neat:
+        result.brain = NEATGraphBrain(config, rng);
+        result.instantiatedType = BrainType::Neat;
+        break;
+    case BrainType::SimpleNeat:
+        result.brain = NEATGraphBrain(config, rng);
+        result.instantiatedType = BrainType::SimpleNeat;
+        break;
+    case BrainType::RecurrentNeat:
+        result.brain = NEATGraphBrain(config, rng);
+        result.instantiatedType = BrainType::RecurrentNeat;
         break;
     case BrainType::Mlp:
     default:

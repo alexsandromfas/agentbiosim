@@ -131,4 +131,16 @@ inline bool isImplementedInPhase15(const BrainType type)
 {
     return isImplementedInPhase14(type) || type == BrainType::SimpleRnn;
 }
+
+inline bool isImplementedInPhase16(const BrainType type)
+{
+    return isImplementedInPhase15(type) || type == BrainType::Neat ||
+           type == BrainType::SimpleNeat || type == BrainType::RecurrentNeat;
+}
+
+inline bool isNeatFamily(const BrainType type)
+{
+    return type == BrainType::Neat || type == BrainType::SimpleNeat ||
+           type == BrainType::RecurrentNeat;
+}
 } // namespace agentbiosim::neural

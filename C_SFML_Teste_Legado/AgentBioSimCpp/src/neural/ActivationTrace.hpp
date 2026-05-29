@@ -14,6 +14,15 @@ struct ActivationLayer
     bool outputLayer = false;
 };
 
+// Phase 16: per-node activation snapshot for NEAT graph brains.
+struct NeatNodeActivation
+{
+    int id = 0;
+    int kind = 0;  // 0=input, 1=hidden, 2=output
+    double layer = 0.0;
+    double value = 0.0;
+};
+
 struct ActivationTrace
 {
     BrainType brainType = BrainType::Mlp;
@@ -27,6 +36,11 @@ struct ActivationTrace
     std::vector<double> recurrentStateAfter;
     double recurrentMemoryDecay = 0.0;
     double recurrentStateClip = 0.0;
+    // Phase 16: NEAT graph snapshot; empty for non-NEAT brains.
+    std::vector<NeatNodeActivation> neatNodes;
+    std::size_t neatConnectionCount = 0;
+    std::size_t neatEnabledConnectionCount = 0;
+    std::size_t neatRecurrentConnectionCount = 0;
 
     void clear()
     {
@@ -38,6 +52,10 @@ struct ActivationTrace
         recurrentStateAfter.clear();
         recurrentMemoryDecay = 0.0;
         recurrentStateClip = 0.0;
+        neatNodes.clear();
+        neatConnectionCount = 0;
+        neatEnabledConnectionCount = 0;
+        neatRecurrentConnectionCount = 0;
     }
 };
 } // namespace agentbiosim::neural

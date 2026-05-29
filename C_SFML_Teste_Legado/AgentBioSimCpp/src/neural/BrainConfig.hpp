@@ -42,6 +42,29 @@ struct BrainPerformanceConfig
     bool brainCacheLog = false;
 };
 
+// Phase 16: configuration shared by NEAT common, simplified and recurrent variants.
+// Recurrent-only fields (recurrentConnectionRate, memoryDecay, stateClip, resetStateOnCopy)
+// are loaded for all NEAT types so saves remain consistent, but they only take effect
+// when the brain type is RecurrentNeat (allowRecurrentEdges).
+struct NeatConfig
+{
+    std::string initialTopology = "minimal";
+    double weightInitStd = 0.6;
+    double weightMutationRate = -1.0;
+    double weightMutationStrength = -1.0;
+    double addConnectionRate = 0.08;
+    double addNodeRate = 0.03;
+    double toggleConnectionRate = 0.01;
+    double removeConnectionRate = 0.0;
+    double resetWeightRate = 0.02;
+    int maxHiddenNodes = 64;
+    int maxConnections = 512;
+    double recurrentConnectionRate = 0.12;
+    double memoryDecay = 0.85;
+    double stateClip = 1.0;
+    bool resetStateOnCopy = true;
+};
+
 struct BrainConfig
 {
     BrainType requestedType = BrainType::Mlp;
@@ -58,6 +81,7 @@ struct BrainConfig
     std::string fallbackReason;
     FutureNeuralConfig future;
     BrainPerformanceConfig performance;
+    NeatConfig neat;
 
     [[nodiscard]] std::vector<std::size_t> layerSizes() const
     {

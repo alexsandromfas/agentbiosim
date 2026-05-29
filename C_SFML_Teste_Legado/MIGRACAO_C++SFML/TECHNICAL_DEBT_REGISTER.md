@@ -103,7 +103,12 @@ Arquivos afetados:
 
 ## Divida 5 — Alocacoes temporarias no NeuralSystem [PARCIALMENTE MITIGADA]
 
-Status: parcialmente mitigada na Fase 14 (variant removeu heap alloc por cerebro). Avaliada na Fase 15 (RNN nao adiciona alocacao significativa). Restante para Fase 30.
+Status: parcialmente mitigada na Fase 14 (variant removeu heap alloc por cerebro). Avaliada na Fase 15 (RNN nao adiciona alocacao significativa). Reavaliada na Fase 16 (NEAT adiciona maps temporarios per-forward). Restante para Fase 30.
+
+Avaliacao na Fase 16 (NEAT family):
+- NEAT cria por forward: dois `std::unordered_map<int32_t, double>` (`values`, `incoming`), uma `std::map<double, vector<Node*>>` (hidden_by_layer), uma `std::unordered_map` para `newState` (somente recorrente). Isso e ~4 estruturas dinamicas alocadas por chamada.
+- Custo medido em benchmark: NEAT minimal (~36 conexoes) em ~2.6-3.3 us/forward, equivalente a MLP simples; NEAT layered (~432 conexoes) em ~17-18 us/forward. Aceitavel para ate ~2000 agentes a 30 Hz com NEAT.
+- Para NEAT o caminho otimo nao e batch (`supports_batch=false`), e sim transformar `values`/`incoming` em vetores indexados (denso) ou reusar buffers persistentes por brain entre chamadas. Avaliar em Fase 30 com 1000+ agentes NEAT reais.
 
 Avaliacao na Fase 15:
 - RNN adiciona apenas um vetor de estado por agente (state_size doubles), copiado no clone se reset_state_on_copy=false. Custo de reset state e ~7-20ns por agente.
