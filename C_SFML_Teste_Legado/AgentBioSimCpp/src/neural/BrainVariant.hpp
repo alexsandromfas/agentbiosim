@@ -5,15 +5,16 @@
 #include "neural/MLPBrain.hpp"
 #include "neural/ModulatedMLPBrain.hpp"
 #include "neural/ShortcutMLPBrain.hpp"
+#include "neural/SimpleRNNBrain.hpp"
 
 #include <variant>
 
 namespace agentbiosim::neural
 {
-// Dense-brain variant. Future Phase 15 (RNN) and Phase 16 (NEAT) will add new
-// variants here. std::visit gives compile-time dispatch with no virtual calls
-// and avoids heap allocation per brain.
-using BrainVariant = std::variant<MLPBrain, GatedMLPBrain, ShortcutMLPBrain, ModulatedMLPBrain>;
+// Brain variant. Phase 16 (NEAT) will add NEAT brain types. std::visit gives
+// compile-time dispatch with no virtual calls and avoids heap allocation per brain.
+using BrainVariant = std::variant<MLPBrain, GatedMLPBrain, ShortcutMLPBrain,
+                                  ModulatedMLPBrain, SimpleRNNBrain>;
 
 inline BrainType brainTypeOf(const BrainVariant& v)
 {
@@ -32,9 +33,13 @@ inline BrainType brainTypeOf(const BrainVariant& v)
             {
                 return BrainType::ShortcutMlp;
             }
-            else
+            else if constexpr (std::is_same_v<T, ModulatedMLPBrain>)
             {
                 return BrainType::ModulatedMlp;
+            }
+            else
+            {
+                return BrainType::SimpleRnn;
             }
         },
         v);
@@ -50,11 +55,34 @@ inline std::size_t outputSizeOf(const BrainVariant& v)
     return std::visit([](const auto& b) { return b.outputSize(); }, v);
 }
 
+// Const overload: forward without mutating live state (RNN state is captured/restored).
 inline std::vector<double> forwardOf(const BrainVariant& v,
                                      const std::vector<double>& input,
                                      ActivationTrace* trace = nullptr)
 {
     return std::visit([&](const auto& b) { return b.forward(input, trace); }, v);
+}
+
+// Non-const overload: forward AND update RNN state when applicable.
+// MLP/Gated/Shortcut/Modulated brains have only const forward, which is also called here.
+inline std::vector<double> forwardOf(BrainVariant& v,
+                                     const std::vector<double>& input,
+                                     ActivationTrace* trace = nullptr)
+{
+    return std::visit([&](auto& b) { return b.forward(input, trace); }, v);
+}
+
+inline void resetStateOf(BrainVariant& v)
+{
+    std::visit(
+        [](auto& b) {
+            using T = std::decay_t<decltype(b)>;
+            if constexpr (std::is_same_v<T, SimpleRNNBrain>)
+            {
+                b.resetState();
+            }
+        },
+        v);
 }
 
 inline BrainVariant cloneOf(const BrainVariant& v)

@@ -1,6 +1,7 @@
 #include "neural/BrainFactory.hpp"
 
 #include "config/ParameterHelpers.hpp"
+#include "neural/SimpleRNNBrain.hpp"
 
 #include <algorithm>
 #include <string>
@@ -41,7 +42,7 @@ BrainConfig BrainFactory::configFromRegistry(const config::ParameterRegistry& pa
     BrainConfig config;
     config.requestedType = normalizeBrainType(parameterString(parameters, "neural_network_type", "mlp"));
     config.type = config.requestedType;
-    if (!isImplementedInPhase14(config.type))
+    if (!isImplementedInPhase15(config.type))
     {
         config.fallbackToMlp = true;
         config.fallbackReason = std::string(brainTypeName(config.type)) + " is planned but not implemented yet";
@@ -112,6 +113,10 @@ BrainCreationResult BrainFactory::createBrain(const BrainConfig& config, std::mt
     case BrainType::ModulatedMlp:
         result.brain = ModulatedMLPBrain(config, rng);
         result.instantiatedType = BrainType::ModulatedMlp;
+        break;
+    case BrainType::SimpleRnn:
+        result.brain = SimpleRNNBrain(config, rng);
+        result.instantiatedType = BrainType::SimpleRnn;
         break;
     case BrainType::Mlp:
     default:

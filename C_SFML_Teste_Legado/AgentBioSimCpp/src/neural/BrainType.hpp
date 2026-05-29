@@ -126,4 +126,9 @@ inline bool isImplementedInPhase14(const BrainType type)
     return type == BrainType::Mlp || type == BrainType::GatedMlp ||
            type == BrainType::ShortcutMlp || type == BrainType::ModulatedMlp;
 }
+
+inline bool isImplementedInPhase15(const BrainType type)
+{
+    return isImplementedInPhase14(type) || type == BrainType::SimpleRnn;
+}
 } // namespace agentbiosim::neural

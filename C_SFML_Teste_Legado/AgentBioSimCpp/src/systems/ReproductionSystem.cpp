@@ -208,10 +208,20 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
 
         const simulation::EntityId childId = agents.createAgent(spawn);
 
-        // Brain inheritance via NeuralSystem: clone + mutate (zero rates leave it unchanged).
+        // Phase 15: build NeuralMutationConfig honoring brain-config overrides for
+        // gate / shortcut / recurrent mutation rates and strengths. -1 in the brain config
+        // means "fallback to base" (preserves Python semantics).
+        neural::NeuralMutationConfig mutCfg;
+        mutCfg.baseRate = config.mutationRate;
+        mutCfg.baseStrength = config.mutationStrength;
+        mutCfg.gateRate = brainSignatureConfig.future.gateMutationRate;
+        mutCfg.gateStrength = brainSignatureConfig.future.gateMutationStrength;
+        mutCfg.shortcutRate = brainSignatureConfig.future.shortcutMutationRate;
+        mutCfg.shortcutStrength = brainSignatureConfig.future.shortcutMutationStrength;
+        mutCfg.recurrentRate = brainSignatureConfig.future.rnnMutationRate;
+        mutCfg.recurrentStrength = brainSignatureConfig.future.rnnMutationStrength;
         const bool inherited = neuralSystem.inheritBrain(
-            childId.value, parentId.value, brainSignatureConfig,
-            config.mutationRate, config.mutationStrength, rng_);
+            childId.value, parentId.value, brainSignatureConfig, mutCfg, rng_);
         if (inherited && config.mutationRate > 0.0 && config.mutationStrength > 0.0)
         {
             ++lastStats_.mutationsApplied;

@@ -22,6 +22,11 @@ struct ActivationTrace
     std::vector<std::vector<double>> gateValues;
     // Per-output shortcut contribution; empty for non-shortcut brains.
     std::vector<double> shortcutContribution;
+    // Phase 15: recurrent state before/after for RNN brains; empty for non-RNN brains.
+    std::vector<double> recurrentStateBefore;
+    std::vector<double> recurrentStateAfter;
+    double recurrentMemoryDecay = 0.0;
+    double recurrentStateClip = 0.0;
 
     void clear()
     {
@@ -29,6 +34,10 @@ struct ActivationTrace
         layers.clear();
         gateValues.clear();
         shortcutContribution.clear();
+        recurrentStateBefore.clear();
+        recurrentStateAfter.clear();
+        recurrentMemoryDecay = 0.0;
+        recurrentStateClip = 0.0;
     }
 };
 } // namespace agentbiosim::neural

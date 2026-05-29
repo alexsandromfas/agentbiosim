@@ -5,6 +5,7 @@
 #include "perception/Phase11Diagnostics.hpp"
 #include "perception/Phase12Diagnostics.hpp"
 #include "neural/Phase14Diagnostics.hpp"
+#include "neural/Phase15Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -37,6 +38,8 @@ int main(const int argc, char* argv[])
         bool runPhase13Benchmark = false;
         bool runPhase14Validation = false;
         bool runPhase14Benchmark = false;
+        bool runPhase15Validation = false;
+        bool runPhase15Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -163,6 +166,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase14Validation = true;
                 runPhase14Benchmark = true;
+            }
+            else if (argument == "--phase15-selftest")
+            {
+                runPhase15Validation = true;
+            }
+            else if (argument == "--phase15-benchmark")
+            {
+                runPhase15Benchmark = true;
+            }
+            else if (argument == "--phase15-diagnostics")
+            {
+                runPhase15Validation = true;
+                runPhase15Benchmark = true;
             }
         }
 
@@ -511,6 +527,49 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase14Validation || runPhase14Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase15Validation)
+        {
+            const auto summary = agentbiosim::neural::runPhase15Validation();
+            std::cout << "Phase15 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 11;
+            }
+        }
+
+        if (runPhase15Benchmark)
+        {
+            const auto rows = agentbiosim::neural::runPhase15Microbenchmark();
+            std::cout << "Phase15 RNN microbenchmark\n";
+            std::cout << "scenario,brain_type,hidden,input_size,output_size,state_size,repeats,total_ms,avg_forward_us,avg_clone_us,avg_mutation_us,avg_reset_us,memory_decay,state_clip,reset_on_copy\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.brainType << ','
+                          << row.hiddenLayers << ','
+                          << row.inputSize << ','
+                          << row.outputSize << ','
+                          << row.stateSize << ','
+                          << row.repeats << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageForwardMicroseconds << ','
+                          << row.averageCloneMicroseconds << ','
+                          << row.averageMutationMicroseconds << ','
+                          << row.averageResetMicroseconds << ','
+                          << row.memoryDecay << ','
+                          << row.stateClip << ','
+                          << (row.resetStateOnCopy ? "true" : "false") << '\n';
+            }
+        }
+
+        if (runPhase15Validation || runPhase15Benchmark)
         {
             return 0;
         }

@@ -26,5 +26,13 @@ public:
     {
         return forwardOf(brain, input, trace);
     }
+
+    // Phase 15: non-const overload allows SimpleRNNBrain to update its recurrent state.
+    [[nodiscard]] std::vector<double> forward(BrainVariant& brain,
+                                              const std::vector<double>& input,
+                                              ActivationTrace* trace = nullptr) const
+    {
+        return forwardOf(brain, input, trace);
+    }
 };
 } // namespace agentbiosim::neural

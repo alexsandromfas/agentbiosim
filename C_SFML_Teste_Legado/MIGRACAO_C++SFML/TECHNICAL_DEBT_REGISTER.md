@@ -101,9 +101,16 @@ Arquivos afetados:
 - `src/app/App.hpp`
 - `src/app/App.cpp`
 
-## Divida 5 — Alocacoes temporarias no NeuralSystem
+## Divida 5 — Alocacoes temporarias no NeuralSystem [PARCIALMENTE MITIGADA]
 
-Descricao:
+Status: parcialmente mitigada na Fase 14 (variant removeu heap alloc por cerebro). Avaliada na Fase 15 (RNN nao adiciona alocacao significativa). Restante para Fase 30.
+
+Avaliacao na Fase 15:
+- RNN adiciona apenas um vetor de estado por agente (state_size doubles), copiado no clone se reset_state_on_copy=false. Custo de reset state e ~7-20ns por agente.
+- A copia interna do const forward de SimpleRNNBrain (`SimpleRNNBrain temp = *this`) e o unico ponto novo de heap allocation por chamada. NeuralSystem usa a sobrecarga nao-const (sem copia). A const overload e usada apenas por testes/UI.
+- Os vetores input/output por agente em `produceMovementControls` permanecem como pendencia da Fase 30.
+
+Descricao original:
 O metodo `NeuralSystem::produceMovementControls` aloca um `std::vector<double>` de input e recebe um `std::vector<double>` de output para cada agente, a cada step. Com 1000 agentes a 30 steps/s, sao ~60.000 alocacoes/dealocacoes por segundo de vetores pequenos.
 
 O benchmark da Fase 9 mostra ~2.25 us/forward para a arquitetura padrao (4 -> 20x4 -> 2), o que e viavel para tempo real com 1000 agentes. Mas conforme sensores reais (Fase 10+) aumentem o `input_size` e mais agentes sejam suportados, esse padrao se tornara um gargalo mensuravel.

@@ -102,7 +102,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 14: dense advanced brains (Gated/Shortcut/Modulated MLP) initialized.\n";
+    std::cout << "AgentBioSimCpp Phase 15: Simple RNN with recurrent state per agent initialized.\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";

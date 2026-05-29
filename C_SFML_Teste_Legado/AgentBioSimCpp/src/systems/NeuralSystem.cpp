@@ -63,7 +63,7 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
     for (std::size_t index = 0; index < agents.size(); ++index)
     {
         const auto id = agents.idAt(index);
-        const auto it = brainsByAgentId_.find(id.value);
+        auto it = brainsByAgentId_.find(id.value);
         if (it == brainsByAgentId_.end())
         {
             continue;
