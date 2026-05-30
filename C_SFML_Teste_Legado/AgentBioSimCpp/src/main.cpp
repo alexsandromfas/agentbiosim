@@ -12,6 +12,7 @@
 #include "systems/Phase19Diagnostics.hpp"
 #include "systems/Phase20Diagnostics.hpp"
 #include "systems/Phase21Diagnostics.hpp"
+#include "systems/Phase22Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -58,6 +59,8 @@ int main(const int argc, char* argv[])
         bool runPhase20Benchmark = false;
         bool runPhase21Validation = false;
         bool runPhase21Benchmark = false;
+        bool runPhase22Validation = false;
+        bool runPhase22Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -275,6 +278,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase21Validation = true;
                 runPhase21Benchmark = true;
+            }
+            else if (argument == "--phase22-selftest")
+            {
+                runPhase22Validation = true;
+            }
+            else if (argument == "--phase22-benchmark")
+            {
+                runPhase22Benchmark = true;
+            }
+            else if (argument == "--phase22-diagnostics")
+            {
+                runPhase22Validation = true;
+                runPhase22Benchmark = true;
             }
         }
 
@@ -939,6 +955,44 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase21Validation || runPhase21Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase22Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase22Validation();
+            std::cout << "Phase22 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 18;
+            }
+        }
+
+        if (runPhase22Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase22Microbenchmark();
+            std::cout << "Phase22 UI base microbenchmark\n";
+            std::cout << "scenario,agents,foods,obstacles,steps,total_ms,avg_step_us,commands,selection,notes\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.agents << ','
+                          << row.foods << ','
+                          << row.obstacles << ','
+                          << row.steps << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageStepMicroseconds << ','
+                          << row.commandsApplied << ','
+                          << row.selectionSize << ','
+                          << row.notes << '\n';
+            }
+        }
+
+        if (runPhase22Validation || runPhase22Benchmark)
         {
             return 0;
         }

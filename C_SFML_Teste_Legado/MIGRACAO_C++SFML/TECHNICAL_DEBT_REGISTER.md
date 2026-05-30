@@ -58,48 +58,38 @@ Resolucao:
 Verificacao:
 - Phase 14 Test 60: confirma alias resolution (registry.find("use_numba_brain_forward") == registry.find("use_batch_forward")).
 
-## Divida 4 — App acumulando responsabilidades
+## Divida 4 — App acumulando responsabilidades [RESOLVIDA NA FASE 22]
+
+Status: **RESOLVIDA** (commit da Fase 22, 2026-05-30).
+
+Resolucao:
+- Extraido `sim::SimulationRunner` (`src/sim/SimulationRunner.hpp/.cpp`) que possui todos os stores (AgentStore, FoodStore, ObstacleStore, SpeciesStore, GenomeStore) e todos os sistemas (perception, neural, movement, collision, energy, spatialhash, interaction, food, reproduction, death). Expoe `initialize()`, `step(dt)`, `setPaused/togglePaused/requestStepOnce/reset`, `applyCommand(Command)`, mais acessores const/mutaveis e operacoes de spawn/delete/pick/rect/lasso necessarias para a UI. Determinismo preservado via `seed_` configurado pelo registry (`random_seed`).
+- Extraido `ui::InputRouter` (`src/ui/InputRouter.hpp/.cpp`) que traduz `sf::Event` para `ui::Command` sem mutar stores diretamente.
+- Extraido `ui::UiPanel` (`src/ui/UiPanel.hpp/.cpp`) que desenha menu bar, toolbar com 10 ferramentas e overlay de ajuda em SFML puro.
+- `App` agora e o AppController fino: possui `parameters_`, `runner_`, `timestep_`, `camera_`, `renderer_`, `window_`, `uiState_`, `inputRouter_`, `uiPanel_`, `commandQueue_`. `processEvents` roteia UI -> InputRouter; `update` faz `drainCommandsAndApply()` (camera/selecao/UI locais + `runner_.applyCommand` para comandos de engine) e depois loop de timestep fixo chamando `runner_.step(dt)`. `render` chama `renderer_.render(...)` + `uiPanel_.draw(...)`.
+
+Verificacao:
+- Build Debug/Release: OK.
+- `--phase22-selftest`: PASS (155 checks).
+- Regressoes `--phase7-selftest` ate `--phase21-selftest`: PASS (todos).
+- Microbenchmark `--phase22-benchmark`: avg_step_us na faixa de 700-845us para 152-163 agentes / 50 comidas / 0 obstaculos, sem regressao significativa em relacao a Fase 21.
+
+Historico original:
 
 Descricao:
-A classe `App` atualmente orquestra:
+A classe `App` orquestrava criacao da janela, eventos, camera, spawn demo, configuracao de parametros, simulation step, chamada de todos os sistemas, rebuild do spatial hash, renderizacao e titulo. Tendia a crescer com a chegada da UI.
 
-- criacao e gerenciamento da janela SFML;
-- processamento de eventos de input;
-- gerenciamento da camera;
-- spawn de entidades demo;
-- configuracao de parametros;
-- execucao do simulation step;
-- chamada de todos os sistemas (Neural, Movement, Energy, Interaction, Death);
-- rebuild do spatial hash;
-- renderizacao;
-- atualizacao do titulo da janela com estatisticas.
-
-Isso e aceitavel para as fases iniciais, mas tende a crescer quando UI (Dear ImGui), input avancado, selecao de agentes e ferramentas de canvas forem adicionados.
-
-Impacto:
-- Dificuldade de manutenção quando App crescer.
-- Mistura de orquestracao, runtime e interface.
-- Pode dificultar o modo headless puro se o App estiver acoplado a logica de janela.
-
-Acao recomendada:
-Fatorar em componentes como:
-
+Acao recomendada (cumprida):
 - `SimulationRunner`: executa steps, gerencia sistemas e stores.
-- `AppController`: liga janela, UI, input e renderer ao runner.
+- `AppController` (papel do `App` renovado): liga janela, UI, input e renderer ao runner.
 - `InputRouter`: traduz eventos SFML em comandos para o engine.
 
-Momento sugerido:
-Antes ou durante a Fase 22 (UI base).
-
-Prioridade:
-Media.
-
-Bloqueia Fase 10?
-Nao.
-
 Arquivos afetados:
-- `src/app/App.hpp`
-- `src/app/App.cpp`
+- `src/app/App.hpp`, `src/app/App.cpp` (refatorados, finos).
+- `src/sim/SimulationRunner.hpp/.cpp` (novo).
+- `src/ui/InputRouter.hpp/.cpp` (novo).
+- `src/ui/UiPanel.hpp/.cpp` (novo).
+- `src/ui/Command.hpp`, `src/ui/CanvasTool.hpp`, `src/ui/SelectionState.hpp`, `src/ui/UiState.hpp` (novos).
 
 ## Divida 5 — Alocacoes temporarias no NeuralSystem [PARCIALMENTE MITIGADA]
 
@@ -215,7 +205,7 @@ Arquivos afetados:
 | 1. Helpers duplicados | **RESOLVIDA na Fase 13** | Media |
 | 2. BrainSlot/MLPBrain concreto | **RESOLVIDA na Fase 14** (variant) | Alta futura |
 | 3. Nomes Numba/Python | **RESOLVIDA na Fase 14** (renomeio + aliases) | Baixa/media |
-| 4. App acumulando responsabilidades | Antes da Fase 22 | Media |
+| 4. App acumulando responsabilidades | **RESOLVIDA na Fase 22** (SimulationRunner + InputRouter + UiPanel) | Media |
 | 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
 | 7. ReproductionSystem brainSignatureConfig alias | **RESOLVIDA na Fase 18** (pass-by-value) | Media |
