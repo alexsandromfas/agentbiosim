@@ -51,4 +51,19 @@ enum class PrefsTab : int
 // still shown), per-species parameters (Fase 24), and a few raw-string knobs
 // without domains that the SFML-native panel cannot edit safely yet.
 [[nodiscard]] bool prefsShouldHideParameter(const std::string& parameterName) noexcept;
+
+// Phase 23.2 fix: the registry's `domains` field is used as tags for the
+// dump/filter machinery (e.g. {"runtime", "neural"}), NOT as enum values.
+// String parameters that the UI presents as combos need a dedicated list.
+// Returns an empty vector when the parameter is not an enum.
+[[nodiscard]] std::vector<std::string> prefsEnumValuesFor(const std::string& parameterName);
+
+// Phase 23.2 fix: returns true if a parameter should appear in the neural
+// network window given the currently-selected neural_network_type. Common
+// knobs (the network type itself) always return true; per-architecture knobs
+// (gated_*, shortcut_*, rnn_*, neat_*, proto_neat_*, recurrent_neat_*) are
+// hidden when the corresponding architecture is NOT selected.
+[[nodiscard]] bool prefsShouldShowNeuralParameterFor(
+    const std::string& parameterName,
+    const std::string& currentNetworkType) noexcept;
 } // namespace agentbiosim::config

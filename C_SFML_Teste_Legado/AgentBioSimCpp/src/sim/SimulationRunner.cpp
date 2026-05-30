@@ -488,6 +488,13 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         else if constexpr (std::is_same_v<T, ui::CmdOpenPrefsPopup>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdClosePrefsPopup>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdAdjustTimeScale>) { return true; }
+        // Phase 23.2: draggable windows + text editor + restore-and-apply.
+        else if constexpr (std::is_same_v<T, ui::CmdMovePreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdMoveHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdBeginEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCancelEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCommitEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsAndApply>) { return true; }
         else { return false; }
     }, cmd);
 }

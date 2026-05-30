@@ -138,7 +138,9 @@ namespace
 // Phase 23.1: friendly Portuguese label map. ASCII-only on purpose. Internal
 // name still shown in dim small text under the row for power users.
 struct LabelEntry { const char* name; const char* label; };
-constexpr std::array<LabelEntry, 70> kFriendlyLabels{{
+// Phase 23.2: friendly labels list grown to cover all neural family knobs.
+// Stored as a std::vector now to avoid the fixed-size std::array constraint.
+const std::vector<LabelEntry> kFriendlyLabels{
     {"time_scale",                   "Velocidade da simulacao"},
     {"paused",                       "Pausa"},
     {"physics_steps_per_second",     "Passos de fisica por segundo"},
@@ -201,6 +203,54 @@ constexpr std::array<LabelEntry, 70> kFriendlyLabels{{
     {"neural_rnn_memory_decay",      "Decaimento da memoria (RNN)"},
     {"neural_rnn_state_clip",        "Saturacao do estado (RNN)"},
     {"neural_rnn_reset_state_on_copy","Resetar estado ao copiar"},
+    {"neural_rnn_recurrent_init_std","Desvio padrao inicial recorrente (RNN)"},
+    {"neural_rnn_recurrent_scale",   "Escala da conexao recorrente (RNN)"},
+    {"neural_rnn_mutation_rate",     "Taxa de mutacao (RNN)"},
+    {"neural_rnn_mutation_strength", "Forca da mutacao (RNN)"},
+    {"neural_gate_mutation_rate",    "Taxa de mutacao do portao"},
+    {"neural_gate_mutation_strength","Forca da mutacao do portao"},
+    {"neural_shortcut_mutation_rate","Taxa de mutacao do atalho"},
+    {"neural_shortcut_mutation_strength","Forca da mutacao do atalho"},
+
+    {"neural_neat_initial_topology",            "Topologia inicial (NEAT)"},
+    {"neural_neat_weight_init_std",             "Desvio padrao inicial dos pesos (NEAT)"},
+    {"neural_neat_weight_mutation_rate",        "Taxa de mutacao de pesos (NEAT)"},
+    {"neural_neat_weight_mutation_strength",    "Forca da mutacao de pesos (NEAT)"},
+    {"neural_neat_add_connection_rate",         "Taxa de adicionar conexao (NEAT)"},
+    {"neural_neat_add_node_rate",               "Taxa de adicionar no (NEAT)"},
+    {"neural_neat_toggle_connection_rate",      "Taxa de alternar conexao (NEAT)"},
+    {"neural_neat_remove_connection_rate",      "Taxa de remover conexao (NEAT)"},
+    {"neural_neat_reset_weight_rate",           "Taxa de zerar peso (NEAT)"},
+    {"neural_neat_max_hidden_nodes",            "Maximo de neuronios ocultos (NEAT)"},
+    {"neural_neat_max_connections",             "Maximo de conexoes (NEAT)"},
+
+    {"neural_proto_neat_initial_topology",          "Topologia inicial (NEAT simplificada)"},
+    {"neural_proto_neat_weight_init_std",           "Desvio padrao inicial dos pesos (proto NEAT)"},
+    {"neural_proto_neat_weight_mutation_rate",      "Taxa de mutacao de pesos (proto NEAT)"},
+    {"neural_proto_neat_weight_mutation_strength",  "Forca da mutacao de pesos (proto NEAT)"},
+    {"neural_proto_neat_add_connection_rate",       "Taxa de adicionar conexao (proto NEAT)"},
+    {"neural_proto_neat_add_node_rate",             "Taxa de adicionar no (proto NEAT)"},
+    {"neural_proto_neat_toggle_connection_rate",    "Taxa de alternar conexao (proto NEAT)"},
+    {"neural_proto_neat_remove_connection_rate",    "Taxa de remover conexao (proto NEAT)"},
+    {"neural_proto_neat_reset_weight_rate",         "Taxa de zerar peso (proto NEAT)"},
+    {"neural_proto_neat_max_hidden_nodes",          "Maximo de neuronios ocultos (proto NEAT)"},
+    {"neural_proto_neat_max_connections",           "Maximo de conexoes (proto NEAT)"},
+
+    {"neural_recurrent_neat_initial_topology",          "Topologia inicial (NEAT recorrente)"},
+    {"neural_recurrent_neat_weight_init_std",           "Desvio padrao dos pesos (NEAT recorrente)"},
+    {"neural_recurrent_neat_weight_mutation_rate",      "Taxa de mutacao de pesos (NEAT recorrente)"},
+    {"neural_recurrent_neat_weight_mutation_strength",  "Forca da mutacao de pesos (NEAT recorrente)"},
+    {"neural_recurrent_neat_add_connection_rate",       "Taxa de adicionar conexao (NEAT recorrente)"},
+    {"neural_recurrent_neat_add_node_rate",             "Taxa de adicionar no (NEAT recorrente)"},
+    {"neural_recurrent_neat_toggle_connection_rate",    "Taxa de alternar conexao (NEAT recorrente)"},
+    {"neural_recurrent_neat_remove_connection_rate",    "Taxa de remover conexao (NEAT recorrente)"},
+    {"neural_recurrent_neat_reset_weight_rate",         "Taxa de zerar peso (NEAT recorrente)"},
+    {"neural_recurrent_neat_max_hidden_nodes",          "Maximo de neuronios ocultos (NEAT recorrente)"},
+    {"neural_recurrent_neat_max_connections",           "Maximo de conexoes (NEAT recorrente)"},
+    {"neural_recurrent_neat_recurrent_connection_rate", "Taxa de conexao recorrente (NEAT recorrente)"},
+    {"neural_recurrent_neat_memory_decay",              "Decaimento da memoria (NEAT recorrente)"},
+    {"neural_recurrent_neat_state_clip",                "Saturacao do estado (NEAT recorrente)"},
+    {"neural_recurrent_neat_reset_state_on_copy",       "Resetar estado ao copiar (NEAT recorrente)"},
 
     {"auto_export_substrate",        "Autosave ativado"},
     {"auto_export_interval_minutes", "Intervalo de autosave (min)"},
@@ -214,7 +264,42 @@ constexpr std::array<LabelEntry, 70> kFriendlyLabels{{
     {"reuse_spatial_grid",           "Reutilizar grid espacial"},
     {"use_batch_forward",            "Forward em lote (batch)"},
     {"batch_forward_min_size",       "Tamanho minimo do batch"},
-}};
+
+    // Simulation / time / world
+    {"substrate_shape",              "Formato do substrato"},
+    {"world_w",                      "Largura do mundo"},
+    {"world_h",                      "Altura do mundo"},
+    {"substrate_radius",             "Raio do substrato (circular)"},
+    {"render_resolution_scale",      "Escala de resolucao de renderizacao"},
+    {"show_spatial_hash",            "Mostrar grade espacial"},
+    {"show_selected_details",        "Mostrar detalhes do agente selecionado"},
+    {"show_metrics_chart",           "Mostrar grafico de metricas"},
+    {"neural_view_dense_layout",     "Layout denso da visualizacao neural"},
+    {"camera_follow_selected_agent", "Camera segue o agente selecionado"},
+    {"camera_follow_smoothing_enabled","Suavizacao do seguimento da camera"},
+    {"camera_follow_smoothing",      "Intensidade da suavizacao da camera"},
+
+    // Background and substrate colors
+    {"substrate_bg_color",                "Cor de fundo"},
+    {"background_gradient_enabled",       "Usar degrade no fundo"},
+    {"background_color_top",              "Cor do fundo (topo)"},
+    {"background_color_bottom",           "Cor do fundo (base)"},
+    {"substrate_gradient_enabled",        "Usar degrade no substrato"},
+    {"substrate_color_top",               "Cor do substrato (topo)"},
+    {"substrate_color_bottom",            "Cor do substrato (base)"},
+    {"substrate_border_enabled",          "Mostrar borda do substrato"},
+    {"substrate_border_color",            "Cor da borda do substrato"},
+
+    // Brain cache (Fase 27)
+    {"brain_cache_disable",          "Desativar cache de cerebros (Fase 27)"},
+    {"brain_cache_max_entries",      "Maximo de entradas do cache (Fase 27)"},
+    {"brain_cache_max_mb",           "Tamanho maximo do cache em MB (Fase 27)"},
+    {"brain_cache_log",              "Registrar atividade do cache (Fase 27)"},
+
+    // Performance / future
+    {"use_grouped_vision_batches",       "Visao em lotes agrupados (Fase 30)"},
+    {"use_persistent_perception_arrays", "Buffers de percepcao persistentes (Fase 30)"}
+};
 } // namespace
 
 const char* prefsFriendlyLabel(const std::string& name) noexcept
@@ -224,6 +309,63 @@ const char* prefsFriendlyLabel(const std::string& name) noexcept
         if (name == e.name) return e.label;
     }
     return nullptr;
+}
+
+// Phase 23.2: dedicated enum values for string parameters that the prefs UI
+// renders as combos. The registry's `domains` field stores tags, not enum
+// values, so we cannot derive the combo content from it.
+std::vector<std::string> prefsEnumValuesFor(const std::string& name)
+{
+    if (name == "substrate_shape")    return {"rectangular", "circular"};
+    if (name == "neural_network_type") return {
+        "mlp",
+        "gated_mlp",
+        "shortcut_mlp",
+        "modulated_mlp",
+        "simple_rnn",
+        "neat",
+        "proto_neat",
+        "recurrent_neat"
+    };
+    if (name == "retina_vision_mode")  return {"frontal", "omni", "raycast", "raycast_omni"};
+    if (name == "retina_bins_mode")    return {"single", "sector", "global", "auto_sector"};
+    if (name == "retina_bins_distance_distribution") return {"linear", "log", "quadratic"};
+    if (name == "retina_bins_distance_falloff")      return {"none", "linear", "exponential"};
+    if (name == "retina_bins_projection")            return {"flat", "fisheye"};
+    if (name == "neural_neat_initial_topology")            return {"empty", "minimal", "layered"};
+    if (name == "neural_proto_neat_initial_topology")      return {"empty", "minimal", "layered"};
+    if (name == "neural_recurrent_neat_initial_topology")  return {"empty", "minimal", "layered"};
+    return {};
+}
+
+// Phase 23.2: per-architecture parameter prefixes used by the neural window
+// filter. A parameter belongs to a specific architecture if its name starts
+// with one of these prefixes; otherwise it is a common knob.
+namespace
+{
+bool isNeuralPrefix(const std::string& n, const char* prefix)
+{
+    return n.rfind(prefix, 0) == 0;
+}
+}
+
+bool prefsShouldShowNeuralParameterFor(
+    const std::string& name, const std::string& currentNetworkType) noexcept
+{
+    // Always show the type selector itself.
+    if (name == "neural_network_type") return true;
+
+    // Detect architecture prefix.
+    if (isNeuralPrefix(name, "neural_gate_"))           return currentNetworkType == "gated_mlp" ||
+                                                                   currentNetworkType == "modulated_mlp";
+    if (isNeuralPrefix(name, "neural_shortcut_"))       return currentNetworkType == "shortcut_mlp";
+    if (isNeuralPrefix(name, "neural_rnn_"))            return currentNetworkType == "simple_rnn";
+    if (isNeuralPrefix(name, "neural_proto_neat_"))     return currentNetworkType == "proto_neat";
+    if (isNeuralPrefix(name, "neural_recurrent_neat_")) return currentNetworkType == "recurrent_neat";
+    if (isNeuralPrefix(name, "neural_neat_"))           return currentNetworkType == "neat";
+
+    // Common neural.* knobs always show.
+    return true;
 }
 
 bool prefsShouldHideParameter(const std::string& name) noexcept

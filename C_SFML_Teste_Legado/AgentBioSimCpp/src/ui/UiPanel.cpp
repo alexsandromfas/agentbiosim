@@ -5,7 +5,9 @@
 #include <SFML/Graphics/RectangleShape.hpp>
 #include <SFML/Graphics/Text.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -267,28 +269,24 @@ bool UiPanel::handleMouseClick(const int screenX, const int screenY,
         {
             queue.push(CmdFitWorldCamera{});
         }
-        // Phase 23.1: velocity widget occupies 3 toolbar-button slots after
-        // Fit. The widget is composed of [Vel-]  [Vel +]  buttons. Each
-        // emits a relative CmdAdjustTimeScale; the App reads/clamps/writes
-        // the registry's current time_scale.
+        // Phase 23.2: velocity widget is a draggable slider on the toolbar.
+        // Click anywhere on the track jumps to the clicked position and
+        // starts a drag (App handles the MouseMoved to continue the drag).
         else if (slot >= toolCount + 3 && slot <= toolCount + 5)
         {
-            const float widgetStart = static_cast<float>(toolCount + 3) * metrics_.toolbarButtonWidth;
-            const float relx = static_cast<float>(screenX) - widgetStart;
-            constexpr float btnW = 36.0F;
-            const float widgetW = metrics_.toolbarButtonWidth * 3.0F;
-            if (relx < btnW)
+            const float trackX = uiState.velocitySliderTrackX;
+            const float trackW = uiState.velocitySliderTrackW;
+            if (trackW > 1.0F)
             {
-                queue.push(CmdAdjustTimeScale{0.5});   // half speed
-            }
-            else if (relx > widgetW - btnW)
-            {
-                queue.push(CmdAdjustTimeScale{2.0});   // double speed
-            }
-            else
-            {
-                // Click on the label area resets to 1x.
-                queue.push(CmdSetTimeScale{1.0});
+                const float rel = std::clamp(
+                    (static_cast<float>(screenX) - trackX) / trackW, 0.0F, 1.0F);
+                const double minV = 0.1;
+                const double maxV = 50.0;
+                const double v = std::pow(10.0,
+                    std::log10(minV) +
+                    static_cast<double>(rel) * (std::log10(maxV) - std::log10(minV)));
+                queue.push(CmdSetTimeScale{v});
+                uiState.velocitySliderDragging = true;
             }
         }
         ++uiState.commandsProcessed;
@@ -376,22 +374,53 @@ void UiPanel::draw(sf::RenderTarget& target,
             drawText(target, font_, ctrls[i].label, x + 8.0F, y + 11.0F, 13U, kTextLight);
         }
 
-        // Phase 23.1: velocity widget = [-]  Velocidade NNx  [+]
+        // Phase 23.2: velocity slider — draggable horizontal track + thumb.
+        // Layout occupies 3 toolbar-button slots after Fit.
         const float velStart = ctrlsStart + static_cast<float>(ctrls.size()) *
                                                 metrics_.toolbarButtonWidth;
         const float velW = metrics_.toolbarButtonWidth * 3.0F - 4.0F;
-        sf::RectangleShape velBg({velW, metrics_.toolbarHeight - 6.0F});
-        velBg.setPosition(velStart + 2.0F, y + 3.0F);
-        velBg.setFillColor(kBgButton);
-        velBg.setOutlineThickness(1.0F);
-        velBg.setOutlineColor(kAccent);
-        target.draw(velBg);
-        drawText(target, font_, "-", velStart + 14.0F, y + 11.0F, 14U, kTextLight);
-        drawText(target, font_, "Velocidade", velStart + 50.0F, y + 7.0F, 11U, kTextDim);
+        // Label above the track.
+        drawText(target, font_, "Velocidade",
+                   velStart + 6.0F, y + 4.0F, 10U, kTextDim);
         std::ostringstream vs;
-        vs << std::fixed << std::setprecision(1) << uiState.timeScale << "x";
-        drawText(target, font_, vs.str(), velStart + 60.0F, y + 19.0F, 12U, kAccent);
-        drawText(target, font_, "+", velStart + velW - 18.0F, y + 11.0F, 14U, kTextLight);
+        vs << std::fixed << std::setprecision(2) << uiState.timeScale << "x";
+        drawText(target, font_, vs.str(),
+                   velStart + velW - 56.0F, y + 4.0F, 10U, kAccent);
+        // Track.
+        const float trackH = 6.0F;
+        const float trackX = velStart + 6.0F;
+        const float trackY = y + metrics_.toolbarHeight * 0.6F;
+        const float trackW = velW - 12.0F;
+        sf::RectangleShape track({trackW, trackH});
+        track.setPosition(trackX, trackY);
+        track.setFillColor(kBgButton);
+        target.draw(track);
+        // Thumb position from time_scale on log scale.
+        const double minV = 0.1;
+        const double maxV = 50.0;
+        const double ts = std::clamp(uiState.timeScale, minV, maxV);
+        const float rel = static_cast<float>(
+            (std::log10(ts) - std::log10(minV)) /
+            (std::log10(maxV) - std::log10(minV)));
+        const float thumbX = trackX + rel * trackW - 6.0F;
+        sf::RectangleShape thumb({12.0F, trackH + 8.0F});
+        thumb.setPosition(thumbX, trackY - 4.0F);
+        thumb.setFillColor(kAccent);
+        target.draw(thumb);
+        // Tick marks at 1x and 10x positions so the user gets a reference.
+        for (double mark : {1.0, 10.0})
+        {
+            const float r = static_cast<float>(
+                (std::log10(mark) - std::log10(minV)) /
+                (std::log10(maxV) - std::log10(minV)));
+            sf::RectangleShape tick({1.0F, 4.0F});
+            tick.setPosition(trackX + r * trackW, trackY - 2.0F);
+            tick.setFillColor(kTextDim);
+            target.draw(tick);
+        }
+        // Phase 23.2: publish track geometry so App can map MouseMoved to ts.
+        const_cast<UiState&>(uiState).velocitySliderTrackX = trackX;
+        const_cast<UiState&>(uiState).velocitySliderTrackW = trackW;
 
         // Status text at the right edge — pushed flush right.
         std::ostringstream status;

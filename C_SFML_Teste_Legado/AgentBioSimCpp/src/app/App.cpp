@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <exception>
 #include <iostream>
 #include <sstream>
 #include <variant>
@@ -84,7 +85,7 @@ App::App()
         preferencesPanel_.setFont(&font_);
     }
     uiState_.timeScale = config::parameterDouble(parameters_, "time_scale", 1.0);
-    std::cout << "AgentBioSimCpp Phase 23.1: UI com janelas independentes + slider de velocidade ("
+    std::cout << "AgentBioSimCpp Phase 23.2: janelas arrastaveis + edicao de texto + combo correto ("
               << runner_.species().size() << " species, " << runner_.genomes().size()
               << " genomes, " << runner_.foods().size() << " foods, "
               << runner_.obstacles().size() << " obstacles).\n";
@@ -143,6 +144,93 @@ void App::processEvents()
                     static_cast<void>(uiPanel_.handleMouseClick(sx, sy, runner_, uiState_,
                                                                    commandQueue_));
                 }
+                continue;
+            }
+        }
+        // Phase 23.2: drag prefs window when a drag is in progress; otherwise
+        // let the InputRouter receive the move.
+        if (event.type == sf::Event::MouseMoved)
+        {
+            if (uiState_.preferences.draggingTab >= 0 || uiState_.preferences.draggingHelp ||
+                uiState_.velocitySliderDragging)
+            {
+                if (uiState_.velocitySliderDragging)
+                {
+                    // Velocity slider: map mouse x relative to the slider track
+                    // into the log scale [0.1, 50.0].
+                    const float x = static_cast<float>(event.mouseMove.x) -
+                                        uiState_.velocitySliderTrackX;
+                    const float w = uiState_.velocitySliderTrackW;
+                    const float rel = std::clamp(x / std::max(1.0F, w), 0.0F, 1.0F);
+                    const double minV = 0.1;
+                    const double maxV = 50.0;
+                    const double v = std::pow(10.0,
+                        std::log10(minV) + static_cast<double>(rel) *
+                            (std::log10(maxV) - std::log10(minV)));
+                    commandQueue_.push(ui::CmdSetTimeScale{v});
+                }
+                else
+                {
+                    preferencesPanel_.handleMouseMove(event.mouseMove.x, event.mouseMove.y,
+                                                        vp, uiState_.preferences, commandQueue_);
+                }
+                continue;
+            }
+        }
+        if (event.type == sf::Event::MouseButtonReleased &&
+            event.mouseButton.button == sf::Mouse::Left)
+        {
+            if (uiState_.preferences.draggingTab >= 0 || uiState_.preferences.draggingHelp)
+            {
+                preferencesPanel_.handleMouseRelease(event.mouseButton.x, event.mouseButton.y,
+                                                       vp, uiState_.preferences, commandQueue_);
+                continue;
+            }
+            if (uiState_.velocitySliderDragging)
+            {
+                uiState_.velocitySliderDragging = false;
+                continue;
+            }
+        }
+        // Phase 23.2: inline text editor for numeric parameters.
+        if (!uiState_.preferences.editingParam.empty())
+        {
+            if (event.type == sf::Event::TextEntered)
+            {
+                const auto u = event.text.unicode;
+                if (u == 8U)  // backspace
+                {
+                    if (!uiState_.preferences.editingBuffer.empty())
+                    {
+                        uiState_.preferences.editingBuffer.pop_back();
+                    }
+                }
+                else if (u >= 32U && u < 127U)
+                {
+                    const char ch = static_cast<char>(u);
+                    if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' ||
+                        ch == '+' || ch == 'e' || ch == 'E')
+                    {
+                        uiState_.preferences.editingBuffer.push_back(ch);
+                    }
+                }
+                continue;
+            }
+            if (event.type == sf::Event::KeyPressed)
+            {
+                if (event.key.code == sf::Keyboard::Enter ||
+                    event.key.code == sf::Keyboard::Return)
+                {
+                    commandQueue_.push(ui::CmdCommitEditParameter{});
+                    continue;
+                }
+                if (event.key.code == sf::Keyboard::Escape)
+                {
+                    commandQueue_.push(ui::CmdCancelEditParameter{});
+                    continue;
+                }
+                // Swallow all other keys while editing so the canvas tools
+                // do not react to digits/letters.
                 continue;
             }
         }
@@ -491,6 +579,112 @@ void App::drainCommandsAndApply()
                 static_cast<void>(parameters_.setValue("time_scale", v));
                 uiState_.timeScale = v;
                 configureFromParameters();
+            }
+            // Phase 23.2: drag, text edit, restore defaults + apply.
+            else if constexpr (std::is_same_v<T, ui::CmdMovePreferencesWindow>)
+            {
+                if (c.tab >= 0 && c.tab < static_cast<int>(config::PrefsTab::Count))
+                {
+                    const auto idx = static_cast<std::size_t>(c.tab);
+                    uiState_.preferences.windowX[idx] = c.x;
+                    uiState_.preferences.windowY[idx] = c.y;
+                }
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdMoveHelpWindow>)
+            {
+                uiState_.preferences.helpWindowX = c.x;
+                uiState_.preferences.helpWindowY = c.y;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdBeginEditParameter>)
+            {
+                uiState_.preferences.editingParam = c.name;
+                uiState_.preferences.editingBuffer = c.initialBuffer;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCancelEditParameter>)
+            {
+                uiState_.preferences.editingParam.clear();
+                uiState_.preferences.editingBuffer.clear();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCommitEditParameter>)
+            {
+                if (!uiState_.preferences.editingParam.empty())
+                {
+                    const auto* def = parameters_.find(uiState_.preferences.editingParam);
+                    if (def != nullptr)
+                    {
+                        try
+                        {
+                            if (def->type == config::ParameterType::Integer)
+                            {
+                                const int v = std::stoi(uiState_.preferences.editingBuffer);
+                                uiState_.preferences.pendingValues[
+                                    uiState_.preferences.editingParam] = v;
+                            }
+                            else if (def->type == config::ParameterType::Floating)
+                            {
+                                const double v = std::stod(uiState_.preferences.editingBuffer);
+                                uiState_.preferences.pendingValues[
+                                    uiState_.preferences.editingParam] = v;
+                            }
+                        }
+                        catch (...)
+                        {
+                            // Invalid input — ignore, keep current value.
+                        }
+                    }
+                }
+                uiState_.preferences.editingParam.clear();
+                uiState_.preferences.editingBuffer.clear();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsAndApply>)
+            {
+                // Find which window is on top — use the highest-indexed open
+                // tab (matches the front-most-first hit-test order in the
+                // panel). The user clicked the "Restaurar padroes" button on
+                // that window, so restore its parameters only.
+                int activeTab = -1;
+                for (int t = static_cast<int>(config::PrefsTab::Count) - 1;
+                     t >= 0; --t)
+                {
+                    if (uiState_.preferences.windowOpen[
+                        static_cast<std::size_t>(t)])
+                    {
+                        activeTab = t;
+                        break;
+                    }
+                }
+                if (activeTab >= 0)
+                {
+                    const auto names = ui::prefsParametersForTabFiltered(
+                        parameters_, uiState_.preferences,
+                        static_cast<config::PrefsTab>(activeTab));
+                    for (const auto& n : names)
+                    {
+                        const auto* d = parameters_.find(n);
+                        if (d != nullptr)
+                        {
+                            uiState_.preferences.pendingValues[n] =
+                                d->originalDefault;
+                        }
+                    }
+                    // Apply immediately so the user sees the values change.
+                    const unsigned int flags = ui::prefsApplyPending(
+                        parameters_, uiState_.preferences);
+                    if (flags & config::ApplyFlag::RefreshRenderer)
+                    {
+                        configureRenderOptions();
+                    }
+                    if (flags & config::ApplyFlag::RequiresReset)
+                    {
+                        runner_.reset();
+                        fitCameraToWorld();
+                    }
+                    if (flags & config::ApplyFlag::Immediate)
+                    {
+                        configureFromParameters();
+                    }
+                    ++uiState_.preferences.restoredDefaultsCount;
+                }
             }
             else
             {

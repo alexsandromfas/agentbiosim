@@ -115,6 +115,21 @@ struct CmdClosePrefsPopup {};
 // and writes back through ParameterRegistry::setValue.
 struct CmdAdjustTimeScale { double factor = 1.0; };
 
+// Phase 23.2 fix: drag a preferences window. -1 for tab and the help flag
+// signal start/end of a drag respectively. New X/Y are absolute screen px.
+struct CmdMovePreferencesWindow { int tab = 0; float x = 0.0F; float y = 0.0F; };
+struct CmdMoveHelpWindow { float x = 0.0F; float y = 0.0F; };
+
+// Phase 23.2 fix: inline text editor for numeric parameter cells.
+struct CmdBeginEditParameter { std::string name; std::string initialBuffer; };
+struct CmdCancelEditParameter {};
+struct CmdCommitEditParameter {};   // App parses the current buffer
+
+// Phase 23.2 fix: "Restaurar padroes" applies immediately instead of only
+// populating pendingValues. Uses the same union-of-flags refresh path as
+// the regular Apply.
+struct CmdRestoreDefaultsAndApply {};
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -171,7 +186,13 @@ using Command = std::variant<
     CmdCloseSubstratePlaceholder,
     CmdOpenPrefsPopup,
     CmdClosePrefsPopup,
-    CmdAdjustTimeScale
+    CmdAdjustTimeScale,
+    CmdMovePreferencesWindow,
+    CmdMoveHelpWindow,
+    CmdBeginEditParameter,
+    CmdCancelEditParameter,
+    CmdCommitEditParameter,
+    CmdRestoreDefaultsAndApply
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

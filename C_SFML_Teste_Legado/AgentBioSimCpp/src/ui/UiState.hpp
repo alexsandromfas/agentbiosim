@@ -78,5 +78,12 @@ struct UiState
     // and the InputRouter can both inspect/react to it (e.g. InputRouter
     // skips canvas tools while preferences is open and captures the click).
     PreferencesState preferences;
+
+    // Phase 23.2: toolbar velocity slider drag state. UiPanel sets the track
+    // geometry every frame so the App can map mouse-move events to time_scale
+    // on a log scale.
+    bool velocitySliderDragging = false;
+    float velocitySliderTrackX = 0.0F;
+    float velocitySliderTrackW = 1.0F;
 };
 } // namespace agentbiosim::ui

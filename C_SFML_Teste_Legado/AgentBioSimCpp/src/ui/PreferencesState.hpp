@@ -29,6 +29,26 @@ struct PreferencesState
     std::array<bool, static_cast<std::size_t>(config::PrefsTab::Count)> windowOpen{};
     std::array<int, static_cast<std::size_t>(config::PrefsTab::Count)> windowScroll{};
 
+    // Phase 23.2 fix: per-window screen position so windows are draggable.
+    // -1 sentinel means "use cascaded default in the panel" (no explicit drag yet).
+    std::array<float, static_cast<std::size_t>(config::PrefsTab::Count)> windowX{};
+    std::array<float, static_cast<std::size_t>(config::PrefsTab::Count)> windowY{};
+    int draggingTab = -1;   // -1 = nothing being dragged
+    float dragOffsetX = 0.0F;
+    float dragOffsetY = 0.0F;
+
+    // Phase 23.2 fix: help window draggable position.
+    float helpWindowX = -1.0F;
+    float helpWindowY = -1.0F;
+    bool draggingHelp = false;
+
+    // Phase 23.2 fix: inline text editor for numeric parameters. The user
+    // clicks the value cell of an int/float row to start editing; keystrokes
+    // build `editingBuffer`; Enter commits via CmdSetParameterValue and Esc
+    // cancels.
+    std::string editingParam;
+    std::string editingBuffer;
+
     // Phase 23.1: kept for headless tests that referenced the old API.
     int activeTab = 0;
 
@@ -65,6 +85,13 @@ struct PreferencesState
         if (helpWindowOpen || substratePlaceholderOpen) return true;
         for (const bool b : windowOpen) if (b) return true;
         return false;
+    }
+
+    // Phase 23.2: zero-initialize windowX/Y to sentinel -1.
+    PreferencesState() noexcept
+    {
+        for (auto& v : windowX) v = -1.0F;
+        for (auto& v : windowY) v = -1.0F;
     }
 };
 } // namespace agentbiosim::ui

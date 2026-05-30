@@ -62,6 +62,7 @@ add_executable(AgentBioSimCpp
     src/systems/Phase22_1Diagnostics.cpp
     src/systems/Phase23Diagnostics.cpp
     src/systems/Phase23_1Diagnostics.cpp
+    src/systems/Phase23_2Diagnostics.cpp
     src/ui/InputRouter.cpp
     src/ui/UiPanel.cpp
     src/ui/UiPreferencesPanel.cpp
