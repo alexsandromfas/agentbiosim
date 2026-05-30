@@ -103,7 +103,7 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 20: Obstacles and occlusion ready ("
+    std::cout << "AgentBioSimCpp Phase 21: Collisions and optional physics ready ("
               << species_.size() << " species, " << genomes_.size() << " genomes, "
               << foods_.size() << " foods, " << obstacles_.size() << " obstacles).\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
@@ -432,6 +432,14 @@ void App::runSimulationStep(const double dt)
     lastNeuralStats_ = neuralSystem_.lastStats();
     lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls,
                                                  obstaclePtr);
+
+    // Phase 21: collision + optional physics. Runs after MovementSystem and
+    // before EnergySystem so colision-induced velocity changes do not bias
+    // metabolic costs.
+    systems::CollisionConfig collisionConfig = systems::CollisionSystem::fromRegistry(parameters_);
+    collisionConfig.dt = dt;
+    lastCollisionStats_ = collisionSystem_.apply(agents_, foods_, world_,
+        spatialEnabled_ ? &spatialHash_ : nullptr, obstaclePtr, collisionConfig);
 
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
     lastEnergyStats_ = energySystem_.apply(agents_, dt, energyConfig);

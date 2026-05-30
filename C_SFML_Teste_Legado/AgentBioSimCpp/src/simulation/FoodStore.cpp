@@ -10,6 +10,8 @@ EntityId FoodStore::createFood(const FoodSpawn& spawn)
     ids_.push_back(id);
     x_.push_back(spawn.position.x);
     y_.push_back(spawn.position.y);
+    vx_.push_back(0.0);
+    vy_.push_back(0.0);
     radius_.push_back(spawn.radius);
     energy_.push_back(spawn.energy);
     initialEnergy_.push_back(spawn.initialEnergy);
@@ -38,6 +40,8 @@ void FoodStore::clear()
     ids_.clear();
     x_.clear();
     y_.clear();
+    vx_.clear();
+    vy_.clear();
     radius_.clear();
     energy_.clear();
     initialEnergy_.clear();
@@ -111,6 +115,11 @@ Vec2 FoodStore::positionAt(const std::size_t index) const
     return {x_.at(index), y_.at(index)};
 }
 
+Vec2 FoodStore::velocityAt(const std::size_t index) const
+{
+    return {vx_.at(index), vy_.at(index)};
+}
+
 double FoodStore::radiusAt(const std::size_t index) const
 {
     return radius_.at(index);
@@ -156,6 +165,18 @@ void FoodStore::setRadiusAt(const std::size_t index, const double radius)
     radius_.at(index) = radius;
 }
 
+void FoodStore::setPositionAt(const std::size_t index, const Vec2 position)
+{
+    x_.at(index) = position.x;
+    y_.at(index) = position.y;
+}
+
+void FoodStore::setVelocityAt(const std::size_t index, const Vec2 velocity)
+{
+    vx_.at(index) = velocity.x;
+    vy_.at(index) = velocity.y;
+}
+
 std::uint32_t FoodStore::allocateClusterId()
 {
     return nextClusterId_++;
@@ -171,6 +192,8 @@ void FoodStore::removeAtIndex(const std::size_t index)
         ids_[index] = ids_[last];
         x_[index] = x_[last];
         y_[index] = y_[last];
+        vx_[index] = vx_[last];
+        vy_[index] = vy_[last];
         radius_[index] = radius_[last];
         energy_[index] = energy_[last];
         initialEnergy_[index] = initialEnergy_[last];
@@ -184,6 +207,8 @@ void FoodStore::removeAtIndex(const std::size_t index)
     ids_.pop_back();
     x_.pop_back();
     y_.pop_back();
+    vx_.pop_back();
+    vy_.pop_back();
     radius_.pop_back();
     energy_.pop_back();
     initialEnergy_.pop_back();

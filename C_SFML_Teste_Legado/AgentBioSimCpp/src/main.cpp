@@ -11,6 +11,7 @@
 #include "systems/Phase18Diagnostics.hpp"
 #include "systems/Phase19Diagnostics.hpp"
 #include "systems/Phase20Diagnostics.hpp"
+#include "systems/Phase21Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -55,6 +56,8 @@ int main(const int argc, char* argv[])
         bool runPhase19Benchmark = false;
         bool runPhase20Validation = false;
         bool runPhase20Benchmark = false;
+        bool runPhase21Validation = false;
+        bool runPhase21Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -259,6 +262,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase20Validation = true;
                 runPhase20Benchmark = true;
+            }
+            else if (argument == "--phase21-selftest")
+            {
+                runPhase21Validation = true;
+            }
+            else if (argument == "--phase21-benchmark")
+            {
+                runPhase21Benchmark = true;
+            }
+            else if (argument == "--phase21-diagnostics")
+            {
+                runPhase21Validation = true;
+                runPhase21Benchmark = true;
             }
         }
 
@@ -871,6 +887,58 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase20Validation || runPhase20Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase21Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase21Validation();
+            std::cout << "Phase21 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 17;
+            }
+        }
+
+        if (runPhase21Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase21Microbenchmark();
+            std::cout << "Phase21 collisions/optional physics microbenchmark\n";
+            std::cout << "scenario,agents,foods,obstacles,steps,coll,elast,visc,brown,chunk_mov,chunk_ff,chunk_adh,total_ms,avg_step_us,avg_per_agent_us,pairs_aa,coll_aa,pairs_af,pushes,pairs_ff,coll_ff,adhesions,brownian,notes\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.agents << ','
+                          << row.foods << ','
+                          << row.obstacles << ','
+                          << row.steps << ','
+                          << (row.collisionEnabled ? "1" : "0") << ','
+                          << (row.elasticityEnabled ? "1" : "0") << ','
+                          << (row.viscosityEnabled ? "1" : "0") << ','
+                          << (row.brownianEnabled ? "1" : "0") << ','
+                          << (row.movableChunkEnabled ? "1" : "0") << ','
+                          << (row.chunkCollisionEnabled ? "1" : "0") << ','
+                          << (row.chunkAdhesionEnabled ? "1" : "0") << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageStepMicroseconds << ','
+                          << row.averagePerAgentMicroseconds << ','
+                          << row.agentPairsTested << ','
+                          << row.agentCollisionsResolved << ','
+                          << row.agentFoodPairsTested << ','
+                          << row.foodPushes << ','
+                          << row.foodPairsTested << ','
+                          << row.foodCollisionsResolved << ','
+                          << row.adhesionsApplied << ','
+                          << row.brownianApplied << ','
+                          << row.notes << '\n';
+            }
+        }
+
+        if (runPhase21Validation || runPhase21Benchmark)
         {
             return 0;
         }

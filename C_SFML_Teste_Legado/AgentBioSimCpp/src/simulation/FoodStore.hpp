@@ -30,6 +30,7 @@ public:
 
     [[nodiscard]] EntityId idAt(std::size_t index) const;
     [[nodiscard]] Vec2 positionAt(std::size_t index) const;
+    [[nodiscard]] Vec2 velocityAt(std::size_t index) const;
     [[nodiscard]] double radiusAt(std::size_t index) const;
     [[nodiscard]] double energyAt(std::size_t index) const;
     [[nodiscard]] double initialEnergyAt(std::size_t index) const;
@@ -42,6 +43,12 @@ public:
     void setEnergyAt(std::size_t index, double energy);
     void setRadiusAt(std::size_t index, double radius);
 
+    // Phase 21: per-particle velocity for movable chunk food. Always present
+    // (default zero) but only mutated by CollisionSystem when chunk physics is
+    // enabled. Instant food is expected to remain at zero velocity.
+    void setPositionAt(std::size_t index, Vec2 position);
+    void setVelocityAt(std::size_t index, Vec2 velocity);
+
     // Phase 19: allocate a new cluster id (monotonic, deterministic).
     [[nodiscard]] std::uint32_t allocateClusterId();
 
@@ -51,6 +58,8 @@ private:
     std::vector<EntityId> ids_;
     std::vector<double> x_;
     std::vector<double> y_;
+    std::vector<double> vx_;
+    std::vector<double> vy_;
     std::vector<double> radius_;
     std::vector<double> energy_;
     std::vector<double> initialEnergy_;

@@ -11,6 +11,7 @@
 #include "simulation/SpatialHash.hpp"
 #include "simulation/SpeciesStore.hpp"
 #include "simulation/World.hpp"
+#include "systems/CollisionSystem.hpp"
 #include "systems/DeathSystem.hpp"
 #include "systems/EnergySystem.hpp"
 #include "systems/FoodSystem.hpp"
@@ -68,6 +69,8 @@ private:
     systems::DeathSystem deathSystem_;
     systems::FoodSystem foodSystem_;
     systems::FoodSystemStats lastFoodStats_{};
+    systems::CollisionSystem collisionSystem_;
+    systems::CollisionStats lastCollisionStats_{};
     render::Camera2D camera_;
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;
