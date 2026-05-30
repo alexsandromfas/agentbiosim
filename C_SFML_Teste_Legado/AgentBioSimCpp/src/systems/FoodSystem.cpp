@@ -98,13 +98,30 @@ simulation::Vec2 FoodSystem::randomPointInsideWorld(const simulation::World& wor
 
 simulation::EntityId FoodSystem::spawnInstant(simulation::FoodStore& foods,
                                                 const simulation::World& world,
-                                                const FoodSystemConfig& config)
+                                                const FoodSystemConfig& config,
+                                                const simulation::ObstacleStore* obstacles)
 {
     std::uniform_real_distribution<double> radDist(config.instantMinRadius, config.instantMaxRadius);
     const double radius = radDist(rng_);
     const double energy = std::max(1.0e-9, radius * radius);
+    // Phase 20: reject positions inside obstacles, retry up to 16 times.
+    simulation::Vec2 pos = world.clampPosition(randomPointInsideWorld(world, radius), radius);
+    if (obstacles != nullptr && !obstacles->empty())
+    {
+        constexpr int kMaxAttempts = 16;
+        int attempts = 0;
+        while (obstacles->overlapsCircle(pos, radius) && attempts < kMaxAttempts)
+        {
+            pos = world.clampPosition(randomPointInsideWorld(world, radius), radius);
+            ++attempts;
+        }
+        if (obstacles->overlapsCircle(pos, radius))
+        {
+            return {0};
+        }
+    }
     simulation::FoodSpawn s;
-    s.position = world.clampPosition(randomPointInsideWorld(world, radius), radius);
+    s.position = pos;
     s.radius = radius;
     s.energy = energy;
     s.initialEnergy = energy;
@@ -116,18 +133,30 @@ simulation::EntityId FoodSystem::spawnInstant(simulation::FoodStore& foods,
 
 std::uint32_t FoodSystem::spawnCluster(simulation::FoodStore& foods,
                                         const simulation::World& world,
-                                        const FoodSystemConfig& config)
+                                        const FoodSystemConfig& config,
+                                        const simulation::ObstacleStore* obstacles)
 {
-    const std::uint32_t clusterId = foods.allocateClusterId();
     const double pr = std::max(0.5, config.particleRadius);
     const double cr = std::max(pr, config.clusterRadius);
     const double spacing = std::max(0.0, config.particleSpacing);
     const double stride = std::max(2.0 * pr, 2.0 * pr + spacing);
 
     // Cluster center; clamp by the cluster bounding radius so all particles stay
-    // inside the world. Phase 21 will add per-particle clamping during placement.
-    const simulation::Vec2 center = world.clampPosition(randomPointInsideWorld(world, cr), cr);
+    // inside the world. If obstacles cover the candidate center, retry.
+    simulation::Vec2 center = world.clampPosition(randomPointInsideWorld(world, cr), cr);
+    if (obstacles != nullptr && !obstacles->empty())
+    {
+        constexpr int kMaxAttempts = 16;
+        int attempts = 0;
+        while (obstacles->containsPoint(center) && attempts < kMaxAttempts)
+        {
+            center = world.clampPosition(randomPointInsideWorld(world, cr), cr);
+            ++attempts;
+        }
+        if (obstacles->containsPoint(center)) return 0U;
+    }
 
+    const std::uint32_t clusterId = foods.allocateClusterId();
     const double area = 3.14159265358979323846 * cr * cr;
     const double cellArea = stride * stride;
     const int approxCount = static_cast<int>(std::max(1.0, std::round(area / std::max(1.0e-6, cellArea))));
@@ -142,6 +171,12 @@ std::uint32_t FoodSystem::spawnCluster(simulation::FoodStore& foods,
         const double a = ang(rng_);
         const simulation::Vec2 pos = world.clampPosition({center.x + std::cos(a) * r,
                                                            center.y + std::sin(a) * r}, pr);
+        // Per-particle obstacle rejection. Particles that fall inside an obstacle
+        // are silently dropped (the cluster ends up with fewer particles).
+        if (obstacles != nullptr && !obstacles->empty() && obstacles->overlapsCircle(pos, pr))
+        {
+            continue;
+        }
         simulation::FoodSpawn s;
         s.position = pos;
         s.radius = pr;
@@ -158,7 +193,8 @@ std::uint32_t FoodSystem::spawnCluster(simulation::FoodStore& foods,
 
 std::uint32_t FoodSystem::growExistingCluster(simulation::FoodStore& foods,
                                                 const simulation::World& world,
-                                                const FoodSystemConfig& config)
+                                                const FoodSystemConfig& config,
+                                                const simulation::ObstacleStore* obstacles)
 {
     // Pick smallest active clusterId deterministically.
     std::uint32_t bestId = 0;
@@ -176,7 +212,7 @@ std::uint32_t FoodSystem::growExistingCluster(simulation::FoodStore& foods,
         if (centersByCluster.empty())
         {
             // Fallback documented in status doc: spawn a new cluster.
-            return spawnCluster(foods, world, config);
+            return spawnCluster(foods, world, config, obstacles);
         }
         const auto it = centersByCluster.begin();
         bestId = it->first;
@@ -206,6 +242,10 @@ std::uint32_t FoodSystem::growExistingCluster(simulation::FoodStore& foods,
         const double a = ang(rng_);
         const simulation::Vec2 pos = world.clampPosition({bestCenter.x + std::cos(a) * r,
                                                             bestCenter.y + std::sin(a) * r}, pr);
+        if (obstacles != nullptr && !obstacles->empty() && obstacles->overlapsCircle(pos, pr))
+        {
+            continue;
+        }
         simulation::FoodSpawn s;
         s.position = pos;
         s.radius = pr;
@@ -244,7 +284,8 @@ std::size_t FoodSystem::growExistingParticles(simulation::FoodStore& foods,
 
 FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
                                                 const simulation::World& world,
-                                                const FoodSystemConfig& config)
+                                                const FoodSystemConfig& config,
+                                                const simulation::ObstacleStore* obstacles)
 {
     FoodSystemStats stats;
     if (config.target <= 0) return stats;
@@ -257,7 +298,12 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
         int spawned = 0;
         while (static_cast<int>(foods.size()) < config.target && spawned < maxPerStep)
         {
-            static_cast<void>(spawnInstant(foods, world, config));
+            const auto id = spawnInstant(foods, world, config, obstacles);
+            if (!id.isValid())
+            {
+                ++stats.spawnsRejectedByObstacle;
+                break;
+            }
             ++spawned;
             ++stats.spawnedInstant;
         }
@@ -273,7 +319,7 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
     {
         if (static_cast<int>(foods.size()) >= config.target) return stats;
         const std::size_t before = foods.size();
-        const auto cid = spawnCluster(foods, world, config);
+        const auto cid = spawnCluster(foods, world, config, obstacles);
         const std::size_t after = foods.size();
         stats.spawnedChunkParticles += (after - before);
         if (cid != 0 && after > before) ++stats.clustersCreated;
@@ -283,7 +329,7 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
     {
         if (static_cast<int>(foods.size()) >= config.target) return stats;
         const std::size_t before = foods.size();
-        const auto cid = growExistingCluster(foods, world, config);
+        const auto cid = growExistingCluster(foods, world, config, obstacles);
         const std::size_t after = foods.size();
         stats.spawnedChunkParticles += (after - before);
         if (cid != 0)

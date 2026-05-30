@@ -103,9 +103,9 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 19: Chunk food fully integrated ("
+    std::cout << "AgentBioSimCpp Phase 20: Obstacles and occlusion ready ("
               << species_.size() << " species, " << genomes_.size() << " genomes, "
-              << foods_.size() << " foods).\n";
+              << foods_.size() << " foods, " << obstacles_.size() << " obstacles).\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -265,6 +265,8 @@ void App::spawnDemoEntities()
     foods_.clear();
     genomes_.clear();
     species_.clear();
+    // Phase 20: obstacles persist across spawnDemoEntities. Use App.clearObstacles()
+    // if a clean slate is needed in tests. Spawn rejection consults the store.
 
     const int seedParameter = parameterInt(parameters_, "random_seed", -1);
     const std::uint32_t seed = seedParameter >= 0 ? static_cast<std::uint32_t>(seedParameter) : 1337U;
@@ -288,10 +290,25 @@ void App::spawnDemoEntities()
     const simulation::BodyShapeCode bodyShape = bacteriaSpecies->bodyShape;
 
     std::uniform_real_distribution<double> angleDistribution(0.0, 2.0 * 3.14159265358979323846);
+    const auto* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
+    auto sampleFreePosition = [&](const double radius) {
+        constexpr int kMaxAttempts = 32;
+        for (int t = 0; t < kMaxAttempts; ++t)
+        {
+            const simulation::Vec2 candidate = world_.clampPosition(
+                randomPointInsideWorld(world_, radius, rng), radius);
+            if (obstaclePtr == nullptr || !obstaclePtr->overlapsCircle(candidate, radius))
+            {
+                return candidate;
+            }
+        }
+        // Fallback: clamped center; documented in status doc.
+        return world_.clampPosition(world_.center(), radius);
+    };
     for (int i = 0; i < agentCount; ++i)
     {
         simulation::AgentSpawn spawn;
-        spawn.position = world_.clampPosition(randomPointInsideWorld(world_, agentRadius, rng), agentRadius);
+        spawn.position = sampleFreePosition(agentRadius);
         spawn.angle = angleDistribution(rng);
         spawn.radius = agentRadius;
         spawn.energy = initialEnergy;
@@ -312,7 +329,7 @@ void App::spawnDemoEntities()
         for (int i = 0; i < predatorSpecies->initialCount; ++i)
         {
             simulation::AgentSpawn spawn;
-            spawn.position = world_.clampPosition(randomPointInsideWorld(world_, predRadius, rng), predRadius);
+            spawn.position = sampleFreePosition(predRadius);
             spawn.angle = angleDistribution(rng);
             spawn.radius = predRadius;
             spawn.energy = predEnergy;
@@ -334,7 +351,7 @@ void App::spawnDemoEntities()
         // Instant: spawn up to target one-by-one (Phase 7 parity).
         for (int i = 0; i < foodCfg.target && static_cast<int>(foods_.size()) < foodCfg.target; ++i)
         {
-            static_cast<void>(foodSystem_.spawnInstant(foods_, world_, foodCfg));
+            static_cast<void>(foodSystem_.spawnInstant(foods_, world_, foodCfg, obstaclePtr));
         }
     }
     else
@@ -343,7 +360,7 @@ void App::spawnDemoEntities()
         while (static_cast<int>(foods_.size()) < foodCfg.target)
         {
             const std::size_t before = foods_.size();
-            static_cast<void>(foodSystem_.spawnCluster(foods_, world_, foodCfg));
+            static_cast<void>(foodSystem_.spawnCluster(foods_, world_, foodCfg, obstaclePtr));
             const std::size_t after = foods_.size();
             if (after == before) break; // safety: spawnCluster placed nothing
         }
@@ -400,9 +417,11 @@ void App::runSimulationStep(const double dt)
     {
         visionDebug_.clear();
     }
+    // Phase 20: obstacles, when present, drive occlusion + obstacle candidates.
+    const simulation::ObstacleStore* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
     const auto perceptionResult = perceptionSystem_.computeInputs(
         agents_, foods_, spatialEnabled_ ? &spatialHash_ : nullptr, world_, perceptionConfig,
-        debugRequest);
+        debugRequest, obstaclePtr);
     lastPerceptionStats_ = perceptionSystem_.lastStats();
 
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
@@ -411,7 +430,8 @@ void App::runSimulationStep(const double dt)
     const std::vector<systems::MovementControl> neuralControls =
         neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
     lastNeuralStats_ = neuralSystem_.lastStats();
-    lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls);
+    lastMovementStats_ = movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls,
+                                                 obstaclePtr);
 
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
     lastEnergyStats_ = energySystem_.apply(agents_, dt, energyConfig);
@@ -436,8 +456,9 @@ void App::runSimulationStep(const double dt)
     deathsCount_ += dietStats.predationEvents;
 
     // Phase 19: food replenishment + trim runs once per simulation step.
+    // Phase 20: rejects spawns inside obstacles when present.
     const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
-    lastFoodStats_ = foodSystem_.replenishToTarget(foods_, world_, foodCfg);
+    lastFoodStats_ = foodSystem_.replenishToTarget(foods_, world_, foodCfg, obstaclePtr);
     static_cast<void>(foodSystem_.trimExcess(foods_, foodCfg));
 
     // Phase 13: reproduction between interaction (food/energy gained) and death.
@@ -475,8 +496,9 @@ void App::update()
 void App::render()
 {
     const perception::VisionDebugData* debugPtr = visionDebugEnabled_ ? &visionDebug_ : nullptr;
+    const simulation::ObstacleStore* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
     lastRenderStats_ = renderer_.render(window_, camera_, world_, agents_, foods_, renderOptions_,
-                                         debugPtr);
+                                         debugPtr, obstaclePtr);
     window_.display();
     ++frames_;
 }

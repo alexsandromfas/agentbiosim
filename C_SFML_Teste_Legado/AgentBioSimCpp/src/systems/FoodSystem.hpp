@@ -3,6 +3,7 @@
 #include "config/ParameterRegistry.hpp"
 #include "simulation/EntityTypes.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/World.hpp"
 
 #include <cstddef>
@@ -50,6 +51,9 @@ struct FoodSystemStats
     std::size_t clustersGrown = 0;
     std::size_t particlesGrown = 0;
     std::size_t trimmed = 0;
+    // Phase 20: counts spawn attempts rejected because the candidate position was
+    // inside an obstacle. Useful for diagnostics and UI feedback.
+    std::size_t spawnsRejectedByObstacle = 0;
 };
 
 // FoodSystem manages food spawn/replenishment/trim. It is headless (no SFML, no UI).
@@ -63,9 +67,11 @@ public:
 
     void reseed(std::uint64_t seed);
 
+    // Phase 20: optional `obstacles` rejects positions that fall inside an obstacle.
     [[nodiscard]] FoodSystemStats replenishToTarget(simulation::FoodStore& foods,
                                                      const simulation::World& world,
-                                                     const FoodSystemConfig& config);
+                                                     const FoodSystemConfig& config,
+                                                     const simulation::ObstacleStore* obstacles = nullptr);
 
     // Trim excess food (removes the highest-indexed alive items beyond target,
     // up to `trimMaxPerStep`). Returns number of items removed.
@@ -76,20 +82,25 @@ public:
     [[nodiscard]] std::size_t clearAll(simulation::FoodStore& foods);
 
     // Spawn a single instant food at a random valid position. Deterministic with seed.
+    // Returns kInvalidEntityId equivalent when no valid position found.
     [[nodiscard]] simulation::EntityId spawnInstant(simulation::FoodStore& foods,
                                                      const simulation::World& world,
-                                                     const FoodSystemConfig& config);
+                                                     const FoodSystemConfig& config,
+                                                     const simulation::ObstacleStore* obstacles = nullptr);
 
     // Spawn a single chunk cluster (multiple particles) at a random valid position.
+    // Returns the new cluster id, or 0 if no valid center was found.
     [[nodiscard]] std::uint32_t spawnCluster(simulation::FoodStore& foods,
                                               const simulation::World& world,
-                                              const FoodSystemConfig& config);
+                                              const FoodSystemConfig& config,
+                                              const simulation::ObstacleStore* obstacles = nullptr);
 
     // Grow an existing cluster by adding particles near it (deterministic pick).
     // Returns the cluster id grown, or 0 if no existing cluster was found.
     std::uint32_t growExistingCluster(simulation::FoodStore& foods,
                                        const simulation::World& world,
-                                       const FoodSystemConfig& config);
+                                       const FoodSystemConfig& config,
+                                       const simulation::ObstacleStore* obstacles = nullptr);
 
     // Grow existing chunk particles (refill remaining energy). Returns count grown.
     std::size_t growExistingParticles(simulation::FoodStore& foods,

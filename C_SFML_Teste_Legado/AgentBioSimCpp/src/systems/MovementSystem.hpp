@@ -2,6 +2,7 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "simulation/AgentStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/World.hpp"
 
 #include <cstddef>
@@ -53,6 +54,7 @@ struct MovementStats
 {
     std::size_t agentsProcessed = 0;
     std::size_t wallCollisions = 0;
+    std::size_t obstacleBlocks = 0;
     double distanceMoved = 0.0;
     double maxSpeedObserved = 0.0;
 };
@@ -65,7 +67,8 @@ public:
                                       const simulation::World& world,
                                       double dt,
                                       const MovementConfig& config,
-                                      const std::vector<MovementControl>* controls = nullptr) const;
+                                      const std::vector<MovementControl>* controls = nullptr,
+                                      const simulation::ObstacleStore* obstacles = nullptr) const;
 
     [[nodiscard]] static MovementMode normalizeMovementMode(const std::string& value);
     [[nodiscard]] static BodyShape normalizeBodyShape(const std::string& value);

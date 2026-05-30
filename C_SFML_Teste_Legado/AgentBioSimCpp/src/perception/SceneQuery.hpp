@@ -2,6 +2,7 @@
 
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/SpatialHash.hpp"
 
 #include <cstdint>
@@ -29,4 +30,18 @@ void queryVisibleCandidates(double searchX, double searchY, double searchRadius,
                             const simulation::AgentStore& agents,
                             const simulation::FoodStore& foods,
                             std::vector<VisibleCandidate>& out);
+
+// Phase 20: append obstacles within `searchRadius` of (searchX, searchY) as
+// VisibleCandidates with entityType=Obstacle. The caller controls whether the
+// retina actually sees them via `seeObstacles`. Obstacles default to a neutral
+// gray sensorial color taken from their stored color.
+void appendObstacleCandidates(double searchX, double searchY, double searchRadius,
+                               const simulation::ObstacleStore& obstacles,
+                               std::vector<VisibleCandidate>& out);
+
+// Phase 20: returns true if the line segment from `(ax,ay)` to `(bx,by)` is
+// blocked by any obstacle disc in `obstacles`. Used by the vision strategies
+// when `seeThroughWalls=false`.
+[[nodiscard]] bool isOccludedByObstacles(double ax, double ay, double bx, double by,
+                                          const simulation::ObstacleStore& obstacles) noexcept;
 } // namespace agentbiosim::perception

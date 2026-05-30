@@ -5,6 +5,7 @@
 #include "render/RenderOptions.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/World.hpp"
 
 #include <SFML/Graphics/RenderTarget.hpp>
@@ -18,6 +19,7 @@ struct RenderStats
     bool skipped = false;
     std::size_t agentsDrawn = 0;
     std::size_t foodsDrawn = 0;
+    std::size_t obstaclesDrawn = 0;
     std::size_t visionRaysDrawn = 0;
 };
 
@@ -30,7 +32,8 @@ public:
                                      const simulation::AgentStore& agents,
                                      const simulation::FoodStore& foods,
                                      const RenderOptions& options,
-                                     const perception::VisionDebugData* visionDebug = nullptr) const;
+                                     const perception::VisionDebugData* visionDebug = nullptr,
+                                     const simulation::ObstacleStore* obstacles = nullptr) const;
 
 private:
     void drawBackground(sf::RenderTarget& target, const RenderOptions& options) const;
@@ -46,6 +49,10 @@ private:
                            const Camera2D& camera,
                            const simulation::AgentStore& agents,
                            const RenderOptions& options) const;
+    std::size_t drawObstacles(sf::RenderTarget& target,
+                               const Camera2D& camera,
+                               const simulation::ObstacleStore& obstacles,
+                               const RenderOptions& options) const;
     std::size_t drawVisionDebug(sf::RenderTarget& target,
                                 const Camera2D& camera,
                                 const perception::VisionDebugData& debug) const;

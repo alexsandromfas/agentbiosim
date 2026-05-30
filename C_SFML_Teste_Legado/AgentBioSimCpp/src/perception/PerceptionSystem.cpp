@@ -944,7 +944,8 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
                                                   simulation::SpatialHash* spatial,
                                                   const simulation::World& world,
                                                   const PerceptionConfig& config,
-                                                  const PerceptionDebugRequest& debugRequest)
+                                                  const PerceptionDebugRequest& debugRequest,
+                                                  const simulation::ObstacleStore* obstacles)
 {
     PerceptionResult result;
     const auto& retina = config.retina;
@@ -1012,6 +1013,18 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
 
     const std::uint64_t debugTargetId = debugRequest.out != nullptr ? debugRequest.agentId : 0;
 
+    // Phase 20: occlusion is active when obstacles are present and either
+    // `seeThroughWalls=false` (global gate) or, in sector mode, the dedicated
+    // `obstaclesBlockVision` flag is set. The candidate buffer is filtered
+    // before being handed to the vision strategy.
+    const bool obstaclesActive = obstacles != nullptr && !obstacles->empty();
+    const bool occlusionEnabledForRays = obstaclesActive &&
+        (!retina.seeThroughWalls ||
+         (activeMode == VisionMode::Sector && retina.sectorBins.obstaclesBlockVision));
+    std::size_t obstacleCandidateCount = 0;
+    std::size_t occlusionChecksCount = 0;
+    std::size_t occludedCandidatesCount = 0;
+
     for (std::size_t i = 0; i < agents.size(); ++i)
     {
         if (!agents.aliveAt(i))
@@ -1030,6 +1043,44 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
             agentId,
             spatial, agents, foods,
             candidateBuffer_);
+
+        // Phase 20: append obstacles as candidates when the retina sees them.
+        // Even when seeObstacles=false, obstacles still occlude vision (filtered
+        // below). seeAll bypasses retina filters but also adds obstacles.
+        if (obstaclesActive && (retina.seeObstacles || retina.seeAll))
+        {
+            const std::size_t beforeObstacles = candidateBuffer_.size();
+            appendObstacleCandidates(pos.x, pos.y, searchRadius, *obstacles, candidateBuffer_);
+            obstacleCandidateCount += candidateBuffer_.size() - beforeObstacles;
+        }
+
+        // Phase 20: pre-filter occluded candidates so the vision strategies see
+        // a clean buffer. This is cheaper than testing inside each strategy and
+        // keeps the strategies unchanged. Obstacle candidates are kept (an
+        // obstacle never occludes itself).
+        if (occlusionEnabledForRays)
+        {
+            const std::size_t before = candidateBuffer_.size();
+            std::size_t writeIdx = 0;
+            for (std::size_t r = 0; r < candidateBuffer_.size(); ++r)
+            {
+                const auto& cand = candidateBuffer_[r];
+                if (cand.entityType == simulation::SpatialEntityType::Obstacle)
+                {
+                    candidateBuffer_[writeIdx++] = cand;
+                    continue;
+                }
+                ++occlusionChecksCount;
+                if (isOccludedByObstacles(pos.x, pos.y, cand.x, cand.y, *obstacles))
+                {
+                    ++occludedCandidatesCount;
+                    continue;
+                }
+                candidateBuffer_[writeIdx++] = cand;
+            }
+            candidateBuffer_.resize(writeIdx);
+            static_cast<void>(before);
+        }
 
         totalCandidates += candidateBuffer_.size();
 
@@ -1089,6 +1140,9 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
     lastStats_.fallbackMode = fallback;
     lastStats_.fallbackReason = fallbackReason;
     lastStats_.autoSectorActive = autoSectorActive;
+    lastStats_.obstacleCandidates = obstacleCandidateCount;
+    lastStats_.occlusionChecks = occlusionChecksCount;
+    lastStats_.occludedCandidates = occludedCandidatesCount;
 
     (void)world;
     return result;

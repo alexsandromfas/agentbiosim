@@ -7,6 +7,7 @@
 #include "simulation/FixedTimestep.hpp"
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "simulation/SpeciesStore.hpp"
 #include "simulation/World.hpp"
@@ -56,6 +57,7 @@ private:
     simulation::FoodStore foods_;
     simulation::GenomeStore genomes_;
     simulation::SpeciesStore species_;
+    simulation::ObstacleStore obstacles_;
     simulation::SpatialHash spatialHash_;
     perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;

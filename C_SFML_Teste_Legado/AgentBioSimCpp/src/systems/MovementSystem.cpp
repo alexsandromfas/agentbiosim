@@ -240,11 +240,16 @@ MovementConfig MovementSystem::fromRegistry(const config::ParameterRegistry& par
     return config;
 }
 
+// Phase 20: optional ObstacleStore - rollback policy. If the candidate position
+// overlaps an obstacle we revert to the previous position and zero the velocity
+// component into the obstacle. Cheaper than full sweep + slide; sufficient for
+// keeping agents out of obstacles.
 MovementStats MovementSystem::apply(simulation::AgentStore& agents,
                                     const simulation::World& world,
                                     const double dt,
                                     const MovementConfig& config,
-                                    const std::vector<MovementControl>* controls) const
+                                    const std::vector<MovementControl>* controls,
+                                    const simulation::ObstacleStore* obstacles) const
 {
     MovementStats stats;
     const double safeDt = std::max(0.0, dt);
@@ -325,6 +330,19 @@ MovementStats MovementSystem::apply(simulation::AgentStore& agents,
         {
             ++stats.wallCollisions;
         }
+
+        // Phase 20: obstacle rollback. If the new position penetrates an obstacle
+        // (including the agent's body radius), revert to the previous position and
+        // zero the velocity. Cheap conservative policy; Phase 21 will replace it
+        // with proper slide/separation.
+        if (obstacles != nullptr && !obstacles->empty() &&
+            obstacles->overlapsCircle(position, agents.radiusAt(index)))
+        {
+            position = previousPosition;
+            velocity = {0.0, 0.0};
+            ++stats.obstacleBlocks;
+        }
+
         clampVelocity(velocity, config.maxSpeed);
 
         agents.setPositionAt(index, position);

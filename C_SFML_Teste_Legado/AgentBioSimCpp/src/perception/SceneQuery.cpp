@@ -166,4 +166,37 @@ void queryVisibleCandidates(const double searchX, const double searchY, const do
         }
     }
 }
+
+void appendObstacleCandidates(const double searchX, const double searchY, const double searchRadius,
+                                const simulation::ObstacleStore& obstacles,
+                                std::vector<VisibleCandidate>& out)
+{
+    for (std::size_t i = 0; i < obstacles.size(); ++i)
+    {
+        const auto pos = obstacles.positionAt(i);
+        const double r = obstacles.radiusAt(i);
+        const double dx = pos.x - searchX;
+        const double dy = pos.y - searchY;
+        const double reach = searchRadius + r;
+        if (dx * dx + dy * dy > reach * reach) continue;
+        const simulation::ColorRgb color = obstacles.colorAt(i);
+        VisibleCandidate c;
+        c.x = pos.x;
+        c.y = pos.y;
+        c.radius = r;
+        c.colorR = static_cast<double>(color.r) / 255.0;
+        c.colorG = static_cast<double>(color.g) / 255.0;
+        c.colorB = static_cast<double>(color.b) / 255.0;
+        c.entityType = simulation::SpatialEntityType::Obstacle;
+        c.typeCode = 0;
+        c.entityId = obstacles.idAt(i);
+        out.push_back(c);
+    }
+}
+
+bool isOccludedByObstacles(const double ax, const double ay, const double bx, const double by,
+                            const simulation::ObstacleStore& obstacles) noexcept
+{
+    return obstacles.segmentBlocked({ax, ay}, {bx, by});
+}
 } // namespace agentbiosim::perception

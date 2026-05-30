@@ -38,7 +38,8 @@ RenderStats Renderer::render(sf::RenderTarget& target,
                              const simulation::AgentStore& agents,
                              const simulation::FoodStore& foods,
                              const RenderOptions& options,
-                             const perception::VisionDebugData* visionDebug) const
+                             const perception::VisionDebugData* visionDebug,
+                             const simulation::ObstacleStore* obstacles) const
 {
     RenderStats stats;
     if (!options.renderEnabled)
@@ -49,6 +50,11 @@ RenderStats Renderer::render(sf::RenderTarget& target,
 
     drawBackground(target, options);
     drawWorldBoundary(target, camera, world, options);
+    // Phase 20: obstacles below food so foods/agents always sit visually on top.
+    if (obstacles != nullptr && !obstacles->empty())
+    {
+        stats.obstaclesDrawn = drawObstacles(target, camera, *obstacles, options);
+    }
     stats.foodsDrawn = drawFoods(target, camera, foods, options);
     stats.agentsDrawn = drawAgents(target, camera, agents, options);
     if (visionDebug != nullptr && visionDebug->active && !visionDebug->rays.empty())
@@ -195,6 +201,28 @@ std::size_t Renderer::drawFoods(sf::RenderTarget& target,
         ++drawn;
     }
 
+    return drawn;
+}
+
+std::size_t Renderer::drawObstacles(sf::RenderTarget& target,
+                                      const Camera2D& camera,
+                                      const simulation::ObstacleStore& obstacles,
+                                      const RenderOptions& options) const
+{
+    static_cast<void>(options);
+    const sf::Vector2u viewport = target.getSize();
+    std::size_t drawn = 0;
+    for (std::size_t i = 0; i < obstacles.size(); ++i)
+    {
+        const sf::Vector2f pos = camera.worldToScreen(toSfml(obstacles.positionAt(i)), viewport);
+        const float radius = std::max(1.0F, static_cast<float>(obstacles.radiusAt(i)) * camera.zoom());
+        sf::CircleShape disc(radius, 24);
+        disc.setOrigin(radius, radius);
+        disc.setPosition(pos);
+        disc.setFillColor(toSfmlColor(obstacles.colorAt(i)));
+        target.draw(disc);
+        ++drawn;
+    }
     return drawn;
 }
 

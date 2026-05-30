@@ -8,6 +8,7 @@
 #include "perception/VisionStrategy.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
+#include "simulation/ObstacleStore.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "simulation/World.hpp"
 
@@ -42,6 +43,10 @@ struct PerceptionStats
     bool fallbackMode = false;
     std::string fallbackReason;
     bool autoSectorActive = false;
+    // Phase 20: occlusion + obstacle telemetry.
+    std::size_t obstacleCandidates = 0;
+    std::size_t occlusionChecks = 0;
+    std::size_t occludedCandidates = 0;
 };
 
 struct PerceptionDebugRequest
@@ -61,7 +66,8 @@ public:
                                                   simulation::SpatialHash* spatial,
                                                   const simulation::World& world,
                                                   const PerceptionConfig& config,
-                                                  const PerceptionDebugRequest& debugRequest = {});
+                                                  const PerceptionDebugRequest& debugRequest = {},
+                                                  const simulation::ObstacleStore* obstacles = nullptr);
 
     [[nodiscard]] const PerceptionStats& lastStats() const noexcept;
 
