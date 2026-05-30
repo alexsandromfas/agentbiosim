@@ -6,6 +6,7 @@
 #include <SFML/Graphics/Text.hpp>
 
 #include <array>
+#include <iomanip>
 #include <sstream>
 
 namespace agentbiosim::ui
@@ -68,11 +69,20 @@ std::vector<MenuDropdownItem> menuItemsForIndex(const int menuIndex) noexcept
             {"Selection overlay",      true,  false},
             {"Tool overlay",           true,  false}
         };
-    case 2: // Preferências
+    case 2: // Preferências - Phase 23.1: one item per window.
         return {
-            {"Abrir Preferencias (Fase 23)",  true,  false},
+            {"Renderizar",                    true,  false},  // toggles render_enabled
             {"",                              false, true},
-            {"Abrir painel placeholder",      true,  false}
+            {"Opcoes de simulacao",           true,  false},  // -> Simulation window
+            {"Autosave",                      true,  false},  // -> Autosave window
+            {"",                              false, true},
+            {"Aparencia do ambiente",         true,  false},  // -> Appearance window
+            {"Sistema de Visao",              true,  false},  // -> Vision window
+            {"Redes neurais",                 true,  false},  // -> Neural window
+            {"Fisica",                        true,  false},  // -> Physics window
+            {"Performance",                   true,  false},  // -> Performance window
+            {"",                              false, true},
+            {"Substrato (Fase 24)",           true,  false}   // -> Substrate placeholder
         };
     case 3: // Genoma
         return {
@@ -117,20 +127,32 @@ bool dispatchMenuItem(const int menuIndex, const int itemIndex, CommandQueue& qu
         case 7: queue.push(CmdToggleToolOverlay{}); return true;
         default: return false;
         }
-    case 2: // Preferências
-        if (itemIndex == 0)
+    case 2: // Preferências - Phase 23.1: each item opens its own window.
+        switch (itemIndex)
         {
-            // Phase 23: open the real preferences window.
-            queue.push(CmdOpenPreferences{});
-            return true;
+        case 0: queue.push(CmdToggleSimpleRender{}); return true;  // Renderizar (uses render_enabled toggle alias; real toggle is in App)
+        case 2: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Simulation)}); return true;
+        case 3: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Autosave)}); return true;
+        case 5: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Appearance)}); return true;
+        case 6: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Vision)}); return true;
+        case 7: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Neural)}); return true;
+        case 8: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Physics)}); return true;
+        case 9: queue.push(CmdOpenPreferencesWindow{
+                    static_cast<int>(config::PrefsTab::Performance)}); return true;
+        case 11: queue.push(CmdOpenSubstratePlaceholder{}); return true;
+        default: return false;
         }
-        if (itemIndex == 2) { queue.push(CmdTogglePreferencesPanel{}); return true; }
-        return false;
     case 3: // Genoma
         if (itemIndex == 2) { queue.push(CmdToggleGenomePanel{}); return true; }
         return false;
-    case 4: // Ajuda
-        if (itemIndex == 0) { queue.push(CmdToggleHelpPanel{}); return true; }
+    case 4: // Ajuda - Phase 23.1: opens dedicated Help window.
+        if (itemIndex == 0) { queue.push(CmdOpenHelpWindow{}); return true; }
         if (itemIndex == 1) { queue.push(CmdToggleAboutPanel{}); return true; }
         return false;
     default:
@@ -245,6 +267,30 @@ bool UiPanel::handleMouseClick(const int screenX, const int screenY,
         {
             queue.push(CmdFitWorldCamera{});
         }
+        // Phase 23.1: velocity widget occupies 3 toolbar-button slots after
+        // Fit. The widget is composed of [Vel-]  [Vel +]  buttons. Each
+        // emits a relative CmdAdjustTimeScale; the App reads/clamps/writes
+        // the registry's current time_scale.
+        else if (slot >= toolCount + 3 && slot <= toolCount + 5)
+        {
+            const float widgetStart = static_cast<float>(toolCount + 3) * metrics_.toolbarButtonWidth;
+            const float relx = static_cast<float>(screenX) - widgetStart;
+            constexpr float btnW = 36.0F;
+            const float widgetW = metrics_.toolbarButtonWidth * 3.0F;
+            if (relx < btnW)
+            {
+                queue.push(CmdAdjustTimeScale{0.5});   // half speed
+            }
+            else if (relx > widgetW - btnW)
+            {
+                queue.push(CmdAdjustTimeScale{2.0});   // double speed
+            }
+            else
+            {
+                // Click on the label area resets to 1x.
+                queue.push(CmdSetTimeScale{1.0});
+            }
+        }
         ++uiState.commandsProcessed;
         uiState.openMenuIndex = -1;  // any toolbar click closes open menus
         return true;
@@ -329,6 +375,23 @@ void UiPanel::draw(sf::RenderTarget& target,
             target.draw(btn);
             drawText(target, font_, ctrls[i].label, x + 8.0F, y + 11.0F, 13U, kTextLight);
         }
+
+        // Phase 23.1: velocity widget = [-]  Velocidade NNx  [+]
+        const float velStart = ctrlsStart + static_cast<float>(ctrls.size()) *
+                                                metrics_.toolbarButtonWidth;
+        const float velW = metrics_.toolbarButtonWidth * 3.0F - 4.0F;
+        sf::RectangleShape velBg({velW, metrics_.toolbarHeight - 6.0F});
+        velBg.setPosition(velStart + 2.0F, y + 3.0F);
+        velBg.setFillColor(kBgButton);
+        velBg.setOutlineThickness(1.0F);
+        velBg.setOutlineColor(kAccent);
+        target.draw(velBg);
+        drawText(target, font_, "-", velStart + 14.0F, y + 11.0F, 14U, kTextLight);
+        drawText(target, font_, "Velocidade", velStart + 50.0F, y + 7.0F, 11U, kTextDim);
+        std::ostringstream vs;
+        vs << std::fixed << std::setprecision(1) << uiState.timeScale << "x";
+        drawText(target, font_, vs.str(), velStart + 60.0F, y + 19.0F, 12U, kAccent);
+        drawText(target, font_, "+", velStart + velW - 18.0F, y + 11.0F, 14U, kTextLight);
 
         // Status text at the right edge — pushed flush right.
         std::ostringstream status;

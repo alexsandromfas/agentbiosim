@@ -92,8 +92,9 @@ private:
     }};
 
     // Phase 22.1: indexable menu titles (one entry per top-level menu).
+    // Phase 23.1: View renamed to Exibir (mistura idioma corrigida).
     static constexpr std::array<const char*, 5> kMenuTitles{{
-        "Arquivo", "View", "Preferencias", "Genoma", "Ajuda"
+        "Arquivo", "Exibir", "Preferencias", "Genoma", "Ajuda"
     }};
 };
 

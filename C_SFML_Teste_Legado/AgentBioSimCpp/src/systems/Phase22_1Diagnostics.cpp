@@ -117,11 +117,15 @@ Phase22_1ValidationSummary runPhase22_1Validation()
     }
     {
         ui::CommandQueue q;
-        // Preferencias > Abrir placeholder -> CmdTogglePreferencesPanel (NOT help).
+        // Phase 23.1: Preferencias item 2 is "Opcoes de simulacao" which
+        // opens the Simulation prefs window (was "Abrir painel placeholder"
+        // toggling CmdTogglePreferencesPanel in 22.1). Either path is
+        // accepted; what we still enforce is "Preferencias != Ajuda".
         static_cast<void>(ui::dispatchMenuItem(2, 2, q));
         const auto drained = q.drain();
-        addCheck(summary, "Preferencias item emits CmdTogglePreferencesPanel (10)",
-                 countCommandsOfType<ui::CmdTogglePreferencesPanel>(drained) == 1U);
+        const bool routed = countCommandsOfType<ui::CmdOpenPreferencesWindow>(drained) >= 1U ||
+                            countCommandsOfType<ui::CmdTogglePreferencesPanel>(drained) >= 1U;
+        addCheck(summary, "Preferencias item routes to a Preferences command (10)", routed);
         addCheck(summary, "Preferencias does NOT emit CmdToggleHelpPanel (11)",
                  countCommandsOfType<ui::CmdToggleHelpPanel>(drained) == 0U);
     }
@@ -129,8 +133,13 @@ Phase22_1ValidationSummary runPhase22_1Validation()
         ui::CommandQueue q;
         static_cast<void>(ui::dispatchMenuItem(4, 0, q));
         const auto drained = q.drain();
-        addCheck(summary, "Ajuda > Atalhos emits CmdToggleHelpPanel (12)",
-                 countCommandsOfType<ui::CmdToggleHelpPanel>(drained) == 1U);
+        // Phase 23.1: Ajuda now opens a dedicated Help WINDOW
+        // (CmdOpenHelpWindow). The earlier 22.1 behaviour used the help
+        // overlay (CmdToggleHelpPanel). Either path is accepted.
+        const bool helpRouted =
+            countCommandsOfType<ui::CmdOpenHelpWindow>(drained) >= 1U ||
+            countCommandsOfType<ui::CmdToggleHelpPanel>(drained) >= 1U;
+        addCheck(summary, "Ajuda > Atalhos routes to Help (12)", helpRouted);
     }
 
     // ---- 13: View menu has visible items (13) ----

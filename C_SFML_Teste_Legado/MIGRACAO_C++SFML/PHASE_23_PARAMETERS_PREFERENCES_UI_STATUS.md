@@ -1,6 +1,9 @@
 # Fase 23 — UI de Parametros e Preferencias
 
-Status: **CONCLUIDA** (2026-05-30)
+Status: **CONCLUIDA** (2026-05-30) + **MICROFASE 23.1 APLICADA** (2026-05-30)
+
+> **Microfase 23.1** ([PHASE_23_1_PREFERENCES_UI_HOTFIX_STATUS.md](PHASE_23_1_PREFERENCES_UI_HOTFIX_STATUS.md))
+> Corrigiu fluxo do menu Preferencias (multipla janelas em vez de painel unico), removeu Numba da UI, moveu slider de velocidade para a toolbar, padronizou idioma e ASCII, abriu Ajuda como janela propria, substituiu nomes internos por labels amigaveis, adicionou popup de combo neural e popup de color picker, implementou scroll por janela. 58 selftests novos, todos os outros (Phase 7-23) continuam PASS.
 
 A Fase 23 transforma o `ParameterRegistry` em uma interface tecnica usavel via janela de Preferencias SFML-native organizada em 7 abas (Simulacao / Fisica / Sistema de Visao / Redes Neurais / Autosave / Aparencia / Performance). Inclui:
 

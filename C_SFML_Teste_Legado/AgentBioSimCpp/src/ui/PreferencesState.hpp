@@ -1,8 +1,10 @@
 #pragma once
 
 #include "config/Parameter.hpp"
+#include "config/ParameterMetadata.hpp"
 #include "config/ParameterRegistry.hpp"
 
+#include <array>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -10,22 +12,45 @@
 
 namespace agentbiosim::ui
 {
-// Phase 23: holds pending edits for the preferences window. The pattern is:
-//   1. Operator changes a control. UiPreferencesPanel writes the new value to
-//      `pendingValues[name]`.
-//   2. The "Modificado" badge reads from pendingValues to know what is dirty.
-//   3. Operator clicks "Aplicar" — drainPending() writes everything into the
-//      ParameterRegistry via setValue(), and the AppController decides what
-//      to refresh based on the union of applyFlags from the touched params.
-//   4. Operator clicks "Reverter" — pendingValues is cleared without writing.
-//   5. Operator clicks "Restaurar Defaults" — pendingValues is filled with
-//      originalDefault for every parameter on the current tab.
+// Phase 23 + 23.1: pending edits + per-window open/scroll state.
+//
+// Phase 23 used a single `open` flag + activeTab — the entire preferences
+// window was a single tabbed panel. The Microfase 23.1 splits it into one
+// independent window per category (so the user can have Fisica and Aparencia
+// open side-by-side) and adds:
+//   * scroll offset per window;
+//   * popup state (-1 / "neural_combo" / "color:<param>" / "help") so that
+//     the neural network selector is a real combo dropdown instead of a
+//     click-cycle and color values open a swatch popup;
+//   * a separate Help window flag (was an overlay in 22.1).
 struct PreferencesState
 {
-    bool open = false;
-    int activeTab = 0;                       // 0..PrefsTab::Count-1
-    int hoveredRowIndex = -1;                 // for tooltip rendering
-    std::string searchQuery;                  // case-insensitive substring
+    // Phase 23.1: independent open/scroll per window.
+    std::array<bool, static_cast<std::size_t>(config::PrefsTab::Count)> windowOpen{};
+    std::array<int, static_cast<std::size_t>(config::PrefsTab::Count)> windowScroll{};
+
+    // Phase 23.1: kept for headless tests that referenced the old API.
+    int activeTab = 0;
+
+    // Phase 23: case-insensitive substring search; Phase 23.1 keeps it for the
+    // CmdSetPreferencesSearch command path (the panel does not yet expose a
+    // search field graphically but the helper works headless).
+    std::string searchQuery;
+
+    // Phase 23.1: which popup is currently open. Empty = none.
+    //   "neural_combo"        — combo dropdown for neural_network_type
+    //   "color:<param_name>"  — color swatch popup for that color parameter
+    std::string openPopup;
+
+    // Phase 23.1: separate Help window.
+    bool helpWindowOpen = false;
+    int helpScroll = 0;
+
+    // Phase 23.1: substrate placeholder (Fase 24) — UI shows a window with a
+    // "configurar na Fase 24" message so the user knows where it will land.
+    bool substratePlaceholderOpen = false;
+
+    // Dirty pending edits keyed by registry parameter name.
     std::unordered_map<std::string, config::ParameterValue> pendingValues;
 
     // Counters for diagnostics.
@@ -33,5 +58,13 @@ struct PreferencesState
     std::size_t revertedCount = 0;
     std::size_t restoredDefaultsCount = 0;
     std::size_t controlInteractions = 0;
+
+    // Phase 23.1 compatibility: returns true if any window is open.
+    [[nodiscard]] bool anyOpen() const noexcept
+    {
+        if (helpWindowOpen || substratePlaceholderOpen) return true;
+        for (const bool b : windowOpen) if (b) return true;
+        return false;
+    }
 };
 } // namespace agentbiosim::ui

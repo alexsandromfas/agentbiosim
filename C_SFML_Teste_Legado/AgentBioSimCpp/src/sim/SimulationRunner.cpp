@@ -477,6 +477,17 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         else if constexpr (std::is_same_v<T, ui::CmdRevertPreferences>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsPreferences>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdRestoreParameterDefault>) { return true; }
+        // Phase 23.1: multi-window prefs + popups + velocity widget.
+        else if constexpr (std::is_same_v<T, ui::CmdOpenPreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdClosePreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdScrollPreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenSubstratePlaceholder>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseSubstratePlaceholder>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenPrefsPopup>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdClosePrefsPopup>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdAdjustTimeScale>) { return true; }
         else { return false; }
     }, cmd);
 }

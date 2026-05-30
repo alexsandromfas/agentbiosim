@@ -96,6 +96,25 @@ struct CmdRevertPreferences {};
 struct CmdRestoreDefaultsPreferences {};   // restores entire active tab
 struct CmdRestoreParameterDefault { std::string name; };
 
+// Phase 23.1: multi-window preferences. Each category has its own independent
+// window that the operator opens/closes from the Preferencias dropdown.
+struct CmdOpenPreferencesWindow  { int tab = 0; };
+struct CmdClosePreferencesWindow { int tab = 0; };
+struct CmdScrollPreferencesWindow { int tab = 0; int delta = 0; };
+struct CmdOpenHelpWindow {};
+struct CmdCloseHelpWindow {};
+struct CmdOpenSubstratePlaceholder {};
+struct CmdCloseSubstratePlaceholder {};
+
+// Phase 23.1: popup state for combo / color picker.
+struct CmdOpenPrefsPopup  { std::string popup; };  // "neural_combo" / "color:<name>"
+struct CmdClosePrefsPopup {};
+
+// Phase 23.1: relative time-scale step driven by the toolbar widget. The App
+// reads the current value from the registry, multiplies by `factor`, clamps
+// and writes back through ParameterRegistry::setValue.
+struct CmdAdjustTimeScale { double factor = 1.0; };
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -142,7 +161,17 @@ using Command = std::variant<
     CmdApplyPreferences,
     CmdRevertPreferences,
     CmdRestoreDefaultsPreferences,
-    CmdRestoreParameterDefault
+    CmdRestoreParameterDefault,
+    CmdOpenPreferencesWindow,
+    CmdClosePreferencesWindow,
+    CmdScrollPreferencesWindow,
+    CmdOpenHelpWindow,
+    CmdCloseHelpWindow,
+    CmdOpenSubstratePlaceholder,
+    CmdCloseSubstratePlaceholder,
+    CmdOpenPrefsPopup,
+    CmdClosePrefsPopup,
+    CmdAdjustTimeScale
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

@@ -38,4 +38,17 @@ enum class PrefsTab : int
 // the parameter is not exposed via the preferences UI (e.g. species/* lives
 // in the Fase 24 editor).
 [[nodiscard]] int prefsTabForCategory(const std::string& registryCategory) noexcept;
+
+// Phase 23.1 hotfix: friendly Portuguese label for the parameter row in the
+// preferences UI. Returns nullptr if no friendly label is registered (the UI
+// then falls back to the raw name). ASCII-only on purpose — the SFML bitmap
+// glyph cache that ships with segoeui.ttf renders Latin-1 correctly but using
+// ASCII labels avoids encoding surprises across machines/locales.
+[[nodiscard]] const char* prefsFriendlyLabel(const std::string& parameterName) noexcept;
+
+// Phase 23.1 hotfix: returns true if the parameter should not appear in any
+// preferences window. Hides legacy Numba aliases (the canonical C++ name is
+// still shown), per-species parameters (Fase 24), and a few raw-string knobs
+// without domains that the SFML-native panel cannot edit safely yet.
+[[nodiscard]] bool prefsShouldHideParameter(const std::string& parameterName) noexcept;
 } // namespace agentbiosim::config

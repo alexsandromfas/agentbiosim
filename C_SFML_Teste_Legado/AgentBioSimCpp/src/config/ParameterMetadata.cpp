@@ -1,6 +1,7 @@
 #include "config/ParameterMetadata.hpp"
 
 #include <algorithm>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -130,6 +131,116 @@ const char* prefsTabLabel(const PrefsTab tab) noexcept
     case PrefsTab::Count: break;
     }
     return "?";
+}
+
+namespace
+{
+// Phase 23.1: friendly Portuguese label map. ASCII-only on purpose. Internal
+// name still shown in dim small text under the row for power users.
+struct LabelEntry { const char* name; const char* label; };
+constexpr std::array<LabelEntry, 70> kFriendlyLabels{{
+    {"time_scale",                   "Velocidade da simulacao"},
+    {"paused",                       "Pausa"},
+    {"physics_steps_per_second",     "Passos de fisica por segundo"},
+    {"max_physics_steps_per_frame",  "Maximo de passos por frame"},
+    {"max_physics_backlog_seconds",  "Backlog maximo (segundos)"},
+    {"random_seed",                  "Semente aleatoria (-1 = aleatoria)"},
+    {"max_deaths_per_step",          "Mortes maximas por passo"},
+    {"population_min_rescue_enabled","Resgatar populacao minima"},
+    {"render_enabled",               "Renderizar"},
+    {"simple_render",                "Renderizacao simples"},
+
+    {"agents_inertia",               "Inercia dos agentes"},
+    {"smooth_locomotion_enabled",    "Locomocao suavizada"},
+    {"smooth_linear_inertia_enabled","Inercia linear suavizada"},
+    {"smooth_max_linear_accel",      "Aceleracao linear maxima"},
+    {"smooth_linear_drag_enabled",   "Arrasto linear suavizado"},
+    {"smooth_linear_drag",           "Intensidade do arrasto linear"},
+    {"smooth_angular_inertia_enabled","Inercia angular suavizada"},
+    {"smooth_max_angular_accel",     "Aceleracao angular maxima"},
+    {"smooth_angular_drag_enabled",  "Arrasto angular suavizado"},
+    {"smooth_angular_drag",          "Intensidade do arrasto angular"},
+    {"agent_collision_enabled",      "Colisao entre agentes"},
+    {"agent_collision_elasticity_enabled","Elasticidade da colisao"},
+    {"agent_collision_restitution",  "Restituicao (elasticidade)"},
+    {"agent_collision_velocity_transfer","Transferencia de velocidade"},
+    {"agent_collision_separation",   "Separacao apos colisao"},
+    {"agent_collision_max_impulse",  "Impulso maximo"},
+    {"global_viscosity_enabled",     "Viscosidade global"},
+    {"global_viscosity_drag",        "Intensidade da viscosidade"},
+    {"movable_chunk_food_enabled",   "Comida em pedacos com inercia"},
+    {"chunk_food_collision_enabled", "Colisao entre pedacos de comida"},
+    {"chunk_food_adhesion_enabled",  "Adesao entre pedacos"},
+    {"chunk_food_adhesion_strength", "Forca de adesao"},
+    {"chunk_food_mass_scale",        "Massa relativa dos pedacos"},
+    {"chunk_food_drag",              "Arrasto dos pedacos"},
+    {"chunk_food_push_strength",     "Empurrao em pedacos"},
+    {"brownian_motion_enabled",      "Movimento browniano"},
+    {"brownian_motion_strength",     "Intensidade do movimento browniano"},
+
+    {"retina_skip",                  "Pular retinas (1 = nenhum skip)"},
+    {"retina_vision_mode",           "Modo de visao da retina"},
+    {"retina_bins_mode",             "Modo de bins"},
+    {"retina_bins_distance_subdivisions","Subdivisoes de distancia"},
+    {"retina_bins_distance_distribution","Distribuicao de distancias"},
+    {"retina_bins_distance_falloff", "Decaimento por distancia"},
+    {"retina_bins_projection",       "Projecao de bins"},
+    {"retina_bins_candidate_limit",  "Limite de candidatos"},
+    {"retina_bins_obstacles_block_vision","Obstaculos bloqueiam visao"},
+    {"retina_high_scale_auto_sector","Auto-sector em alta escala"},
+    {"retina_high_scale_sector_min_agents","Minimo de agentes para auto-sector"},
+    {"retina_high_scale_global_sector","Sector global em alta escala"},
+    {"show_multi_selected_vision",   "Mostrar visao dos selecionados"},
+
+    {"neural_network_type",          "Tipo de rede neural"},
+    {"neural_gate_init",             "Inicializacao do portao (Gated)"},
+    {"neural_gate_min",              "Minimo do portao"},
+    {"neural_gate_max",              "Maximo do portao"},
+    {"neural_shortcut_init_std",     "Inicializacao do atalho (Shortcut)"},
+    {"neural_shortcut_scale",        "Escala do atalho"},
+    {"neural_rnn_memory_decay",      "Decaimento da memoria (RNN)"},
+    {"neural_rnn_state_clip",        "Saturacao do estado (RNN)"},
+    {"neural_rnn_reset_state_on_copy","Resetar estado ao copiar"},
+
+    {"auto_export_substrate",        "Autosave ativado"},
+    {"auto_export_interval_minutes", "Intervalo de autosave (min)"},
+    {"export_substrate_include_brain_activations","Incluir ativacoes neurais"},
+    {"export_substrate_pretty_json", "JSON formatado"},
+    {"save_recovery_on_close",       "Salvar recuperacao ao fechar"},
+    {"debug_tracebacks",             "Tracebacks de debug"},
+    {"diagnostic_heartbeat_minutes", "Heartbeat de diagnostico (min)"},
+
+    {"use_spatial",                  "Usar spatial hash"},
+    {"reuse_spatial_grid",           "Reutilizar grid espacial"},
+    {"use_batch_forward",            "Forward em lote (batch)"},
+    {"batch_forward_min_size",       "Tamanho minimo do batch"},
+}};
+} // namespace
+
+const char* prefsFriendlyLabel(const std::string& name) noexcept
+{
+    for (const auto& e : kFriendlyLabels)
+    {
+        if (name == e.name) return e.label;
+    }
+    return nullptr;
+}
+
+bool prefsShouldHideParameter(const std::string& name) noexcept
+{
+    // Phase 23.1: hide Numba aliases — the canonical C++ name is shown.
+    if (name == "use_numba_kernels")              return true;
+    if (name == "use_numba_batch_retina")         return true;
+    if (name == "use_numba_locomotion_energy")    return true;
+    if (name == "use_numba_brain_forward")        return true;
+    if (name == "numba_brain_forward_min_batch")  return true;
+    if (name == "use_native_brain_forward")       return true;
+    if (name == "autosave_enabled")               return true;  // alias of auto_export_substrate
+    // Hide knobs that the SFML-native panel cannot edit safely yet (raw strings
+    // without domains) and species/food per-prefix params (Fase 24).
+    if (name.rfind("herbivore_", 0) == 0)         return true;
+    if (name.rfind("carnivore_", 0) == 0)         return true;
+    return false;
 }
 
 int prefsTabForCategory(const std::string& c) noexcept

@@ -45,18 +45,21 @@ inline const char* canvasToolName(const CanvasTool t) noexcept
 
 inline const char* canvasToolLabel(const CanvasTool t) noexcept
 {
+    // Phase 23.1: labels padronizados em portugues ASCII para casar com os
+    // menus (Arquivo / Exibir / Preferencias / Ajuda) e remover mistura
+    // portugues+ingles na toolbar.
     switch (t)
     {
     case CanvasTool::None:           return "None";
-    case CanvasTool::Select:         return "Select";
+    case CanvasTool::Select:         return "Selecao";
     case CanvasTool::RectangleSelect:return "Rect";
-    case CanvasTool::LassoSelect:    return "Lasso";
-    case CanvasTool::AddFood:        return "Food+";
-    case CanvasTool::AddAgent:       return "Agent+";
-    case CanvasTool::PaintObstacle:  return "Brush";
-    case CanvasTool::EraseObstacle:  return "Eraser";
-    case CanvasTool::Move:           return "Move";
-    case CanvasTool::Delete:         return "Delete";
+    case CanvasTool::LassoSelect:    return "Laco";
+    case CanvasTool::AddFood:        return "Comida";
+    case CanvasTool::AddAgent:       return "Agente";
+    case CanvasTool::PaintObstacle:  return "Pincel";
+    case CanvasTool::EraseObstacle:  return "Apagar";
+    case CanvasTool::Move:           return "Mover";
+    case CanvasTool::Delete:         return "Excluir";
     case CanvasTool::Pan:            return "Pan";
     }
     return "None";

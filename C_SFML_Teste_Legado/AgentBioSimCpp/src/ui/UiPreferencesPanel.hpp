@@ -15,22 +15,27 @@
 
 namespace agentbiosim::ui
 {
-// Phase 23: SFML-native preferences window. Renders a left tab column + main
-// content area with a header (tab name, search) and a vertical list of
-// parameter rows ending in three buttons: Aplicar / Reverter / Defaults.
+// Phase 23 + 23.1 hotfix: SFML-native preferences manager.
+//
+// Phase 23 used a single tabbed window for everything. The Microfase 23.1
+// reworks it into:
+//   * one independent window per category, cascaded so multiple can be open;
+//   * each window has its own scroll offset (mouse wheel over the window
+//     scrolls it; the canvas only zooms when no prefs window is under the
+//     cursor — that routing lives in InputRouter::handleEvent);
+//   * a popup overlay for the neural network combo and for the color picker;
+//   * a separate Help window (was an overlay in 22.1);
+//   * a substrate placeholder window that documents the Fase 24 destination.
 //
 // Controls per type:
 //   bool   - clicking the row toggles the pending value.
 //   int    - "[-]  value  [+]" steppers with clamping into the param range.
-//   float  - same as int with a smaller step inferred from the range.
-//   enum   - clicking the row cycles to the next allowed domain value.
-//   color  - "[-] [+]" per channel (R / G / B).
-//   string - read-only display (text input is out of scope for SFML-native).
-//
-// The panel never mutates the registry directly; it pushes commands
-// (CmdSetParameterValue, CmdApplyPreferences, CmdRevertPreferences,
-// CmdRestoreDefaultsPreferences, CmdRestoreParameterDefault) so the engine
-// stays free of UI knowledge and headless tests can drive the same logic.
+//   float  - same as int, smaller step inferred from the range.
+//   enum   - clicking the value opens a combo popup (used for
+//            neural_network_type and other string params with domains).
+//   color  - clicking the swatch opens a color popup with 8 preset swatches
+//            + per-channel +/-16 buttons.
+//   string - read-only display (no SFML-native text input yet).
 class UiPreferencesPanel
 {
 public:
@@ -38,9 +43,19 @@ public:
 
     void setFont(const sf::Font* font) noexcept { font_ = font; }
 
-    // Returns true if the click was consumed by the preferences panel.
+    // Returns true if the click was consumed by the preferences UI. Multi-window
+    // hit-testing iterates open windows; a click inside any window is consumed.
     bool handleMouseClick(int screenX, int screenY,
+                            sf::Vector2u viewport,
                             const config::ParameterRegistry& registry,
+                            PreferencesState& state,
+                            CommandQueue& queue);
+
+    // Mouse-wheel scroll. Returns true if a prefs window was under the cursor
+    // and consumed the wheel (so the canvas should NOT zoom for this event).
+    bool handleMouseWheel(int screenX, int screenY,
+                            sf::Vector2u viewport,
+                            float delta,
                             PreferencesState& state,
                             CommandQueue& queue);
 
@@ -48,51 +63,41 @@ public:
               const config::ParameterRegistry& registry,
               const PreferencesState& state) const;
 
-    // True if the screen point is inside the preferences window. AppController
-    // uses this to keep canvas tools from receiving the click.
-    [[nodiscard]] bool pointInside(int screenX, int screenY,
-                                      const PreferencesState& state) const noexcept;
+    // Phase 23.1: returns true if the screen point is inside any open
+    // preferences window (used by the AppController to route mouse events
+    // before InputRouter sees them).
+    [[nodiscard]] bool pointInsideAnyWindow(int screenX, int screenY,
+                                                sf::Vector2u viewport,
+                                                const PreferencesState& state) const noexcept;
 
 private:
-    struct Layout
+    struct WindowRect
     {
-        float windowX = 0.0F;
-        float windowY = 0.0F;
-        float windowW = 0.0F;
-        float windowH = 0.0F;
-        float tabColW = 180.0F;
-        float headerH = 44.0F;
-        float footerH = 50.0F;
-        float rowH = 30.0F;
-        float gutterX = 14.0F;
+        float x = 0.0F;
+        float y = 0.0F;
+        float w = 0.0F;
+        float h = 0.0F;
     };
 
-    [[nodiscard]] Layout computeLayout(sf::Vector2u viewport) const noexcept;
+    [[nodiscard]] WindowRect windowRectForTab(int tab, sf::Vector2u viewport) const noexcept;
+    [[nodiscard]] WindowRect helpRect(sf::Vector2u viewport) const noexcept;
+    [[nodiscard]] WindowRect substrateRect(sf::Vector2u viewport) const noexcept;
 
     const sf::Font* font_ = nullptr;
 };
 
 // Phase 23 helpers exposed for headless selftests.
 
-// Returns the list of registry parameter names that belong to the given tab,
-// filtered by query (case-insensitive substring across name/desc/aliases).
 [[nodiscard]] std::vector<std::string> prefsParametersForTab(
     const config::ParameterRegistry& registry, config::PrefsTab tab,
     const std::string& query);
 
-// Returns the value the panel should display for a parameter (pending edit
-// if dirty, otherwise the registry's current value).
 [[nodiscard]] config::ParameterValue prefsEffectiveValue(
     const config::ParameterRegistry& registry, const PreferencesState& state,
     const std::string& name);
 
-// Phase 23: short label for the apply-flags badge. "imediato" / "rebuild" /
-// "reset" / "pendente Fase 27", etc.
 [[nodiscard]] const char* prefsApplyFlagsLabel(unsigned int flags) noexcept;
 
-// Phase 23: writes every pending edit into the registry via setValue.
-// Returns the union of applyFlags of every parameter that was actually
-// changed. AppController uses the result to decide whether a reset is needed.
 unsigned int prefsApplyPending(config::ParameterRegistry& registry,
                                   PreferencesState& state);
 } // namespace agentbiosim::ui

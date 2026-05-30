@@ -83,7 +83,8 @@ App::App()
         uiPanel_.setFont(&font_);
         preferencesPanel_.setFont(&font_);
     }
-    std::cout << "AgentBioSimCpp Phase 23: preferencias UI ready ("
+    uiState_.timeScale = config::parameterDouble(parameters_, "time_scale", 1.0);
+    std::cout << "AgentBioSimCpp Phase 23.1: UI com janelas independentes + slider de velocidade ("
               << runner_.species().size() << " species, " << runner_.genomes().size()
               << " genomes, " << runner_.foods().size() << " foods, "
               << runner_.obstacles().size() << " obstacles).\n";
@@ -117,19 +118,19 @@ void App::processEvents()
             handleResize(event.size.width, event.size.height);
             continue;
         }
-        // Phase 23: preferences window has highest priority — it overlays
-        // everything else. Then UI panel (menu/toolbar/dropdowns), then the
-        // canvas tools via InputRouter.
+        // Phase 23.1: preferences windows + popups have highest priority.
+        // Then UI panel (menu/toolbar/dropdowns), then canvas via InputRouter.
+        const sf::Vector2u vp = window_.getSize();
         if (event.type == sf::Event::MouseButtonPressed)
         {
             const int sx = event.mouseButton.x;
             const int sy = event.mouseButton.y;
-            if (uiState_.preferences.open &&
-                preferencesPanel_.pointInside(sx, sy, uiState_.preferences))
+            if (preferencesPanel_.pointInsideAnyWindow(sx, sy, vp, uiState_.preferences))
             {
                 if (event.mouseButton.button == sf::Mouse::Left)
                 {
-                    static_cast<void>(preferencesPanel_.handleMouseClick(sx, sy, parameters_,
+                    static_cast<void>(preferencesPanel_.handleMouseClick(sx, sy, vp,
+                                                                            parameters_,
                                                                             uiState_.preferences,
                                                                             commandQueue_));
                 }
@@ -145,13 +146,45 @@ void App::processEvents()
                 continue;
             }
         }
-        // Phase 23: Esc closes preferences before falling through to other
-        // Esc handlers (the InputRouter clears selection on Esc).
-        if (uiState_.preferences.open && event.type == sf::Event::KeyPressed &&
-            event.key.code == sf::Keyboard::Escape)
+        // Phase 23.1: scroll wheel — route to a prefs window when one is under
+        // the cursor; otherwise let the InputRouter zoom the canvas.
+        if (event.type == sf::Event::MouseWheelScrolled)
         {
-            commandQueue_.push(ui::CmdClosePreferences{});
-            continue;
+            const int sx = static_cast<int>(event.mouseWheelScroll.x);
+            const int sy = static_cast<int>(event.mouseWheelScroll.y);
+            if (preferencesPanel_.handleMouseWheel(sx, sy, vp, event.mouseWheelScroll.delta,
+                                                      uiState_.preferences, commandQueue_))
+            {
+                continue;
+            }
+        }
+        // Phase 23.1: Esc closes the topmost open prefs surface first.
+        if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
+        {
+            if (!uiState_.preferences.openPopup.empty())
+            {
+                commandQueue_.push(ui::CmdClosePrefsPopup{});
+                continue;
+            }
+            if (uiState_.preferences.helpWindowOpen)
+            {
+                commandQueue_.push(ui::CmdCloseHelpWindow{});
+                continue;
+            }
+            if (uiState_.preferences.substratePlaceholderOpen)
+            {
+                commandQueue_.push(ui::CmdCloseSubstratePlaceholder{});
+                continue;
+            }
+            for (int t = 0; t < static_cast<int>(config::PrefsTab::Count); ++t)
+            {
+                if (uiState_.preferences.windowOpen[static_cast<std::size_t>(t)])
+                {
+                    commandQueue_.push(ui::CmdClosePreferencesWindow{t});
+                    break;
+                }
+            }
+            // Fall through to InputRouter so Esc also clears selection.
         }
         inputRouter_.handleEvent(event, window_.getSize(), camera_, runner_, uiState_,
                                    commandQueue_);
@@ -320,15 +353,18 @@ void App::drainCommandsAndApply()
             {
                 uiState_.openMenuIndex = -1;
             }
-            // Phase 23: preferences window dispatch.
+            // Phase 23: preferences window dispatch (Phase 23.1 redirects
+            // the legacy CmdOpenPreferences to the Simulation window so old
+            // tests / external callers still work).
             else if constexpr (std::is_same_v<T, ui::CmdOpenPreferences>)
             {
-                uiState_.preferences.open = true;
+                uiState_.preferences.windowOpen[
+                    static_cast<std::size_t>(config::PrefsTab::Simulation)] = true;
                 uiState_.openMenuIndex = -1;
             }
             else if constexpr (std::is_same_v<T, ui::CmdClosePreferences>)
             {
-                uiState_.preferences.open = false;
+                for (auto& b : uiState_.preferences.windowOpen) b = false;
             }
             else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesTab>)
             {
@@ -389,6 +425,72 @@ void App::drainCommandsAndApply()
                 {
                     uiState_.preferences.pendingValues[c.name] = d->originalDefault;
                 }
+            }
+            // Phase 23.1: new commands.
+            else if constexpr (std::is_same_v<T, ui::CmdOpenPreferencesWindow>)
+            {
+                if (c.tab >= 0 && c.tab < static_cast<int>(config::PrefsTab::Count))
+                {
+                    uiState_.preferences.windowOpen[static_cast<std::size_t>(c.tab)] = true;
+                }
+                uiState_.openMenuIndex = -1;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdClosePreferencesWindow>)
+            {
+                if (c.tab >= 0 && c.tab < static_cast<int>(config::PrefsTab::Count))
+                {
+                    uiState_.preferences.windowOpen[static_cast<std::size_t>(c.tab)] = false;
+                }
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdScrollPreferencesWindow>)
+            {
+                if (c.tab >= 0 && c.tab < static_cast<int>(config::PrefsTab::Count))
+                {
+                    auto& s = uiState_.preferences.windowScroll[
+                        static_cast<std::size_t>(c.tab)];
+                    s = std::max(0, s + c.delta);
+                }
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdOpenHelpWindow>)
+            {
+                uiState_.preferences.helpWindowOpen = true;
+                uiState_.openMenuIndex = -1;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCloseHelpWindow>)
+            {
+                uiState_.preferences.helpWindowOpen = false;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdOpenSubstratePlaceholder>)
+            {
+                uiState_.preferences.substratePlaceholderOpen = true;
+                uiState_.openMenuIndex = -1;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCloseSubstratePlaceholder>)
+            {
+                uiState_.preferences.substratePlaceholderOpen = false;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdOpenPrefsPopup>)
+            {
+                uiState_.preferences.openPopup = c.popup;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdClosePrefsPopup>)
+            {
+                uiState_.preferences.openPopup.clear();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdAdjustTimeScale>)
+            {
+                const double cur = config::parameterDouble(parameters_, "time_scale", 1.0);
+                const double next = std::clamp(cur * c.factor, 0.1, 50.0);
+                static_cast<void>(parameters_.setValue("time_scale", next));
+                uiState_.timeScale = next;
+                configureFromParameters();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetTimeScale>)
+            {
+                const double v = std::clamp(c.timeScale, 0.1, 50.0);
+                static_cast<void>(parameters_.setValue("time_scale", v));
+                uiState_.timeScale = v;
+                configureFromParameters();
             }
             else
             {

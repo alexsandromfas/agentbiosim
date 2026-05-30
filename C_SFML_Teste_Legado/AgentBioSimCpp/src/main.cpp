@@ -15,6 +15,7 @@
 #include "systems/Phase22Diagnostics.hpp"
 #include "systems/Phase22_1Diagnostics.hpp"
 #include "systems/Phase23Diagnostics.hpp"
+#include "systems/Phase23_1Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -67,6 +68,8 @@ int main(const int argc, char* argv[])
         bool runPhase22_1Benchmark = false;
         bool runPhase23Validation = false;
         bool runPhase23Benchmark = false;
+        bool runPhase23_1Validation = false;
+        bool runPhase23_1Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -323,6 +326,19 @@ int main(const int argc, char* argv[])
             {
                 runPhase23Validation = true;
                 runPhase23Benchmark = true;
+            }
+            else if (argument == "--phase23-hotfix-selftest")
+            {
+                runPhase23_1Validation = true;
+            }
+            else if (argument == "--phase23-hotfix-benchmark")
+            {
+                runPhase23_1Benchmark = true;
+            }
+            else if (argument == "--phase23-hotfix-diagnostics")
+            {
+                runPhase23_1Validation = true;
+                runPhase23_1Benchmark = true;
             }
         }
 
@@ -1098,6 +1114,41 @@ int main(const int argc, char* argv[])
         }
 
         if (runPhase23Validation || runPhase23Benchmark)
+        {
+            return 0;
+        }
+
+        if (runPhase23_1Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase23_1Validation();
+            std::cout << "Phase23.1 hotfix validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            if (!summary.passed)
+            {
+                return 21;
+            }
+        }
+
+        if (runPhase23_1Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase23_1Microbenchmark();
+            std::cout << "Phase23.1 hotfix microbenchmark\n";
+            std::cout << "scenario,windows_open,popups,parameters_visible,total_ms,avg_op_us,notes\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.scenario << ','
+                          << row.windowsOpen << ','
+                          << row.popups << ','
+                          << row.parametersVisible << ','
+                          << row.totalMilliseconds << ','
+                          << row.averageOpMicroseconds << ','
+                          << row.notes << '\n';
+            }
+        }
+
+        if (runPhase23_1Validation || runPhase23_1Benchmark)
         {
             return 0;
         }
