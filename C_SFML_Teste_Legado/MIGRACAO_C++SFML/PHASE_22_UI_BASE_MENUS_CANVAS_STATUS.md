@@ -1,8 +1,11 @@
 # Fase 22 — UI Base, Menus e Canvas
 
-Status: **CONCLUIDA** (2026-05-30)
+Status: **CONCLUIDA** (2026-05-30) + **MICROFASE 22.1 APLICADA** (2026-05-30)
 
-A Fase 22 introduz a base tecnica de UI da migracao C++/SFML: AppController fino, `SimulationRunner` que detem todos os stores/sistemas, `InputRouter` que traduz `sf::Event` em comandos, `CommandQueue` baseada em `std::variant`, `UiState`/`SelectionState`/`CanvasTool`, e `UiPanel` SFML-native com menu bar, toolbar de 10 ferramentas e overlay de ajuda. A Divida Tecnica 4 ("App acumulando responsabilidades") foi RESOLVIDA por essa refatoracao.
+A Fase 22 introduz a base tecnica de UI da migracao C++/SFML: AppController fino, `SimulationRunner` que detem todos os stores/sistemas, `InputRouter` que traduz `sf::Event` em comandos, `CommandQueue` baseada em `std::variant`, `UiState`/`SelectionState`/`CanvasTool`, e `UiPanel` SFML-native com menu bar, toolbar e overlay de ajuda. A Divida Tecnica 4 ("App acumulando responsabilidades") foi RESOLVIDA por essa refatoracao.
+
+> **Microfase 22.1** ([PHASE_22_1_UI_VISUAL_CANVAS_HOTFIX_STATUS.md](PHASE_22_1_UI_VISUAL_CANVAS_HOTFIX_STATUS.md))
+> Validacao manual revelou problemas de visual (organismos rasterizados), menus (Arquivo resetando no clique, Preferencias abrindo Ajuda), toolbar (botao PAN redundante), brush (sem rastro), eraser (sem efeito), maximize (cursor deslocado), seleção (sem overlay/halo). A microfase 22.1 corrigiu todos esses itens com Renderer vetorial + AA, dropdown real nos menus, brush/eraser stroke interpolado, pan event-driven, `setView` no resize, e overlays de selecao. Toolbar reduzida para 9 ferramentas (Pan removido).
 
 ## Decisao tecnica sobre UI
 

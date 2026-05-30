@@ -16,6 +16,7 @@ simulation::Vec2 screenToWorld(const render::Camera2D& camera, const sf::Vector2
                                           viewport);
     return {static_cast<double>(v.x), static_cast<double>(v.y)};
 }
+
 } // namespace
 
 void InputRouter::handleEvent(const sf::Event& ev,
@@ -32,23 +33,58 @@ void InputRouter::handleEvent(const sf::Event& ev,
     case sf::Event::MouseMoved:
     {
         ++uiState.mouseEvents;
-        lastMouseScreen_ = {ev.mouseMove.x, ev.mouseMove.y};
-        uiState.lastMouseWorld = screenToWorld(camera, viewportSize,
-                                                 ev.mouseMove.x, ev.mouseMove.y);
+        const int sx = ev.mouseMove.x;
+        const int sy = ev.mouseMove.y;
+        const auto worldPos = screenToWorld(camera, viewportSize, sx, sy);
+        uiState.lastMouseWorld = worldPos;
         uiState.lastMouseValid = true;
+
+        // Phase 22.1: event-driven pan. Uses event coords (window-relative),
+        // never sf::Mouse::getPosition which returns desktop coords and breaks
+        // on maximize.
+        if (panActive_)
+        {
+            const sf::Vector2i current{sx, sy};
+            const sf::Vector2i delta = current - lastMouseScreen_;
+            if (delta.x != 0 || delta.y != 0)
+            {
+                queue.push(CmdPanCameraScreen{static_cast<double>(delta.x),
+                                                static_cast<double>(delta.y)});
+                lastMouseScreen_ = current;
+            }
+        }
+
+        // Marquee drag preview.
         if (marqueeActive_)
         {
-            uiState.marquee.endWorld = uiState.lastMouseWorld;
+            uiState.marquee.endWorld = worldPos;
         }
+
+        // Lasso drag accumulator.
         if (lassoActive_ && uiState.activeTool == CanvasTool::LassoSelect)
         {
-            // Add point if it moved enough.
             if (uiState.lasso.points.empty() ||
-                std::hypot(uiState.lasso.points.back().x - uiState.lastMouseWorld.x,
-                            uiState.lasso.points.back().y - uiState.lastMouseWorld.y) > 1.0)
+                std::hypot(uiState.lasso.points.back().x - worldPos.x,
+                            uiState.lasso.points.back().y - worldPos.y) > 1.0)
             {
-                uiState.lasso.points.push_back(uiState.lastMouseWorld);
+                uiState.lasso.points.push_back(worldPos);
             }
+        }
+
+        // Phase 22.1: paint/eraser stroke. Emit interpolated stamps from the
+        // last stamped position to the current mouse position so dragging the
+        // brush draws a continuous trail rather than a single stamp.
+        if (paintActive_ && uiState.activeTool == CanvasTool::PaintObstacle)
+        {
+            queue.push(CmdPaintObstacleStroke{lastStampWorld_, worldPos,
+                                                uiState.brushRadius});
+            lastStampWorld_ = worldPos;
+        }
+        if (eraserActive_ && uiState.activeTool == CanvasTool::EraseObstacle)
+        {
+            queue.push(CmdEraseObstacleStroke{lastStampWorld_, worldPos,
+                                                uiState.brushRadius * 1.5});
+            lastStampWorld_ = worldPos;
         }
         break;
     }
@@ -58,9 +94,11 @@ void InputRouter::handleEvent(const sf::Event& ev,
         const int sx = ev.mouseButton.x;
         const int sy = ev.mouseButton.y;
         const auto worldPos = screenToWorld(camera, viewportSize, sx, sy);
+
+        // Right/middle mouse button always pans (Phase 22.1: Pan canvas tool
+        // was removed from the toolbar, so pan is purely right-mouse-driven).
         if (ev.mouseButton.button == sf::Mouse::Right ||
-            ev.mouseButton.button == sf::Mouse::Middle ||
-            uiState.activeTool == CanvasTool::Pan)
+            ev.mouseButton.button == sf::Mouse::Middle)
         {
             panActive_ = true;
             lastMouseScreen_ = {sx, sy};
@@ -68,6 +106,9 @@ void InputRouter::handleEvent(const sf::Event& ev,
         }
         if (ev.mouseButton.button == sf::Mouse::Left)
         {
+            // Any left-click on the canvas closes open menus.
+            queue.push(CmdCloseAllMenus{});
+
             switch (uiState.activeTool)
             {
             case CanvasTool::Select:
@@ -93,9 +134,13 @@ void InputRouter::handleEvent(const sf::Event& ev,
                 queue.push(CmdSpawnAgentAt{worldPos, 9.0});
                 break;
             case CanvasTool::PaintObstacle:
+                paintActive_ = true;
+                lastStampWorld_ = worldPos;
                 queue.push(CmdPaintObstacleAt{worldPos, uiState.brushRadius});
                 break;
             case CanvasTool::EraseObstacle:
+                eraserActive_ = true;
+                lastStampWorld_ = worldPos;
                 queue.push(CmdEraseObstacleAt{worldPos, uiState.brushRadius * 1.5});
                 break;
             case CanvasTool::Delete:
@@ -137,6 +182,8 @@ void InputRouter::handleEvent(const sf::Event& ev,
                 }
                 uiState.lasso.points.clear();
             }
+            paintActive_ = false;
+            eraserActive_ = false;
         }
         break;
     }
@@ -158,7 +205,8 @@ void InputRouter::handleEvent(const sf::Event& ev,
         switch (key)
         {
         case sf::Keyboard::Space:   queue.push(CmdPauseToggle{}); break;
-        case sf::Keyboard::Escape:  queue.push(CmdClearSelection{});
+        case sf::Keyboard::Escape:  queue.push(CmdCloseAllMenus{});
+                                     queue.push(CmdClearSelection{});
                                      queue.push(CmdSetCanvasTool{CanvasTool::Select}); break;
         case sf::Keyboard::Delete:  queue.push(CmdDeleteSelected{}); break;
         case sf::Keyboard::R:       queue.push(CmdResetSimulation{}); break;
@@ -201,19 +249,13 @@ void InputRouter::update(const sf::Vector2u viewportSize,
                           UiState& uiState,
                           CommandQueue& queue)
 {
-    if (panActive_)
-    {
-        const auto current = sf::Mouse::getPosition();
-        const sf::Vector2i delta = current - lastMouseScreen_;
-        if (delta.x != 0 || delta.y != 0)
-        {
-            queue.push(CmdPanCameraScreen{static_cast<double>(delta.x),
-                                            static_cast<double>(delta.y)});
-            lastMouseScreen_ = current;
-        }
-    }
+    // Phase 22.1: pan is now driven by MouseMoved events (see handleEvent).
+    // The polled-Mouse::getPosition path was removed because it returned
+    // desktop coords and broke after maximize/resize. update() remains here
+    // because the router contract is unchanged from Phase 22.
     static_cast<void>(viewportSize);
     static_cast<void>(camera);
     static_cast<void>(uiState);
+    static_cast<void>(queue);
 }
 } // namespace agentbiosim::ui

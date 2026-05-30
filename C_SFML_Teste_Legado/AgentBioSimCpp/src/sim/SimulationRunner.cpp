@@ -407,6 +407,42 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         {
             static_cast<void>(obstacles_.eraseAt(c.world, c.eraseRadius)); return true;
         }
+        else if constexpr (std::is_same_v<T, ui::CmdPaintObstacleStroke>)
+        {
+            // Phase 22.1: interpolate stamps along the segment so brush draws a
+            // continuous trail. Spacing = brushRadius * kBrushSpacingFactor.
+            const double spacing = std::max(1.0, c.brushRadius * 0.6);
+            const double dx = c.worldTo.x - c.worldFrom.x;
+            const double dy = c.worldTo.y - c.worldFrom.y;
+            const double dist = std::hypot(dx, dy);
+            const std::size_t stamps =
+                dist <= spacing ? 1U
+                                : static_cast<std::size_t>(std::ceil(dist / spacing));
+            for (std::size_t i = 1; i <= stamps; ++i)
+            {
+                const double t = static_cast<double>(i) / static_cast<double>(stamps);
+                const simulation::Vec2 p{c.worldFrom.x + dx * t, c.worldFrom.y + dy * t};
+                static_cast<void>(obstacles_.paint(p, c.brushRadius));
+            }
+            return true;
+        }
+        else if constexpr (std::is_same_v<T, ui::CmdEraseObstacleStroke>)
+        {
+            const double spacing = std::max(1.0, c.eraseRadius * 0.6);
+            const double dx = c.worldTo.x - c.worldFrom.x;
+            const double dy = c.worldTo.y - c.worldFrom.y;
+            const double dist = std::hypot(dx, dy);
+            const std::size_t stamps =
+                dist <= spacing ? 1U
+                                : static_cast<std::size_t>(std::ceil(dist / spacing));
+            for (std::size_t i = 1; i <= stamps; ++i)
+            {
+                const double t = static_cast<double>(i) / static_cast<double>(stamps);
+                const simulation::Vec2 p{c.worldFrom.x + dx * t, c.worldFrom.y + dy * t};
+                static_cast<void>(obstacles_.eraseAt(p, c.eraseRadius));
+            }
+            return true;
+        }
         else if constexpr (std::is_same_v<T, ui::CmdClearObstacles>) { obstacles_.clear(); return true; }
         else if constexpr (std::is_same_v<T, ui::CmdClearFood>) {
             static_cast<void>(foodSystem_.clearAll(foods_)); return true;
@@ -421,6 +457,16 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
             simpleRender_ = !simpleRender_; return true;
         }
         else if constexpr (std::is_same_v<T, ui::CmdToggleVisionDebug>) { return true; /* UI flag */ }
+        // Phase 22.1 hotfix: new commands. NewSimulation is just an alias for
+        // reset; the rest are UI-only (panel toggles, camera reset, quit) and
+        // are handled by AppController in drainCommandsAndApply().
+        else if constexpr (std::is_same_v<T, ui::CmdNewSimulation>) { reset(); return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdQuitApp>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdTogglePreferencesPanel>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdToggleAboutPanel>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdToggleGenomePanel>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdResetCamera>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseAllMenus>) { return true; }
         else { return false; }
     }, cmd);
 }

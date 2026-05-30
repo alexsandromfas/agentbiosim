@@ -47,6 +47,36 @@ struct CmdToggleHelpPanel {};
 struct CmdToggleSimpleRender {};
 struct CmdToggleVisionDebug {};
 
+// Phase 22.1 hotfix: new commands for menu items that previously had no
+// dedicated dispatch (they were misrouted to Reset/Help in Phase 22). Each one
+// triggers a distinct AppController action; SimulationRunner treats them as
+// no-ops so the engine layer stays untouched.
+struct CmdNewSimulation {};                  // File > Novo (explicit reset)
+struct CmdQuitApp {};                        // File > Sair (closes window)
+struct CmdTogglePreferencesPanel {};         // Preferências menu (Phase 23 placeholder)
+struct CmdToggleAboutPanel {};               // Ajuda > Sobre
+struct CmdToggleGenomePanel {};              // Genoma menu (Phase 24/25 placeholder)
+struct CmdResetCamera {};                    // View > Reset camera (zoom 1, fit)
+struct CmdCloseAllMenus {};                  // Esc/click-outside closes dropdowns
+
+// Phase 22.1 hotfix: stroke variants. PaintObstacleAt/EraseObstacleAt remain
+// for single-click stamps. The Stroke variants are emitted by InputRouter when
+// the user drags with the mouse held down; they interpolate stamps between the
+// previous and current world positions so the brush behaves like a paint
+// program instead of a single-stamp click tool.
+struct CmdPaintObstacleStroke
+{
+    simulation::Vec2 worldFrom{};
+    simulation::Vec2 worldTo{};
+    double brushRadius = 20.0;
+};
+struct CmdEraseObstacleStroke
+{
+    simulation::Vec2 worldFrom{};
+    simulation::Vec2 worldTo{};
+    double eraseRadius = 30.0;
+};
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -75,7 +105,16 @@ using Command = std::variant<
     CmdToggleToolOverlay,
     CmdToggleHelpPanel,
     CmdToggleSimpleRender,
-    CmdToggleVisionDebug
+    CmdToggleVisionDebug,
+    CmdNewSimulation,
+    CmdQuitApp,
+    CmdTogglePreferencesPanel,
+    CmdToggleAboutPanel,
+    CmdToggleGenomePanel,
+    CmdResetCamera,
+    CmdCloseAllMenus,
+    CmdPaintObstacleStroke,
+    CmdEraseObstacleStroke
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

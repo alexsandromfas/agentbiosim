@@ -22,11 +22,9 @@
 
 namespace agentbiosim
 {
-// Phase 22: App now acts as the AppController. It owns the SFML window, the
-// Camera2D, the Renderer, the SimulationRunner (engine), the InputRouter and
-// the UiPanel. It does NOT contain simulation logic anymore — all sim systems
-// live inside `runner_`. This resolves Debt 4 by lifting the engine
-// orchestration out of App.
+// Phase 22 (refactored in 22.1 hotfix): App acts as the AppController. It owns
+// the SFML window, the Camera2D, the Renderer, the SimulationRunner (engine),
+// the InputRouter and the UiPanel.
 class App
 {
 public:

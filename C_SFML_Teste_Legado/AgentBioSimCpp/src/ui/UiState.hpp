@@ -44,6 +44,20 @@ struct UiState
     bool showSelectionOverlay = true;
     bool showToolOverlay = true;
 
+    // Phase 22.1: placeholder panels for menus whose features land in future
+    // phases. Each one toggles independently so the user can clearly tell that
+    // Preferências != Ajuda (a Phase 22 bug we fixed in 22.1).
+    bool showPreferencesPlaceholder = false;
+    bool showAboutPanel = false;
+    bool showGenomePlaceholder = false;
+
+    // Phase 22.1: which dropdown is currently open (-1 = none, 0..4 = menu idx).
+    // Clicks on a menu title toggle this; clicks outside close it.
+    int openMenuIndex = -1;
+
+    // Phase 22.1: App watches this; UiPanel sets it via CmdQuitApp.
+    bool quitRequested = false;
+
     // Time scale knob (1.0 = real-time).
     double timeScale = 1.0;
 

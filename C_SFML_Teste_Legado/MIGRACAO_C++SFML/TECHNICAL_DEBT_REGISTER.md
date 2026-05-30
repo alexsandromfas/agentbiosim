@@ -58,9 +58,14 @@ Resolucao:
 Verificacao:
 - Phase 14 Test 60: confirma alias resolution (registry.find("use_numba_brain_forward") == registry.find("use_batch_forward")).
 
-## Divida 4 — App acumulando responsabilidades [RESOLVIDA NA FASE 22]
+## Divida 4 — App acumulando responsabilidades [RESOLVIDA NA FASE 22, REFINADA NA MICROFASE 22.1]
 
-Status: **RESOLVIDA** (commit da Fase 22, 2026-05-30).
+Status: **RESOLVIDA** (commit da Fase 22, 2026-05-30; refinada na microfase 22.1, 2026-05-30).
+
+Refinamento na microfase 22.1:
+- `App::handleResize` agora chama `window_.setView(sf::View(sf::FloatRect(0, 0, w, h)))` antes do refit da camera, corrigindo o bug "clique sai do lugar ao maximizar".
+- `App::drainCommandsAndApply` reconhece 9 comandos novos da UI (`CmdNewSimulation`, `CmdQuitApp`, `CmdTogglePreferencesPanel`, `CmdToggleAboutPanel`, `CmdToggleGenomePanel`, `CmdResetCamera`, `CmdCloseAllMenus`, `CmdPaintObstacleStroke`, `CmdEraseObstacleStroke`).
+- Continua sendo o AppController fino — agora com responsabilidades claras de antialiasing, viewport e dispatch de UI vs engine.
 
 Resolucao:
 - Extraido `sim::SimulationRunner` (`src/sim/SimulationRunner.hpp/.cpp`) que possui todos os stores (AgentStore, FoodStore, ObstacleStore, SpeciesStore, GenomeStore) e todos os sistemas (perception, neural, movement, collision, energy, spatialhash, interaction, food, reproduction, death). Expoe `initialize()`, `step(dt)`, `setPaused/togglePaused/requestStepOnce/reset`, `applyCommand(Command)`, mais acessores const/mutaveis e operacoes de spawn/delete/pick/rect/lasso necessarias para a UI. Determinismo preservado via `seed_` configurado pelo registry (`random_seed`).
