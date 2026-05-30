@@ -2,6 +2,7 @@
 
 #include "config/ParameterDefaults.hpp"
 #include "config/ParameterHelpers.hpp"
+#include "config/ParameterMetadata.hpp"
 #include "core/Version.hpp"
 
 #include <SFML/Graphics/View.hpp>
@@ -58,6 +59,10 @@ App::App()
       window_(sf::VideoMode(kWindowWidth, kWindowHeight), "AgentBioSimCpp",
                 sf::Style::Default, makeContextSettings())
 {
+    // Phase 23: stamp applyFlags onto parameters that need reset / rebuild /
+    // renderer refresh / are pending future phases. Done here rather than in
+    // ParameterDefaults so the 200-entry defaults file does not need touching.
+    config::applyPhase23ApplyFlags(parameters_);
     window_.setFramerateLimit(kFrameLimit);
     // Phase 22.1: snap the SFML view to the actual window pixels so that
     // anything we draw in screen-space (the entire Renderer + UI) sits 1:1
@@ -76,8 +81,9 @@ App::App()
     {
         fontLoaded_ = true;
         uiPanel_.setFont(&font_);
+        preferencesPanel_.setFont(&font_);
     }
-    std::cout << "AgentBioSimCpp Phase 22.1: UI hotfix (menus + canvas + brush + resize) ready ("
+    std::cout << "AgentBioSimCpp Phase 23: preferencias UI ready ("
               << runner_.species().size() << " species, " << runner_.genomes().size()
               << " genomes, " << runner_.foods().size() << " foods, "
               << runner_.obstacles().size() << " obstacles).\n";
@@ -111,13 +117,24 @@ void App::processEvents()
             handleResize(event.size.width, event.size.height);
             continue;
         }
-        // Phase 22.1: UI consumes panel clicks first; otherwise routes to
-        // InputRouter. The pointInsidePanel check now considers open dropdowns
-        // so menu items receive their clicks correctly.
+        // Phase 23: preferences window has highest priority — it overlays
+        // everything else. Then UI panel (menu/toolbar/dropdowns), then the
+        // canvas tools via InputRouter.
         if (event.type == sf::Event::MouseButtonPressed)
         {
             const int sx = event.mouseButton.x;
             const int sy = event.mouseButton.y;
+            if (uiState_.preferences.open &&
+                preferencesPanel_.pointInside(sx, sy, uiState_.preferences))
+            {
+                if (event.mouseButton.button == sf::Mouse::Left)
+                {
+                    static_cast<void>(preferencesPanel_.handleMouseClick(sx, sy, parameters_,
+                                                                            uiState_.preferences,
+                                                                            commandQueue_));
+                }
+                continue;
+            }
             if (uiPanel_.pointInsidePanel(sx, sy, uiState_))
             {
                 if (event.mouseButton.button == sf::Mouse::Left)
@@ -127,6 +144,14 @@ void App::processEvents()
                 }
                 continue;
             }
+        }
+        // Phase 23: Esc closes preferences before falling through to other
+        // Esc handlers (the InputRouter clears selection on Esc).
+        if (uiState_.preferences.open && event.type == sf::Event::KeyPressed &&
+            event.key.code == sf::Keyboard::Escape)
+        {
+            commandQueue_.push(ui::CmdClosePreferences{});
+            continue;
         }
         inputRouter_.handleEvent(event, window_.getSize(), camera_, runner_, uiState_,
                                    commandQueue_);
@@ -295,6 +320,76 @@ void App::drainCommandsAndApply()
             {
                 uiState_.openMenuIndex = -1;
             }
+            // Phase 23: preferences window dispatch.
+            else if constexpr (std::is_same_v<T, ui::CmdOpenPreferences>)
+            {
+                uiState_.preferences.open = true;
+                uiState_.openMenuIndex = -1;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdClosePreferences>)
+            {
+                uiState_.preferences.open = false;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesTab>)
+            {
+                uiState_.preferences.activeTab = c.tab;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesSearch>)
+            {
+                uiState_.preferences.searchQuery = c.query;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetParameterValue>)
+            {
+                uiState_.preferences.pendingValues[c.name] = c.value;
+                ++uiState_.preferences.controlInteractions;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdApplyPreferences>)
+            {
+                const unsigned int flags =
+                    ui::prefsApplyPending(parameters_, uiState_.preferences);
+                if (flags & config::ApplyFlag::RefreshRenderer)
+                {
+                    configureRenderOptions();
+                }
+                if (flags & config::ApplyFlag::RequiresReset)
+                {
+                    runner_.reset();
+                    fitCameraToWorld();
+                }
+                if (flags & config::ApplyFlag::Immediate)
+                {
+                    // Re-read timing / pause from registry without resetting.
+                    configureFromParameters();
+                }
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRevertPreferences>)
+            {
+                uiState_.preferences.pendingValues.clear();
+                ++uiState_.preferences.revertedCount;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsPreferences>)
+            {
+                // Restore defaults for parameters of the *active tab* only.
+                const auto names = ui::prefsParametersForTab(parameters_,
+                    static_cast<config::PrefsTab>(uiState_.preferences.activeTab), "");
+                for (const auto& n : names)
+                {
+                    const auto* d = parameters_.find(n);
+                    if (d != nullptr)
+                    {
+                        uiState_.preferences.pendingValues[n] = d->originalDefault;
+                    }
+                }
+                ++uiState_.preferences.restoredDefaultsCount;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRestoreParameterDefault>)
+            {
+                const auto* d = parameters_.find(c.name);
+                if (d != nullptr)
+                {
+                    uiState_.preferences.pendingValues[c.name] = d->originalDefault;
+                }
+            }
             else
             {
                 static_cast<void>(c);
@@ -356,6 +451,8 @@ void App::render()
                                           renderOptions_, nullptr, obstaclePtr,
                                           &selInput);
     uiPanel_.draw(window_, runner_, uiState_);
+    // Phase 23: preferences window sits above panel + canvas.
+    preferencesPanel_.draw(window_, parameters_, uiState_.preferences);
     window_.display();
     ++frames_;
 }

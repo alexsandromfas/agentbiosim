@@ -21,6 +21,7 @@ add_executable(AgentBioSimCpp
     src/main.cpp
     src/app/App.cpp
     src/config/ParameterDefaults.cpp
+    src/config/ParameterMetadata.cpp
     src/config/ParameterRegistry.cpp
     src/neural/BrainFactory.cpp
     src/neural/GatedMLPBrain.cpp
@@ -59,8 +60,10 @@ add_executable(AgentBioSimCpp
     src/systems/Phase21Diagnostics.cpp
     src/systems/Phase22Diagnostics.cpp
     src/systems/Phase22_1Diagnostics.cpp
+    src/systems/Phase23Diagnostics.cpp
     src/ui/InputRouter.cpp
     src/ui/UiPanel.cpp
+    src/ui/UiPreferencesPanel.cpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp

@@ -210,7 +210,7 @@ Arquivos afetados:
 | 1. Helpers duplicados | **RESOLVIDA na Fase 13** | Media |
 | 2. BrainSlot/MLPBrain concreto | **RESOLVIDA na Fase 14** (variant) | Alta futura |
 | 3. Nomes Numba/Python | **RESOLVIDA na Fase 14** (renomeio + aliases) | Baixa/media |
-| 4. App acumulando responsabilidades | **RESOLVIDA na Fase 22** (SimulationRunner + InputRouter + UiPanel) | Media |
+| 4. App acumulando responsabilidades | **RESOLVIDA na Fase 22** (SimulationRunner + InputRouter + UiPanel; mantido limpo na Fase 22.1 e na Fase 23) | Media |
 | 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
 | 7. ReproductionSystem brainSignatureConfig alias | **RESOLVIDA na Fase 18** (pass-by-value) | Media |

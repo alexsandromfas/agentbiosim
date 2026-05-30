@@ -70,9 +70,9 @@ std::vector<MenuDropdownItem> menuItemsForIndex(const int menuIndex) noexcept
         };
     case 2: // Preferências
         return {
-            {"Em breve (Fase 23)",     false, false},
-            {"",                       false, true},
-            {"Abrir painel placeholder", true, false}
+            {"Abrir Preferencias (Fase 23)",  true,  false},
+            {"",                              false, true},
+            {"Abrir painel placeholder",      true,  false}
         };
     case 3: // Genoma
         return {
@@ -118,6 +118,12 @@ bool dispatchMenuItem(const int menuIndex, const int itemIndex, CommandQueue& qu
         default: return false;
         }
     case 2: // Preferências
+        if (itemIndex == 0)
+        {
+            // Phase 23: open the real preferences window.
+            queue.push(CmdOpenPreferences{});
+            return true;
+        }
         if (itemIndex == 2) { queue.push(CmdTogglePreferencesPanel{}); return true; }
         return false;
     case 3: // Genoma

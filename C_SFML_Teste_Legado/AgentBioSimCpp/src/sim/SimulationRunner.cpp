@@ -467,6 +467,16 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         else if constexpr (std::is_same_v<T, ui::CmdToggleGenomePanel>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdResetCamera>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdCloseAllMenus>) { return true; }
+        // Phase 23: preferences commands are UI-only from the runner POV.
+        else if constexpr (std::is_same_v<T, ui::CmdOpenPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdClosePreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesTab>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesSearch>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdSetParameterValue>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdApplyPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRevertPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRestoreParameterDefault>) { return true; }
         else { return false; }
     }, cmd);
 }

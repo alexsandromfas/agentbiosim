@@ -2,6 +2,7 @@
 
 #include "simulation/World.hpp"
 #include "ui/CanvasTool.hpp"
+#include "ui/PreferencesState.hpp"
 #include "ui/SelectionState.hpp"
 
 #include <cstddef>
@@ -72,5 +73,10 @@ struct UiState
 
     // Painter knob (brush radius for PaintObstacle/EraseObstacle).
     double brushRadius = 20.0;
+
+    // Phase 23: preferences window state. Owned by UiState so the main loop
+    // and the InputRouter can both inspect/react to it (e.g. InputRouter
+    // skips canvas tools while preferences is open and captures the click).
+    PreferencesState preferences;
 };
 } // namespace agentbiosim::ui

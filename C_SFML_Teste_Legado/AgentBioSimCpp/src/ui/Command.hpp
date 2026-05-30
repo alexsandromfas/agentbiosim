@@ -1,10 +1,12 @@
 #pragma once
 
+#include "config/Parameter.hpp"
 #include "simulation/EntityId.hpp"
 #include "simulation/World.hpp"
 #include "ui/CanvasTool.hpp"
 
 #include <cstdint>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -77,6 +79,23 @@ struct CmdEraseObstacleStroke
     double eraseRadius = 30.0;
 };
 
+// Phase 23: preferences window commands. Set/Apply/Revert/RestoreDefaults are
+// dispatched by AppController against the ParameterRegistry. SetParameter
+// queues a pending edit (does not touch the registry until Apply).
+struct CmdOpenPreferences {};
+struct CmdClosePreferences {};
+struct CmdSetPreferencesTab { int tab = 0; };
+struct CmdSetPreferencesSearch { std::string query; };
+struct CmdSetParameterValue
+{
+    std::string name;
+    config::ParameterValue value;
+};
+struct CmdApplyPreferences {};
+struct CmdRevertPreferences {};
+struct CmdRestoreDefaultsPreferences {};   // restores entire active tab
+struct CmdRestoreParameterDefault { std::string name; };
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -114,7 +133,16 @@ using Command = std::variant<
     CmdResetCamera,
     CmdCloseAllMenus,
     CmdPaintObstacleStroke,
-    CmdEraseObstacleStroke
+    CmdEraseObstacleStroke,
+    CmdOpenPreferences,
+    CmdClosePreferences,
+    CmdSetPreferencesTab,
+    CmdSetPreferencesSearch,
+    CmdSetParameterValue,
+    CmdApplyPreferences,
+    CmdRevertPreferences,
+    CmdRestoreDefaultsPreferences,
+    CmdRestoreParameterDefault
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

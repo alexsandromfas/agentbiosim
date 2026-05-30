@@ -10,6 +10,7 @@
 #include "ui/Command.hpp"
 #include "ui/InputRouter.hpp"
 #include "ui/UiPanel.hpp"
+#include "ui/UiPreferencesPanel.hpp"
 #include "ui/UiState.hpp"
 
 #include <SFML/Graphics/Font.hpp>
@@ -61,6 +62,7 @@ private:
     ui::UiState uiState_{};
     ui::InputRouter inputRouter_{};
     ui::UiPanel uiPanel_{};
+    ui::UiPreferencesPanel preferencesPanel_{};
     ui::CommandQueue commandQueue_;
 
     unsigned int frames_ = 0;

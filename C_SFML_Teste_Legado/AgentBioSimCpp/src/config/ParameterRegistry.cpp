@@ -1,5 +1,7 @@
 #include "config/ParameterRegistry.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <iomanip>
 #include <ostream>
 #include <sstream>
@@ -107,6 +109,8 @@ void ParameterRegistry::add(ParameterDefinition definition)
     {
         registerName(alias, index);
     }
+    // Phase 23: capture immutable factory default for restoreDefault().
+    definition.originalDefault = definition.defaultValue;
     definitions_.push_back(std::move(definition));
 }
 
@@ -128,6 +132,139 @@ const std::vector<ParameterDefinition>& ParameterRegistry::definitions() const n
 std::size_t ParameterRegistry::size() const noexcept
 {
     return definitions_.size();
+}
+
+// Phase 23: mutate the stored value with validation. Numeric clamping uses
+// the registered range. Enum parameters (Type::String with non-empty domains)
+// only accept values that are listed. ColorRgb is clamped per channel into
+// [0,255]. Bool is taken as-is.
+bool ParameterRegistry::setValue(const std::string& nameOrAlias, const ParameterValue& value)
+{
+    const auto it = indexByName_.find(nameOrAlias);
+    if (it == indexByName_.end()) return false;
+    ParameterDefinition& def = definitions_[it->second];
+
+    switch (def.type)
+    {
+    case ParameterType::Boolean:
+    {
+        const auto* b = std::get_if<bool>(&value);
+        if (b == nullptr) return false;
+        def.defaultValue = *b;
+        return true;
+    }
+    case ParameterType::Integer:
+    {
+        int v;
+        if (const auto* iv = std::get_if<int>(&value)) v = *iv;
+        else if (const auto* dv = std::get_if<double>(&value)) v = static_cast<int>(*dv);
+        else return false;
+        if (def.range.min.has_value()) v = std::max(v, static_cast<int>(*def.range.min));
+        if (def.range.max.has_value()) v = std::min(v, static_cast<int>(*def.range.max));
+        def.defaultValue = v;
+        return true;
+    }
+    case ParameterType::Floating:
+    {
+        double v;
+        if (const auto* dv = std::get_if<double>(&value)) v = *dv;
+        else if (const auto* iv = std::get_if<int>(&value)) v = static_cast<double>(*iv);
+        else return false;
+        if (def.range.min.has_value()) v = std::max(v, *def.range.min);
+        if (def.range.max.has_value()) v = std::min(v, *def.range.max);
+        def.defaultValue = v;
+        return true;
+    }
+    case ParameterType::String:
+    {
+        const auto* s = std::get_if<std::string>(&value);
+        if (s == nullptr) return false;
+        if (!def.domains.empty())
+        {
+            const auto found =
+                std::find(def.domains.begin(), def.domains.end(), *s) != def.domains.end();
+            if (!found) return false;
+        }
+        def.defaultValue = *s;
+        return true;
+    }
+    case ParameterType::ColorRgb:
+    {
+        const auto* c = std::get_if<ColorRgb>(&value);
+        if (c == nullptr) return false;
+        ColorRgb out{std::clamp(c->r, 0, 255),
+                     std::clamp(c->g, 0, 255),
+                     std::clamp(c->b, 0, 255)};
+        def.defaultValue = out;
+        return true;
+    }
+    }
+    return false;
+}
+
+bool ParameterRegistry::restoreDefault(const std::string& nameOrAlias)
+{
+    const auto it = indexByName_.find(nameOrAlias);
+    if (it == indexByName_.end()) return false;
+    ParameterDefinition& def = definitions_[it->second];
+    def.defaultValue = def.originalDefault;
+    return true;
+}
+
+bool ParameterRegistry::setApplyFlags(const std::string& nameOrAlias, const unsigned int flags)
+{
+    const auto it = indexByName_.find(nameOrAlias);
+    if (it == indexByName_.end()) return false;
+    definitions_[it->second].applyFlags = flags;
+    return true;
+}
+
+std::vector<std::string> ParameterRegistry::search(const std::string& query) const
+{
+    std::string lq;
+    lq.reserve(query.size());
+    for (char ch : query) lq.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+
+    auto lower = [](std::string s) {
+        for (char& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        return s;
+    };
+
+    std::vector<std::string> out;
+    out.reserve(definitions_.size());
+    for (const auto& def : definitions_)
+    {
+        if (lq.empty())
+        {
+            out.push_back(def.name);
+            continue;
+        }
+        bool match = lower(def.name).find(lq) != std::string::npos;
+        if (!match) match = lower(def.category).find(lq) != std::string::npos;
+        if (!match) match = lower(def.description).find(lq) != std::string::npos;
+        if (!match)
+        {
+            for (const auto& a : def.aliases)
+            {
+                if (lower(a).find(lq) != std::string::npos) { match = true; break; }
+            }
+        }
+        if (match) out.push_back(def.name);
+    }
+    return out;
+}
+
+std::vector<std::string> ParameterRegistry::categories() const
+{
+    std::vector<std::string> out;
+    for (const auto& def : definitions_)
+    {
+        if (std::find(out.begin(), out.end(), def.category) == out.end())
+        {
+            out.push_back(def.category);
+        }
+    }
+    return out;
 }
 
 void ParameterRegistry::dump(std::ostream& output) const
