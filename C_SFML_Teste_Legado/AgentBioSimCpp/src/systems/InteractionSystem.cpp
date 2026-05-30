@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -30,6 +31,11 @@ DietInteractionConfig InteractionSystem::dietConfigFromRegistry(const config::Pa
     config.useSpatial = parameterBool(parameters, "use_spatial", config.useSpatial);
     config.predationEnabled = parameterBool(parameters, "predators_enabled", config.predationEnabled);
     config.defaultEnergyCap = parameterDouble(parameters, "bacteria_energy_cap", config.defaultEnergyCap);
+    config.biteSeconds = std::max(1.0e-6,
+        parameterDouble(parameters, "food_bite_seconds", config.biteSeconds));
+    const std::string foodMode = config::parameterString(parameters, "food_mode", "instant");
+    config.corpseFoodKind = foodMode == "chunk" ? simulation::FoodKind::Chunk
+                                                 : simulation::FoodKind::Instant;
     return config;
 }
 
@@ -210,6 +216,49 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
     std::vector<PredationEvent> predationEvents;
     predationEvents.reserve(agents.size() / 4U + 1U);
 
+    // Phase 19: chunk bite per second. Clamp bite_seconds to avoid divide by zero.
+    const double biteSeconds = std::max(1.0e-6, config.biteSeconds);
+    const double dt = std::max(0.0, config.dt);
+    const double biteFraction = dt / biteSeconds;
+    // Each food has only one entry in `consumedFoodIds` (deduplicated via set).
+    // Chunk depleted ids are appended too (same dedup path).
+    auto tryConsumeChunkBite = [&](const std::size_t agentIndex,
+                                    const std::size_t foodIndex,
+                                    const simulation::DietConfig& diet,
+                                    const double energyCap) -> bool {
+        const double remaining = std::max(0.0, foods.energyAt(foodIndex));
+        if (remaining <= 0.0)
+        {
+            // Already depleted this step; queue for removal once.
+            const simulation::EntityId fid = foods.idAt(foodIndex);
+            if (consumedFoodSet.insert(fid.value).second)
+            {
+                consumedFoodIds.push_back(fid);
+            }
+            return false;
+        }
+        const double initial = std::max(1.0e-9, foods.initialEnergyAt(foodIndex));
+        const double maxBite = initial * biteFraction;
+        const double bite = std::min(remaining, maxBite);
+        if (bite <= 0.0) return false;
+        const double gained = agents.addEnergyAt(agentIndex,
+            bite * std::max(0.0, diet.foodEfficiency), energyCap);
+        foods.setEnergyAt(foodIndex, remaining - bite);
+        stats.foodEnergyConsumed += bite;
+        stats.agentEnergyGainedByFood += gained;
+        ++stats.chunkBitesApplied;
+        if (foods.energyAt(foodIndex) <= 0.0)
+        {
+            ++stats.chunkParticlesDepleted;
+            const simulation::EntityId fid = foods.idAt(foodIndex);
+            if (consumedFoodSet.insert(fid.value).second)
+            {
+                consumedFoodIds.push_back(fid);
+            }
+        }
+        return true;
+    };
+
     // Pre-snapshot agent count so newly spawned (corpse-to-food, future ops)
     // are not iterated this step.
     const std::size_t snapshotSize = agents.size();
@@ -242,15 +291,21 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
                 for (const simulation::SpatialItem& cand : candidates)
                 {
                     if (cand.entityType != simulation::SpatialEntityType::Food) continue;
-                    if (consumedFoodSet.find(cand.id.value) != consumedFoodSet.end()) continue;
                     const auto foodIndex = foods.indexOf(cand.id);
                     if (!foodIndex.has_value() || !foods.aliveAt(*foodIndex)) continue;
                     if (!touching(agents, agentIndex, foods, *foodIndex)) continue;
-                    if (foods.kindAt(*foodIndex) != simulation::FoodKind::Instant)
+                    if (foods.kindAt(*foodIndex) == simulation::FoodKind::Chunk)
                     {
-                        ++stats.chunkFoodsSkipped;
+                        // Phase 19: partial chunk bite. Each agent contributes one bite
+                        // per step to the first chunk particle in contact.
+                        if (tryConsumeChunkBite(agentIndex, *foodIndex, *diet, energyCap))
+                        {
+                            consumedFood = true;
+                            break;
+                        }
                         continue;
                     }
+                    if (consumedFoodSet.find(cand.id.value) != consumedFoodSet.end()) continue;
                     const double foodEnergy = std::max(0.0, foods.energyAt(*foodIndex));
                     const double gained = agents.addEnergyAt(agentIndex,
                         foodEnergy * std::max(0.0, diet->foodEfficiency), energyCap);
@@ -267,15 +322,19 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
             {
                 for (std::size_t fi = 0; fi < foods.size(); ++fi)
                 {
-                    const simulation::EntityId fid = foods.idAt(fi);
-                    if (consumedFoodSet.find(fid.value) != consumedFoodSet.end()) continue;
                     if (!foods.aliveAt(fi)) continue;
                     if (!touching(agents, agentIndex, foods, fi)) continue;
-                    if (foods.kindAt(fi) != simulation::FoodKind::Instant)
+                    const simulation::EntityId fid = foods.idAt(fi);
+                    if (foods.kindAt(fi) == simulation::FoodKind::Chunk)
                     {
-                        ++stats.chunkFoodsSkipped;
+                        if (tryConsumeChunkBite(agentIndex, fi, *diet, energyCap))
+                        {
+                            consumedFood = true;
+                            break;
+                        }
                         continue;
                     }
+                    if (consumedFoodSet.find(fid.value) != consumedFoodSet.end()) continue;
                     const double foodEnergy = std::max(0.0, foods.energyAt(fi));
                     const double gained = agents.addEnergyAt(agentIndex,
                         foodEnergy * std::max(0.0, diet->foodEfficiency), energyCap);
@@ -388,7 +447,8 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
                 corpse.energy = ev.preyInitialEnergy;
                 corpse.initialEnergy = ev.preyInitialEnergy;
                 corpse.color = ev.preyColor;
-                corpse.kind = simulation::FoodKind::Instant;
+                corpse.kind = config.corpseFoodKind;
+                corpse.clusterId = 0;
                 static_cast<void>(foods.createFood(corpse));
                 ++stats.corpsesToFoodSpawned;
             }

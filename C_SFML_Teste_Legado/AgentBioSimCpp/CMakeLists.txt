@@ -49,7 +49,9 @@ add_executable(AgentBioSimCpp
     src/simulation/SpeciesBootstrap.cpp
     src/simulation/SpeciesStore.cpp
     src/simulation/World.cpp
+    src/systems/FoodSystem.cpp
     src/systems/Phase18Diagnostics.cpp
+    src/systems/Phase19Diagnostics.cpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp

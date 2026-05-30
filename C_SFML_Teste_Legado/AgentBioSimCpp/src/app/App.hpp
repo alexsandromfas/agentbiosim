@@ -12,6 +12,7 @@
 #include "simulation/World.hpp"
 #include "systems/DeathSystem.hpp"
 #include "systems/EnergySystem.hpp"
+#include "systems/FoodSystem.hpp"
 #include "systems/InteractionSystem.hpp"
 #include "systems/MovementSystem.hpp"
 #include "perception/PerceptionSystem.hpp"
@@ -63,6 +64,8 @@ private:
     systems::InteractionSystem interactionSystem_;
     systems::ReproductionSystem reproductionSystem_;
     systems::DeathSystem deathSystem_;
+    systems::FoodSystem foodSystem_;
+    systems::FoodSystemStats lastFoodStats_{};
     render::Camera2D camera_;
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;

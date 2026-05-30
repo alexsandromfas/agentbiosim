@@ -103,8 +103,9 @@ App::App()
     seedDemoFoodContact();
     rebuildSpatialHash();
 
-    std::cout << "AgentBioSimCpp Phase 18: Predation and generic diet initialized ("
-              << species_.size() << " species, " << genomes_.size() << " genomes).\n";
+    std::cout << "AgentBioSimCpp Phase 19: Chunk food fully integrated ("
+              << species_.size() << " species, " << genomes_.size() << " genomes, "
+              << foods_.size() << " foods).\n";
     std::cout << "Controls: mouse wheel zoom, right/middle drag pan, F fit world, Space pause, V toggle vision debug.\n";
     std::cout << "Spawned static visual smoke test: " << agents_.size() << " agents, "
               << foods_.size() << " foods.\n";
@@ -324,27 +325,28 @@ void App::spawnDemoEntities()
         }
     }
 
-    const int foodCount = std::max(0, parameterInt(parameters_, "food_target", 50));
-    const double foodMinRadius = std::max(0.1, parameterDouble(parameters_, "food_min_r", 4.5));
-    const double foodMaxRadius = std::max(foodMinRadius, parameterDouble(parameters_, "food_max_r", 5.0));
-    const simulation::ColorRgb foodColor = toEntityColor(parameterColor(parameters_, "food_color", {220, 30, 30}));
-    const std::string foodMode = parameterString(parameters_, "food_mode", "instant");
-    const simulation::FoodKind foodKind = foodMode == "chunk" ? simulation::FoodKind::Chunk : simulation::FoodKind::Instant;
-    std::uniform_real_distribution<double> foodRadiusDistribution(foodMinRadius, foodMaxRadius);
-
-    for (int i = 0; i < foodCount; ++i)
+    // Phase 19: delegate initial food spawn to FoodSystem so chunk mode spawns
+    // proper clusters via the same path that replenishment uses each step.
+    const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
+    foodSystem_.reseed(static_cast<std::uint64_t>(seed));
+    if (foodCfg.mode == simulation::FoodKind::Instant)
     {
-        const double radius = foodRadiusDistribution(rng);
-        const double energy = std::max(1.0e-9, radius * radius);
-
-        simulation::FoodSpawn spawn;
-        spawn.position = world_.clampPosition(randomPointInsideWorld(world_, radius, rng), radius);
-        spawn.radius = radius;
-        spawn.energy = energy;
-        spawn.initialEnergy = energy;
-        spawn.color = foodColor;
-        spawn.kind = foodKind;
-        [[maybe_unused]] const simulation::EntityId createdFood = foods_.createFood(spawn);
+        // Instant: spawn up to target one-by-one (Phase 7 parity).
+        for (int i = 0; i < foodCfg.target && static_cast<int>(foods_.size()) < foodCfg.target; ++i)
+        {
+            static_cast<void>(foodSystem_.spawnInstant(foods_, world_, foodCfg));
+        }
+    }
+    else
+    {
+        // Chunk: spawn clusters until we reach the target particle count.
+        while (static_cast<int>(foods_.size()) < foodCfg.target)
+        {
+            const std::size_t before = foods_.size();
+            static_cast<void>(foodSystem_.spawnCluster(foods_, world_, foodCfg));
+            const std::size_t after = foods_.size();
+            if (after == before) break; // safety: spawnCluster placed nothing
+        }
     }
 }
 
@@ -417,22 +419,26 @@ void App::runSimulationStep(const double dt)
     rebuildSpatialHash();
 
     // Phase 18: diet-aware interaction handles both food consumption and predation
-    // per-agent via the genome's DietConfig. Phase 7 legacy `apply` remains for
-    // tests that exercise food-only paths.
-    const systems::DietInteractionConfig dietInteractionConfig =
+    // per-agent via the genome's DietConfig. Phase 19 adds chunk consumption (dt-aware).
+    systems::DietInteractionConfig dietInteractionConfig =
         systems::InteractionSystem::dietConfigFromRegistry(parameters_);
+    dietInteractionConfig.dt = dt;
     simulation::SpatialHash* spatialPtr = spatialEnabled_ ? &spatialHash_ : nullptr;
     const systems::DietInteractionStats dietStats =
         interactionSystem_.applyWithDiet(agents_, foods_, genomes_, spatialPtr, dietInteractionConfig);
     lastInteractionStats_ = {};
     lastInteractionStats_.agentsProcessed = dietStats.agentsProcessed;
-    lastInteractionStats_.foodsConsumed = dietStats.foodsConsumed;
-    lastInteractionStats_.chunkFoodsSkipped = dietStats.chunkFoodsSkipped;
+    lastInteractionStats_.foodsConsumed = dietStats.foodsConsumed + dietStats.chunkParticlesDepleted;
     lastInteractionStats_.foodEnergyConsumed = dietStats.foodEnergyConsumed;
     lastInteractionStats_.agentEnergyGained = dietStats.agentEnergyGainedByFood +
                                                dietStats.agentEnergyGainedByPredation;
-    foodEatenCount_ += dietStats.foodsConsumed;
+    foodEatenCount_ += dietStats.foodsConsumed + dietStats.chunkParticlesDepleted;
     deathsCount_ += dietStats.predationEvents;
+
+    // Phase 19: food replenishment + trim runs once per simulation step.
+    const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
+    lastFoodStats_ = foodSystem_.replenishToTarget(foods_, world_, foodCfg);
+    static_cast<void>(foodSystem_.trimExcess(foods_, foodCfg));
 
     // Phase 13: reproduction between interaction (food/energy gained) and death.
     const systems::ReproductionConfig reproductionConfig =

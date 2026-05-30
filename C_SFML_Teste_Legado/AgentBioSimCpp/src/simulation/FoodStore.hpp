@@ -35,7 +35,15 @@ public:
     [[nodiscard]] double initialEnergyAt(std::size_t index) const;
     [[nodiscard]] ColorRgb colorAt(std::size_t index) const;
     [[nodiscard]] FoodKind kindAt(std::size_t index) const;
+    [[nodiscard]] std::uint32_t clusterIdAt(std::size_t index) const;
     [[nodiscard]] bool aliveAt(std::size_t index) const;
+
+    // Phase 19: partial-consumption helpers for chunk food.
+    void setEnergyAt(std::size_t index, double energy);
+    void setRadiusAt(std::size_t index, double radius);
+
+    // Phase 19: allocate a new cluster id (monotonic, deterministic).
+    [[nodiscard]] std::uint32_t allocateClusterId();
 
 private:
     void removeAtIndex(std::size_t index);
@@ -48,8 +56,10 @@ private:
     std::vector<double> initialEnergy_;
     std::vector<ColorRgb> color_;
     std::vector<FoodKind> kind_;
+    std::vector<std::uint32_t> clusterId_;
     std::vector<std::uint8_t> alive_;
     std::unordered_map<std::uint64_t, std::size_t> indexById_;
     std::uint64_t nextId_ = 1;
+    std::uint32_t nextClusterId_ = 1;
 };
 } // namespace agentbiosim::simulation

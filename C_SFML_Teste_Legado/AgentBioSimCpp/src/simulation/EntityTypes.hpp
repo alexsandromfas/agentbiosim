@@ -62,5 +62,7 @@ struct FoodSpawn
     double initialEnergy = 25.0;
     ColorRgb color{220, 30, 30};
     FoodKind kind = FoodKind::Instant;
+    // Phase 19: cluster grouping for chunk food. 0 means "no cluster" (instant food).
+    std::uint32_t clusterId = 0;
 };
 } // namespace agentbiosim::simulation

@@ -15,6 +15,7 @@ EntityId FoodStore::createFood(const FoodSpawn& spawn)
     initialEnergy_.push_back(spawn.initialEnergy);
     color_.push_back(spawn.color);
     kind_.push_back(spawn.kind);
+    clusterId_.push_back(spawn.clusterId);
     alive_.push_back(1U);
     indexById_.emplace(id.value, index);
 
@@ -42,9 +43,11 @@ void FoodStore::clear()
     initialEnergy_.clear();
     color_.clear();
     kind_.clear();
+    clusterId_.clear();
     alive_.clear();
     indexById_.clear();
     nextId_ = 1;
+    nextClusterId_ = 1;
 }
 
 std::size_t FoodStore::size() const noexcept
@@ -133,9 +136,29 @@ FoodKind FoodStore::kindAt(const std::size_t index) const
     return kind_.at(index);
 }
 
+std::uint32_t FoodStore::clusterIdAt(const std::size_t index) const
+{
+    return clusterId_.at(index);
+}
+
 bool FoodStore::aliveAt(const std::size_t index) const
 {
     return alive_.at(index) != 0U;
+}
+
+void FoodStore::setEnergyAt(const std::size_t index, const double energy)
+{
+    energy_.at(index) = energy;
+}
+
+void FoodStore::setRadiusAt(const std::size_t index, const double radius)
+{
+    radius_.at(index) = radius;
+}
+
+std::uint32_t FoodStore::allocateClusterId()
+{
+    return nextClusterId_++;
 }
 
 void FoodStore::removeAtIndex(const std::size_t index)
@@ -153,6 +176,7 @@ void FoodStore::removeAtIndex(const std::size_t index)
         initialEnergy_[index] = initialEnergy_[last];
         color_[index] = color_[last];
         kind_[index] = kind_[last];
+        clusterId_[index] = clusterId_[last];
         alive_[index] = alive_[last];
         indexById_[ids_[index].value] = index;
     }
@@ -165,6 +189,7 @@ void FoodStore::removeAtIndex(const std::size_t index)
     initialEnergy_.pop_back();
     color_.pop_back();
     kind_.pop_back();
+    clusterId_.pop_back();
     alive_.pop_back();
     indexById_.erase(removedId.value);
 }

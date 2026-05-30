@@ -36,12 +36,21 @@ struct DietInteractionConfig
     bool predationEnabled = true;
     // Global cap respected when no genome is found for the predator (defensive).
     double defaultEnergyCap = 400.0;
+    // Phase 19: chunk consumption. Bite seconds is the time required to fully
+    // consume a chunk particle in contact. `dt` is provided per call (so the
+    // engine can drive partial consumption from its fixed timestep).
+    double biteSeconds = 6.0;
+    double dt = 1.0 / 30.0;
+    // Phase 19: corpse-to-food respects food_mode (Instant or Chunk).
+    simulation::FoodKind corpseFoodKind = simulation::FoodKind::Instant;
 };
 
 struct DietInteractionStats
 {
     std::size_t agentsProcessed = 0;
     std::size_t foodsConsumed = 0;
+    std::size_t chunkBitesApplied = 0;
+    std::size_t chunkParticlesDepleted = 0;
     std::size_t chunkFoodsSkipped = 0;
     std::size_t predationEvents = 0;
     std::size_t corpsesToFoodSpawned = 0;
