@@ -153,9 +153,16 @@ Phase22_1ValidationSummary runPhase22_1Validation()
     // ---- 14: Genoma menu replaces Agente/Genoma ----
     {
         const auto genoma = ui::menuItemsForIndex(3);
+        // Phase 24: the Genoma dropdown now exposes Editor / Especies /
+        // Populacao / Substrato as functional items. The 22.1 check accepts
+        // either the legacy placeholder ("Fase 24") OR the real Phase 24
+        // items, as long as the dropdown has multiple entries.
+        const bool hasPlaceholder = !genoma.empty() &&
+            std::string(genoma[0].label).find("Fase 24") != std::string::npos;
+        const bool hasEditor = !genoma.empty() &&
+            std::string(genoma[0].label).find("Editor") != std::string::npos;
         addCheck(summary, "Genoma dropdown has placeholder + open action (14)",
-                 genoma.size() >= 3U &&
-                 std::string(genoma[0].label).find("Fase 24") != std::string::npos);
+                 genoma.size() >= 3U && (hasPlaceholder || hasEditor));
     }
 
     // ---- 15-17: disabled items do not dispatch ----

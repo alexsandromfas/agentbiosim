@@ -17,6 +17,7 @@
 #include "systems/Phase23Diagnostics.hpp"
 #include "systems/Phase23_1Diagnostics.hpp"
 #include "systems/Phase23_2Diagnostics.hpp"
+#include "systems/Phase24Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -72,6 +73,7 @@ int main(const int argc, char* argv[])
         bool runPhase23_1Validation = false;
         bool runPhase23_1Benchmark = false;
         bool runPhase23_2Validation = false;
+        bool runPhase24Validation = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -345,6 +347,10 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase23-hotfix2-selftest")
             {
                 runPhase23_2Validation = true;
+            }
+            else if (argument == "--phase24-selftest")
+            {
+                runPhase24Validation = true;
             }
         }
 
@@ -1166,6 +1172,15 @@ int main(const int argc, char* argv[])
                       << " (" << summary.checks << " checks)\n"
                       << summary.details << '\n';
             return summary.passed ? 0 : 22;
+        }
+
+        if (runPhase24Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase24Validation();
+            std::cout << "Phase24 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 24;
         }
 
         agentbiosim::App app;

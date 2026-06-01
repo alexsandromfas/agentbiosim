@@ -495,6 +495,30 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         else if constexpr (std::is_same_v<T, ui::CmdCancelEditParameter>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdCommitEditParameter>) { return true; }
         else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsAndApply>) { return true; }
+        // Phase 24: operational windows + apply commands. Most are UI-only;
+        // CmdClearFood maps to foodSystem clearAll.
+        else if constexpr (std::is_same_v<T, ui::CmdOpenEditorGenetico>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseEditorGenetico>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenEspecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseEspecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenPopulacao>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdClosePopulacao>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdOpenSubstrato>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCloseSubstrato>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdScrollOperationalWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdMoveOperationalWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSelected>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdResetNeuralForSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdSelectAllOfSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdAssignSelectedToSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCreateSpeciesFromSelected>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdApplyPopulation>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdApplyEnvironment>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdClearAllFood>)
+        {
+            static_cast<void>(foodSystem_.clearAll(foods_)); return true;
+        }
         else { return false; }
     }, cmd);
 }

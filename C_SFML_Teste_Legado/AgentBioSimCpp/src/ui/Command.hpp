@@ -130,6 +130,30 @@ struct CmdCommitEditParameter {};   // App parses the current buffer
 // the regular Apply.
 struct CmdRestoreDefaultsAndApply {};
 
+// Phase 24: operational windows. Each window is opened/closed independently;
+// the panel routes clicks to its handlers and emits the apply commands.
+struct CmdOpenEditorGenetico {};
+struct CmdCloseEditorGenetico {};
+struct CmdOpenEspecies {};
+struct CmdCloseEspecies {};
+struct CmdOpenPopulacao {};
+struct CmdClosePopulacao {};
+struct CmdOpenSubstrato {};
+struct CmdCloseSubstrato {};
+struct CmdScrollOperationalWindow { int which = 0; int delta = 0; };
+struct CmdMoveOperationalWindow   { int which = 0; float x = 0.0F; float y = 0.0F; };
+
+// Phase 24: apply commands for the operational windows.
+struct CmdApplyGenomeToSelected {};   // re-spawn selected with current registry genome
+struct CmdApplyGenomeToSpecies  {};   // bake registry params into species defaults (next reset)
+struct CmdResetNeuralForSpecies { std::uint32_t speciesId = 0; };
+struct CmdSelectAllOfSpecies    { std::uint32_t speciesId = 0; };
+struct CmdAssignSelectedToSpecies { std::uint32_t speciesId = 0; };
+struct CmdCreateSpeciesFromSelected {};
+struct CmdApplyPopulation       {};   // honors bacteria_count etc. on next reset
+struct CmdApplyEnvironment      {};   // reads world_w/h/shape/radius and resets
+struct CmdClearAllFood          {};   // wipes FoodStore now (rescue continues working)
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -192,7 +216,26 @@ using Command = std::variant<
     CmdBeginEditParameter,
     CmdCancelEditParameter,
     CmdCommitEditParameter,
-    CmdRestoreDefaultsAndApply
+    CmdRestoreDefaultsAndApply,
+    CmdOpenEditorGenetico,
+    CmdCloseEditorGenetico,
+    CmdOpenEspecies,
+    CmdCloseEspecies,
+    CmdOpenPopulacao,
+    CmdClosePopulacao,
+    CmdOpenSubstrato,
+    CmdCloseSubstrato,
+    CmdScrollOperationalWindow,
+    CmdMoveOperationalWindow,
+    CmdApplyGenomeToSelected,
+    CmdApplyGenomeToSpecies,
+    CmdResetNeuralForSpecies,
+    CmdSelectAllOfSpecies,
+    CmdAssignSelectedToSpecies,
+    CmdCreateSpeciesFromSelected,
+    CmdApplyPopulation,
+    CmdApplyEnvironment,
+    CmdClearAllFood
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

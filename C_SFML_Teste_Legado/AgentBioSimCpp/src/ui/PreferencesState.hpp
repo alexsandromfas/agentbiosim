@@ -70,6 +70,23 @@ struct PreferencesState
     // "configurar na Fase 24" message so the user knows where it will land.
     bool substratePlaceholderOpen = false;
 
+    // Phase 24: operational windows (Editor Genetico / Especies / Populacao /
+    // Substrato). Each is independent, draggable and has its own scroll.
+    bool editorOpen = false;
+    bool especiesOpen = false;
+    bool populacaoOpen = false;
+    bool substratoOpen = false;
+    float editorX = -1.0F, editorY = -1.0F;
+    float especiesX = -1.0F, especiesY = -1.0F;
+    float populacaoX = -1.0F, populacaoY = -1.0F;
+    float substratoX = -1.0F, substratoY = -1.0F;
+    int editorScroll = 0;
+    int especiesScroll = 0;
+    int populacaoScroll = 0;
+    int substratoScroll = 0;
+    // 0=editor, 1=especies, 2=populacao, 3=substrato. -1 = none.
+    int draggingOperational = -1;
+
     // Dirty pending edits keyed by registry parameter name.
     std::unordered_map<std::string, config::ParameterValue> pendingValues;
 
@@ -83,6 +100,7 @@ struct PreferencesState
     [[nodiscard]] bool anyOpen() const noexcept
     {
         if (helpWindowOpen || substratePlaceholderOpen) return true;
+        if (editorOpen || especiesOpen || populacaoOpen || substratoOpen) return true;
         for (const bool b : windowOpen) if (b) return true;
         return false;
     }

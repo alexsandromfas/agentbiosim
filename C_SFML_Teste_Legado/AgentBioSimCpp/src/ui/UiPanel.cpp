@@ -86,11 +86,15 @@ std::vector<MenuDropdownItem> menuItemsForIndex(const int menuIndex) noexcept
             {"",                              false, true},
             {"Substrato (Fase 24)",           true,  false}   // -> Substrate placeholder
         };
-    case 3: // Genoma
+    case 3: // Genoma (Phase 24: now functional with operational windows)
         return {
-            {"Em breve (Fase 24/25)",  false, false},
-            {"",                       false, true},
-            {"Abrir painel placeholder", true, false}
+            {"Editor Genetico",            true,  false},
+            {"Especies / Labels",          true,  false},
+            {"Populacao",                  true,  false},
+            {"Substrato e Comida",         true,  false},
+            {"",                           false, true},
+            {"Importar Genoma (Fase 27)",  false, false},
+            {"Exportar Genoma (Fase 27)",  false, false}
         };
     case 4: // Ajuda
         return {
@@ -150,9 +154,15 @@ bool dispatchMenuItem(const int menuIndex, const int itemIndex, CommandQueue& qu
         case 11: queue.push(CmdOpenSubstratePlaceholder{}); return true;
         default: return false;
         }
-    case 3: // Genoma
-        if (itemIndex == 2) { queue.push(CmdToggleGenomePanel{}); return true; }
-        return false;
+    case 3: // Genoma — Phase 24
+        switch (itemIndex)
+        {
+        case 0: queue.push(CmdOpenEditorGenetico{}); return true;
+        case 1: queue.push(CmdOpenEspecies{});       return true;
+        case 2: queue.push(CmdOpenPopulacao{});      return true;
+        case 3: queue.push(CmdOpenSubstrato{});      return true;
+        default: return false;
+        }
     case 4: // Ajuda - Phase 23.1: opens dedicated Help window.
         if (itemIndex == 0) { queue.push(CmdOpenHelpWindow{}); return true; }
         if (itemIndex == 1) { queue.push(CmdToggleAboutPanel{}); return true; }
