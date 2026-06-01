@@ -778,7 +778,11 @@ void App::drainCommandsAndApply()
                 if (flags & config::ApplyFlag::RefreshRenderer) configureRenderOptions();
                 configureFromParameters();
                 runner_.reset();
-                fitCameraToWorld();
+                // Phase 24.1 fix: DO NOT auto-fit the camera here. The user's
+                // intent on "Aplicar ambiente" is to grow/shrink the substrate
+                // while keeping the visual size of organisms / food the same.
+                // Auto-fit would rezoom and change the apparent size of every
+                // entity. The user can press F manually to fit the world.
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSelected>)
             {

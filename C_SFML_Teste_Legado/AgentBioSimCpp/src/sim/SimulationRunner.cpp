@@ -256,6 +256,26 @@ void SimulationRunner::step(const double dt)
 
 void SimulationRunner::reset()
 {
+    // Phase 24.1 fix: re-read the world config from the registry so that
+    // operations like Aplicar ambiente (which writes substrate_shape /
+    // world_w / world_h / substrate_radius to the registry and then calls
+    // reset()) actually rebuild the world geometry. Before this fix reset()
+    // only respawned agents into the OLD world.
+    using config::parameterDouble;
+    using config::parameterString;
+    const std::string shape = parameterString(parameters_, "substrate_shape", "rectangular");
+    simulation::WorldConfig wcfg;
+    wcfg.width = parameterDouble(parameters_, "world_w", 1000.0);
+    wcfg.height = parameterDouble(parameters_, "world_h", 700.0);
+    wcfg.radius = parameterDouble(parameters_, "substrate_radius", 400.0);
+    wcfg.center = {wcfg.width * 0.5, wcfg.height * 0.5};
+    wcfg.shape = shape == "circular" ? simulation::WorldShape::Circular
+                                      : simulation::WorldShape::Rectangular;
+    world_.configure(wcfg);
+    // spawnInitial() will respawn agents/foods. Obstacles are kept across
+    // a plain reset() (R key) to match the Phase 22.1 behavior; the Phase 24
+    // "Limpar comida" button + an obstacle Clear command remain the way to
+    // wipe them explicitly.
     stats_ = {};
     paused_ = false;
     stepOnce_ = false;

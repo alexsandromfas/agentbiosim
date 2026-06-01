@@ -149,13 +149,17 @@ struct PanelRow
 // the species prefix from the displayed label so the user sees just the field.
 std::string prettyLabel(const std::string& name, const std::string& speciesPrefix)
 {
-    const char* f = config::prefsFriendlyLabel(name);
-    if (f != nullptr) return f;
+    // Phase 24.1 fix order: full friendly label first, then by-suffix when
+    // the parameter is species-prefixed, then raw name as last resort.
+    const char* full = config::prefsFriendlyLabel(name);
+    if (full != nullptr) return full;
     if (!speciesPrefix.empty() && name.rfind(speciesPrefix, 0) == 0)
     {
-        std::string trimmed = name.substr(speciesPrefix.size());
-        if (!trimmed.empty() && trimmed[0] == '_') trimmed = trimmed.substr(1);
-        return trimmed;
+        std::string suffix = name.substr(speciesPrefix.size());
+        if (!suffix.empty() && suffix[0] == '_') suffix = suffix.substr(1);
+        const char* bySuffix = config::prefsFriendlyLabelBySuffix(suffix);
+        if (bySuffix != nullptr) return bySuffix;
+        return suffix;
     }
     return name;
 }

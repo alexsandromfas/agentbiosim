@@ -46,6 +46,13 @@ enum class PrefsTab : int
 // ASCII labels avoids encoding surprises across machines/locales.
 [[nodiscard]] const char* prefsFriendlyLabel(const std::string& parameterName) noexcept;
 
+// Phase 24.1 fix: friendly label by SUFFIX for species-prefixed parameters.
+// The Editor Genetico shows parameters like `bacteria_body_size` /
+// `predator_body_size`. After stripping the species prefix, this function
+// returns "Tamanho do corpo" — both species share the same Portuguese label.
+// Returns nullptr when the suffix is unknown.
+[[nodiscard]] const char* prefsFriendlyLabelBySuffix(const std::string& suffix) noexcept;
+
 // Phase 23.1 hotfix: returns true if the parameter should not appear in any
 // preferences window. Hides legacy Numba aliases (the canonical C++ name is
 // still shown), per-species parameters (Fase 24), and a few raw-string knobs

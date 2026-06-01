@@ -298,7 +298,17 @@ const std::vector<LabelEntry> kFriendlyLabels{
 
     // Performance / future
     {"use_grouped_vision_batches",       "Visao em lotes agrupados (Fase 30)"},
-    {"use_persistent_perception_arrays", "Buffers de percepcao persistentes (Fase 30)"}
+    {"use_persistent_perception_arrays", "Buffers de percepcao persistentes (Fase 30)"},
+
+    // Phase 24.1: populacao knobs (absolute names for the Populacao panel).
+    {"bacteria_count",      "Quantidade inicial de bacterias"},
+    {"predator_count",      "Quantidade inicial de predadores"},
+    {"bacteria_min_limit",  "Limite minimo de bacterias"},
+    {"bacteria_max_limit",  "Limite maximo de bacterias (0 = sem limite)"},
+    {"predator_min_limit",  "Limite minimo de predadores"},
+    {"predator_max_limit",  "Limite maximo de predadores (0 = sem limite)"},
+    {"predators_enabled",   "Habilitar predadores"},
+    {"max_deaths_per_step", "Mortes maximas por passo"},
 };
 } // namespace
 
@@ -307,6 +317,69 @@ const char* prefsFriendlyLabel(const std::string& name) noexcept
     for (const auto& e : kFriendlyLabels)
     {
         if (name == e.name) return e.label;
+    }
+    return nullptr;
+}
+
+namespace
+{
+// Phase 24.1 fix: labels by SUFFIX for species-prefixed knobs. After stripping
+// "bacteria_" / "predator_" the same Portuguese label applies.
+const std::vector<LabelEntry> kSpeciesSuffixLabels{
+    {"body_size",                "Tamanho do corpo"},
+    {"body_shape",               "Forma do corpo"},
+    {"max_speed",                "Velocidade maxima"},
+    {"max_turn",                 "Giro maximo (rad/s)"},
+    {"allow_reverse_locomotion", "Permitir marcha re"},
+    {"movement_mode",            "Modo de movimento"},
+    {"initial_energy",           "Energia inicial"},
+    {"death_energy",             "Energia minima de sobrevivencia"},
+    {"split_energy",             "Energia para reproducao"},
+    {"v0_cost",                  "Custo parado"},
+    {"vmax_cost",                "Custo em velocidade maxima"},
+    {"energy_cap",               "Energia maxima (cap)"},
+    {"death_by_age_enabled",     "Morrer por idade"},
+    {"death_age",                "Idade de morte (s)"},
+    {"corpse_to_food",           "Cadaver vira comida"},
+    {"reproduction_min_age",     "Idade minima para reproduzir (s)"},
+    {"reproduction_cooldown",    "Cooldown de reproducao (s)"},
+    {"vision_radius",            "Raio de visao"},
+    {"retina_count",             "Quantidade de retinas"},
+    {"retina_fov_degrees",       "Campo de visao (graus)"},
+    {"eye_count",                "Quantidade de olhos"},
+    {"eye_angle_degrees",        "Angulo entre olhos (graus)"},
+    {"see_food",                 "Enxerga comida"},
+    {"see_agents",               "Enxerga organismos"},
+    {"see_predators",            "Enxerga predadores"},
+    {"see_obstacles",            "Enxerga obstaculos"},
+    {"see_through_walls",        "Enxerga atraves de paredes"},
+    {"retina_channel_r",         "Canal R da retina"},
+    {"retina_channel_g",         "Canal G da retina"},
+    {"retina_channel_b",         "Canal B da retina"},
+    {"retina_channel_d",         "Canal de distancia"},
+    {"retina_input_mode",        "Modo de entrada da retina"},
+    {"diet_food",                "Come comida"},
+    {"diet_agents",              "Come organismos"},
+    {"diet_same_label",          "Pode comer mesma especie"},
+    {"food_efficiency",          "Eficiencia ao comer comida"},
+    {"agent_efficiency",         "Eficiencia ao comer agente"},
+    {"hidden_layers",            "Camadas ocultas (rede)"},
+    {"mutation_rate",            "Taxa de mutacao"},
+    {"mutation_strength",        "Intensidade da mutacao"},
+    {"count",                    "Quantidade inicial"},
+    {"min_r",                    "Raio minimo de spawn"},
+    {"max_r",                    "Raio maximo de spawn"},
+    {"min_limit",                "Limite minimo de populacao"},
+    {"max_limit",                "Limite maximo de populacao (0 = sem limite)"},
+    {"color",                    "Cor"},
+};
+} // namespace
+
+const char* prefsFriendlyLabelBySuffix(const std::string& suffix) noexcept
+{
+    for (const auto& e : kSpeciesSuffixLabels)
+    {
+        if (suffix == e.name) return e.label;
     }
     return nullptr;
 }
