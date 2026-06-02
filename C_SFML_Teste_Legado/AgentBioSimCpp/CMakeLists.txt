@@ -17,6 +17,45 @@ if(NOT EXISTS "${SFML_ROOT}/include/SFML/Graphics.hpp")
     message(FATAL_ERROR "SFML_ROOT invalido. Configure com -DSFML_ROOT=C:/caminho/para/SFML-2.6.2")
 endif()
 
+# Phase 25: Dear ImGui + ImGui-SFML (vendored in third_party/). Built as a
+# separate static library with relaxed warnings so the project's /W4 /permissive-
+# does not flag third-party code. The headless engine never links this; only the
+# app/UI layer does. imconfig-SFML.h (via IMGUI_USER_CONFIG) adds the
+# sf::Vector2<->ImVec2 and sf::Color<->ImVec4 conversions and must be visible to
+# every TU that includes imgui.h, so it is set PUBLIC.
+set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
+set(IMGUI_SFML_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui-sfml")
+
+add_library(imgui_sfml STATIC
+    "${IMGUI_DIR}/imgui.cpp"
+    "${IMGUI_DIR}/imgui_draw.cpp"
+    "${IMGUI_DIR}/imgui_tables.cpp"
+    "${IMGUI_DIR}/imgui_widgets.cpp"
+    "${IMGUI_DIR}/imgui_demo.cpp"
+    "${IMGUI_DIR}/misc/cpp/imgui_stdlib.cpp"
+    "${IMGUI_SFML_DIR}/imgui-SFML.cpp"
+)
+
+target_include_directories(imgui_sfml PUBLIC
+    "${IMGUI_DIR}"
+    "${IMGUI_DIR}/misc/cpp"
+    "${IMGUI_SFML_DIR}"
+    "${SFML_ROOT}/include"
+)
+
+target_compile_definitions(imgui_sfml PUBLIC IMGUI_USER_CONFIG="imconfig-SFML.h")
+
+target_link_libraries(imgui_sfml PUBLIC
+    "${SFML_ROOT}/lib/sfml-graphics.lib"
+    "${SFML_ROOT}/lib/sfml-window.lib"
+    "${SFML_ROOT}/lib/sfml-system.lib"
+    opengl32
+)
+
+if(MSVC)
+    target_compile_options(imgui_sfml PRIVATE /W0)
+endif()
+
 add_executable(AgentBioSimCpp
     src/main.cpp
     src/app/App.cpp
@@ -87,6 +126,7 @@ target_include_directories(AgentBioSimCpp
 
 target_link_libraries(AgentBioSimCpp
     PRIVATE
+        imgui_sfml
         "${SFML_ROOT}/lib/sfml-graphics.lib"
         "${SFML_ROOT}/lib/sfml-window.lib"
         "${SFML_ROOT}/lib/sfml-system.lib"
