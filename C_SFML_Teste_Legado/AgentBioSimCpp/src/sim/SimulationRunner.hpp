@@ -18,7 +18,7 @@
 #include "systems/MovementSystem.hpp"
 #include "systems/NeuralSystem.hpp"
 #include "systems/ReproductionSystem.hpp"
-#include "ui/Command.hpp"
+#include "core/Command.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -62,8 +62,10 @@ public:
     // store. Does not change registry/world configuration.
     void reset();
 
-    // Apply a UI command. Returns true if recognised and applied.
-    bool applyCommand(const ui::Command& cmd);
+    // Apply a high-level command. Returns true if recognised and applied.
+    // Phase 25 (Divida 8): commands live in agentbiosim::core, not ui, so the
+    // engine no longer depends on the UI layer.
+    bool applyCommand(const core::Command& cmd);
 
     // Read-only access for Renderer / PerceptionSystem / UI selection / etc.
     [[nodiscard]] const simulation::AgentStore& agents() const noexcept { return agents_; }

@@ -1,67 +1,15 @@
 #pragma once
 
-#include <cstdint>
-#include <string>
+// Phase 25 (Divida 8): CanvasTool now lives in the neutral agentbiosim::core
+// layer (core/CanvasTool.hpp) so the engine can use it without depending on ui::.
+// This shim re-exports it into agentbiosim::ui for transitional compatibility
+// with the SFML UI/tests that still reference ui::CanvasTool. The using-directive
+// makes both qualified (ui::CanvasTool) and unqualified (within namespace ui)
+// lookups resolve to the core type. This shim is removed at the end of Phase 25
+// once the old SFML UI is deleted and the tests are migrated to core::.
+#include "core/CanvasTool.hpp"
 
 namespace agentbiosim::ui
 {
-// Phase 22: enum of canvas tools selectable via UI/toolbar/shortcuts.
-// `None` means no tool active. The InputRouter and UiPanel never inspect the
-// engine state to derive this; they only mutate UiState::activeTool through
-// commands.
-enum class CanvasTool : std::uint8_t
-{
-    None = 0,
-    Select,
-    RectangleSelect,
-    LassoSelect,
-    AddFood,
-    AddAgent,
-    PaintObstacle,
-    EraseObstacle,
-    Move,
-    Delete,
-    Pan
-};
-
-inline const char* canvasToolName(const CanvasTool t) noexcept
-{
-    switch (t)
-    {
-    case CanvasTool::None:           return "none";
-    case CanvasTool::Select:         return "select";
-    case CanvasTool::RectangleSelect:return "rect_select";
-    case CanvasTool::LassoSelect:    return "lasso";
-    case CanvasTool::AddFood:        return "add_food";
-    case CanvasTool::AddAgent:       return "add_agent";
-    case CanvasTool::PaintObstacle:  return "paint_obstacle";
-    case CanvasTool::EraseObstacle:  return "erase_obstacle";
-    case CanvasTool::Move:           return "move";
-    case CanvasTool::Delete:         return "delete";
-    case CanvasTool::Pan:            return "pan";
-    }
-    return "none";
+using namespace core;
 }
-
-inline const char* canvasToolLabel(const CanvasTool t) noexcept
-{
-    // Phase 23.1: labels padronizados em portugues ASCII para casar com os
-    // menus (Arquivo / Exibir / Preferencias / Ajuda) e remover mistura
-    // portugues+ingles na toolbar.
-    switch (t)
-    {
-    case CanvasTool::None:           return "None";
-    case CanvasTool::Select:         return "Selecao";
-    case CanvasTool::RectangleSelect:return "Rect";
-    case CanvasTool::LassoSelect:    return "Laco";
-    case CanvasTool::AddFood:        return "Comida";
-    case CanvasTool::AddAgent:       return "Agente";
-    case CanvasTool::PaintObstacle:  return "Pincel";
-    case CanvasTool::EraseObstacle:  return "Apagar";
-    case CanvasTool::Move:           return "Mover";
-    case CanvasTool::Delete:         return "Excluir";
-    case CanvasTool::Pan:            return "Pan";
-    }
-    return "None";
-}
-} // namespace agentbiosim::ui

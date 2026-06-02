@@ -537,43 +537,43 @@ std::size_t SimulationRunner::countAgentsOfSpecies(const simulation::SpeciesId s
     return n;
 }
 
-bool SimulationRunner::applyCommand(const ui::Command& cmd)
+bool SimulationRunner::applyCommand(const core::Command& cmd)
 {
     return std::visit([&](auto&& c) -> bool {
         using T = std::decay_t<decltype(c)>;
-        if constexpr (std::is_same_v<T, ui::CmdPauseToggle>)        { togglePaused(); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetPaused>)     { setPaused(c.paused); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdResetSimulation>) { reset(); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdStepOnce>)      { requestStepOnce(); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetTimeScale>)  { timeScale_ = std::max(0.0, c.timeScale); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdFitWorldCamera>) { return true; /* handled by AppController */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSetCameraCenter>) { return true; /* handled by AppController */ }
-        else if constexpr (std::is_same_v<T, ui::CmdPanCameraScreen>) { return true; /* handled by AppController */ }
-        else if constexpr (std::is_same_v<T, ui::CmdZoomCameraAt>)   { return true; /* handled by AppController */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSetCanvasTool>)  { return true; /* handled by UI */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSelectAtWorldPoint>) { return true; /* handled by UI */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSelectRect>)     { return true; /* handled by UI */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSelectLasso>)    { return true; /* handled by UI */ }
-        else if constexpr (std::is_same_v<T, ui::CmdClearSelection>) { return true; /* handled by UI */ }
-        else if constexpr (std::is_same_v<T, ui::CmdDeleteSelected>) { return true; /* handled by UI with help of runner */ }
-        else if constexpr (std::is_same_v<T, ui::CmdMoveSelectedBy>) { return true; /* handled by UI with help of runner */ }
-        else if constexpr (std::is_same_v<T, ui::CmdSpawnFoodAt>)
+        if constexpr (std::is_same_v<T, core::CmdPauseToggle>)        { togglePaused(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetPaused>)     { setPaused(c.paused); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdResetSimulation>) { reset(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdStepOnce>)      { requestStepOnce(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetTimeScale>)  { timeScale_ = std::max(0.0, c.timeScale); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdFitWorldCamera>) { return true; /* handled by AppController */ }
+        else if constexpr (std::is_same_v<T, core::CmdSetCameraCenter>) { return true; /* handled by AppController */ }
+        else if constexpr (std::is_same_v<T, core::CmdPanCameraScreen>) { return true; /* handled by AppController */ }
+        else if constexpr (std::is_same_v<T, core::CmdZoomCameraAt>)   { return true; /* handled by AppController */ }
+        else if constexpr (std::is_same_v<T, core::CmdSetCanvasTool>)  { return true; /* handled by UI */ }
+        else if constexpr (std::is_same_v<T, core::CmdSelectAtWorldPoint>) { return true; /* handled by UI */ }
+        else if constexpr (std::is_same_v<T, core::CmdSelectRect>)     { return true; /* handled by UI */ }
+        else if constexpr (std::is_same_v<T, core::CmdSelectLasso>)    { return true; /* handled by UI */ }
+        else if constexpr (std::is_same_v<T, core::CmdClearSelection>) { return true; /* handled by UI */ }
+        else if constexpr (std::is_same_v<T, core::CmdDeleteSelected>) { return true; /* handled by UI with help of runner */ }
+        else if constexpr (std::is_same_v<T, core::CmdMoveSelectedBy>) { return true; /* handled by UI with help of runner */ }
+        else if constexpr (std::is_same_v<T, core::CmdSpawnFoodAt>)
         {
             static_cast<void>(spawnFoodAt(c.world, c.radius, c.energy)); return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdSpawnAgentAt>)
+        else if constexpr (std::is_same_v<T, core::CmdSpawnAgentAt>)
         {
             static_cast<void>(spawnAgentDefaultAt(c.world)); return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdPaintObstacleAt>)
+        else if constexpr (std::is_same_v<T, core::CmdPaintObstacleAt>)
         {
             static_cast<void>(obstacles_.paint(c.world, c.brushRadius)); return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdEraseObstacleAt>)
+        else if constexpr (std::is_same_v<T, core::CmdEraseObstacleAt>)
         {
             static_cast<void>(obstacles_.eraseAt(c.world, c.eraseRadius)); return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdPaintObstacleStroke>)
+        else if constexpr (std::is_same_v<T, core::CmdPaintObstacleStroke>)
         {
             // Phase 22.1: interpolate stamps along the segment so brush draws a
             // continuous trail. Spacing = brushRadius * kBrushSpacingFactor.
@@ -592,7 +592,7 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
             }
             return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdEraseObstacleStroke>)
+        else if constexpr (std::is_same_v<T, core::CmdEraseObstacleStroke>)
         {
             const double spacing = std::max(1.0, c.eraseRadius * 0.6);
             const double dx = c.worldTo.x - c.worldFrom.x;
@@ -609,96 +609,96 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
             }
             return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdClearObstacles>) { obstacles_.clear(); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClearFood>) {
+        else if constexpr (std::is_same_v<T, core::CmdClearObstacles>) { obstacles_.clear(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClearFood>) {
             static_cast<void>(foodSystem_.clearAll(foods_)); return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleSpatialHashOverlay>) {
+        else if constexpr (std::is_same_v<T, core::CmdToggleSpatialHashOverlay>) {
             showSpatialHash_ = !showSpatialHash_; return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleSelectionOverlay>) { return true; /* UI flag */ }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleToolOverlay>) { return true; /* UI flag */ }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleHelpPanel>) { return true; /* UI flag */ }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleSimpleRender>) {
+        else if constexpr (std::is_same_v<T, core::CmdToggleSelectionOverlay>) { return true; /* UI flag */ }
+        else if constexpr (std::is_same_v<T, core::CmdToggleToolOverlay>) { return true; /* UI flag */ }
+        else if constexpr (std::is_same_v<T, core::CmdToggleHelpPanel>) { return true; /* UI flag */ }
+        else if constexpr (std::is_same_v<T, core::CmdToggleSimpleRender>) {
             simpleRender_ = !simpleRender_; return true;
         }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleVisionDebug>) { return true; /* UI flag */ }
+        else if constexpr (std::is_same_v<T, core::CmdToggleVisionDebug>) { return true; /* UI flag */ }
         // Phase 22.1 hotfix: new commands. NewSimulation is just an alias for
         // reset; the rest are UI-only (panel toggles, camera reset, quit) and
         // are handled by AppController in drainCommandsAndApply().
-        else if constexpr (std::is_same_v<T, ui::CmdNewSimulation>) { reset(); return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdQuitApp>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdTogglePreferencesPanel>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleAboutPanel>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleGenomePanel>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdResetCamera>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseAllMenus>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdNewSimulation>) { reset(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdQuitApp>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdTogglePreferencesPanel>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdToggleAboutPanel>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdToggleGenomePanel>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdResetCamera>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseAllMenus>) { return true; }
         // Phase 23: preferences commands are UI-only from the runner POV.
-        else if constexpr (std::is_same_v<T, ui::CmdOpenPreferences>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClosePreferences>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesTab>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetPreferencesSearch>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetParameterValue>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdApplyPreferences>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRevertPreferences>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsPreferences>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRestoreParameterDefault>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClosePreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetPreferencesTab>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetPreferencesSearch>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetParameterValue>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdApplyPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRevertPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRestoreDefaultsPreferences>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRestoreParameterDefault>) { return true; }
         // Phase 23.1: multi-window prefs + popups + velocity widget.
-        else if constexpr (std::is_same_v<T, ui::CmdOpenPreferencesWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClosePreferencesWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdScrollPreferencesWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenHelpWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseHelpWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenSubstratePlaceholder>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseSubstratePlaceholder>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenPrefsPopup>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClosePrefsPopup>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdAdjustTimeScale>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenPreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClosePreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdScrollPreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenSubstratePlaceholder>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseSubstratePlaceholder>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenPrefsPopup>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClosePrefsPopup>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdAdjustTimeScale>) { return true; }
         // Phase 23.2: draggable windows + text editor + restore-and-apply.
-        else if constexpr (std::is_same_v<T, ui::CmdMovePreferencesWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdMoveHelpWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdBeginEditParameter>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCancelEditParameter>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCommitEditParameter>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRestoreDefaultsAndApply>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdMovePreferencesWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdMoveHelpWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdBeginEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCancelEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCommitEditParameter>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRestoreDefaultsAndApply>) { return true; }
         // Phase 24: operational windows + apply commands. Most are UI-only;
         // CmdClearFood maps to foodSystem clearAll.
-        else if constexpr (std::is_same_v<T, ui::CmdOpenEditorGenetico>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseEditorGenetico>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenEspecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseEspecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenPopulacao>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClosePopulacao>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdOpenSubstrato>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCloseSubstrato>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdScrollOperationalWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdMoveOperationalWindow>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSelected>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdResetNeuralForSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSelectAllOfSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdAssignSelectedToSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCreateSpeciesFromSelected>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdApplyPopulation>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdApplyEnvironment>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdClearAllFood>)
+        else if constexpr (std::is_same_v<T, core::CmdOpenEditorGenetico>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseEditorGenetico>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenEspecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseEspecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenPopulacao>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClosePopulacao>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdOpenSubstrato>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCloseSubstrato>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdScrollOperationalWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdMoveOperationalWindow>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdApplyGenomeToSelected>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdApplyGenomeToSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdResetNeuralForSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSelectAllOfSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdAssignSelectedToSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCreateSpeciesFromSelected>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdApplyPopulation>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdApplyEnvironment>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdClearAllFood>)
         {
             static_cast<void>(foodSystem_.clearAll(foods_)); return true;
         }
         // Phase 24.2: left dock + per-label commands are coordinated by the
         // AppController (which owns the selection + dedicated runner methods),
         // so the runner treats them as UI-only here.
-        else if constexpr (std::is_same_v<T, ui::CmdSetDockTab>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdScrollDock>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdToggleLeftDock>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRemoveSelectedFromSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCycleSpeciesColor>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdSetSpeciesShowGraph>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdAdjustSpeciesPop>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdRemoveSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdBeginEditSpeciesName>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCommitEditSpeciesName>) { return true; }
-        else if constexpr (std::is_same_v<T, ui::CmdCancelEditSpeciesName>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetDockTab>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdScrollDock>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdToggleLeftDock>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRemoveSelectedFromSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCycleSpeciesColor>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdSetSpeciesShowGraph>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdAdjustSpeciesPop>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdRemoveSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdBeginEditSpeciesName>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCommitEditSpeciesName>) { return true; }
+        else if constexpr (std::is_same_v<T, core::CmdCancelEditSpeciesName>) { return true; }
         else { return false; }
     }, cmd);
 }
