@@ -203,7 +203,18 @@ Arquivos afetados:
 - `src/systems/ReproductionSystem.hpp` (assinatura).
 - `src/systems/ReproductionSystem.cpp` (implementacao).
 
-## Divida 8 — Inversao de camada: sim::SimulationRunner depende de ui::Command
+## Divida 8 — Inversao de camada: sim::SimulationRunner depende de ui::Command [RESOLVIDA NA FASE 25]
+
+Status: **RESOLVIDA** (Fase 25, commit e157acd, 2026-06-01).
+
+Resolucao:
+- `Command`, `CommandQueue`, todos os `Cmd*` e `CanvasTool` movidos para a camada neutra
+  `agentbiosim::core` (`src/core/Command.hpp`, `src/core/CanvasTool.hpp`).
+- `sim::SimulationRunner` agora inclui `core/Command.hpp` e `applyCommand(const core::Command&)`.
+  Grep em `src/sim/` confirma zero referencias a `ui::` / `ui/`.
+- Shims finos em `ui/Command.hpp` / `ui/CanvasTool.hpp` (`using namespace core;`) mantem a
+  compatibilidade transitoria do codigo de UI/testes que ainda diz `ui::CmdXxx`.
+- Refator puro: selftests 7-24 PASS antes e depois.
 
 Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
 
@@ -241,7 +252,26 @@ Arquivos afetados:
 - `src/ui/Command.hpp` (movido para camada neutra)
 - `src/app/App.cpp` e demais consumidores de `ui::Command`.
 
-## Divida 9 — UI feita a mao em SFML imediato com hit-test duplicado
+## Divida 9 — UI feita a mao em SFML imediato com hit-test duplicado [RESOLVIDA NA FASE 25]
+
+Status: **RESOLVIDA na essencia** (Fase 25, commits 26dcdc2 / d7a402b, 2026-06-01).
+
+Resolucao:
+- Toda a UI viva agora e Dear ImGui (`src/ui/ImGuiUi.*` + `src/ui/ImGuiTheme.*`): menu superior,
+  toolbar de ferramentas, painel lateral fixo (Editor Genetico / Substrato / Labels), janelas de
+  Preferencias por categoria, ajuda/sobre. Integrado via ImGui-SFML (Dear ImGui v1.90.9 +
+  ImGui-SFML v2.6, vendados em `third_party/`).
+- O roteamento de eventos colapsou para um unico teste `WantCaptureMouse/WantCaptureKeyboard` em
+  `App::processEvents`, eliminando TODA a geometria de hit-test manual e o tratamento manual de
+  edicao de texto / scroll / drag / slider de velocidade.
+- As classes SFML antigas (`UiPanel`, `UiPreferencesPanel`, `UiLeftDock`) **nao sao mais desenhadas
+  nem roteadas** — o bug-surface de hit-test duplicado deixou de existir.
+- Pendencia de tidy-up (baixo risco, agendada): `UiPreferencesPanel.cpp` e `UiLeftDock.cpp` ainda
+  sao compiladas porque contem as funcoes de MODELO reutilizadas headless (`prefsParametersForTab`,
+  `prefsApplyPending`, `editorParameters()`, `substratoParameters()`), consumidas tanto pela UI
+  ImGui quanto pelos selftests 23.x/24. O codigo de VIEW morto dentro delas (metodos draw/clique) e
+  o arquivo `UiPanel.*` serao fisicamente removidos numa microfase de limpeza, extraindo antes o
+  modelo para um arquivo proprio (ex.: `ui/PreferencesModel.*`).
 
 Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
 
@@ -326,8 +356,8 @@ Arquivos afetados:
 | 5. Alocacoes temporarias neural | Fase 32 (otimizacao) ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
 | 7. ReproductionSystem brainSignatureConfig alias | **RESOLVIDA na Fase 18** (pass-by-value) | Media |
-| 8. Inversao de camada sim->ui::Command | Fase 25 (pre-requisito) | Media |
-| 9. UI feita a mao / hit-test duplicado | Fase 25 (migracao para Dear ImGui) | Alta |
+| 8. Inversao de camada sim->ui::Command | **RESOLVIDA na Fase 25** (Command -> core) | Media |
+| 9. UI feita a mao / hit-test duplicado | **RESOLVIDA na Fase 25** (UI 100% Dear ImGui; tidy-up de arquivos morto agendado) | Alta |
 | 10. Performance nao comprovada em escala | Fases 30/32/33 (surface, ataque, prova) | Alta futura |
 
 ## Regra

@@ -4,9 +4,9 @@ Cada fase deve ser pequena, testavel e revisavel. Nao migrar tudo de uma vez.
 
 Estado atual oficial:
 
-- Fases 0 a 24 implementadas e comitadas (Fase 24 inclui as microfases 24.1 e 24.2).
-- A proxima fase de implementacao sera a Fase 25 (Migracao Total da UI para Dear ImGui), somente depois de autorizacao explicita do usuario.
-- As Fases 0 a 24 nao devem ser renumeradas nem reabertas como trabalho pendente.
+- Fases 0 a 25 implementadas e comitadas (Fase 24 inclui 24.1/24.2; Fase 25 migrou toda a UI para Dear ImGui e resolveu as Dividas 8 e 9). Tidy-up pendente da Fase 25: remover fisicamente o codigo de view SFML morto (ver `PHASE_25_IMGUI_UI_MIGRATION_STATUS.md`).
+- A proxima fase de implementacao sera a Fase 26 (Agente Selecionado e Visualizador Neural), somente depois de autorizacao explicita do usuario.
+- As Fases 0 a 25 nao devem ser renumeradas nem reabertas como trabalho pendente.
 - Qualquer correcao em fase ja concluida deve ser tratada como bugfix ou microfase documentada (padrao 22.1, 23.1, 23.2, 24.1, 24.2).
 - Cada fase deve citar explicitamente quais itens de `FEATURE_INVENTORY.md`, `PARAMETER_INVENTORY.md` e `UI_INVENTORY.md` cobre.
 - Cada fase a partir da 25 tem um arquivo de prompt dedicado `PHASE_NN.md` na mesma pasta. Para executar uma fase, basta dizer "bora para a Fase NN" e seguir o `PHASE_NN.md` correspondente.
