@@ -96,6 +96,26 @@ public:
                                                     double radius, double energy);
     void deleteAgents(const std::vector<simulation::EntityId>& ids);
 
+    // Phase 24.2: species/label operations for the Labels tab. These are the
+    // C++ analogue of the Python engine.assign_label_to_agents / create_label /
+    // delete_label. SpeciesStore is the source of truth; agents carry a
+    // speciesId + color that we keep in sync here.
+    void assignSelectedToSpecies(const std::vector<simulation::EntityId>& ids,
+                                  simulation::SpeciesId speciesId);
+    void removeSelectedFromSpecies(const std::vector<simulation::EntityId>& ids);
+    [[nodiscard]] simulation::SpeciesId createSpeciesFromSelected(
+        const std::string& label, const std::vector<simulation::EntityId>& ids);
+    bool setSpeciesColorAndRecolor(simulation::SpeciesId speciesId, simulation::ColorRgb color);
+    bool cycleSpeciesColor(simulation::SpeciesId speciesId);
+    // field: 0 = min, 1 = max, 2 = initial.
+    bool adjustSpeciesPopulation(simulation::SpeciesId speciesId, int field, int delta);
+    bool setSpeciesShowGraph(simulation::SpeciesId speciesId, bool show);
+    bool setSpeciesLabel(simulation::SpeciesId speciesId, const std::string& label);
+    bool removeSpeciesSafe(simulation::SpeciesId speciesId);
+    [[nodiscard]] std::size_t countAgentsOfSpecies(simulation::SpeciesId speciesId) const;
+    // Mutable species access so the UI can read records for the Labels list.
+    [[nodiscard]] simulation::SpeciesStore& speciesMutable() noexcept { return species_; }
+
     // Phase 22: small overlay knobs. Render flags live in UiState; the runner
     // does not own them. These two are runtime engine knobs the user can edit
     // through commands but the runner persists them itself.

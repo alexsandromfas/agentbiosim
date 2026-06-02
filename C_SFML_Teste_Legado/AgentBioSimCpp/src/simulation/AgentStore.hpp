@@ -57,6 +57,9 @@ public:
     void setReproductionCooldownAt(std::size_t index, double cooldown);
     void addReproductionCooldownAt(std::size_t index, double deltaSeconds);
     void setGenomeIdAt(std::size_t index, GenomeId genomeId);
+    // Phase 24.2: species reassignment + recolor for the Labels tab.
+    void setSpeciesIdAt(std::size_t index, SpeciesId speciesId);
+    void setColorAt(std::size_t index, ColorRgb color);
 
 private:
     void removeAtIndex(std::size_t index);

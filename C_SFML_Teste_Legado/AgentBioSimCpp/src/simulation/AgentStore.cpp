@@ -283,6 +283,19 @@ void AgentStore::setGenomeIdAt(const std::size_t index, const GenomeId genomeId)
     genomeId_.at(index) = genomeId;
 }
 
+// Phase 24.2: used by SimulationRunner::assignSelectedToSpecies so the Labels
+// tab can move selected agents into a different species/label and recolor them
+// (mirrors the Python engine.assign_label_to_agents).
+void AgentStore::setSpeciesIdAt(const std::size_t index, const SpeciesId speciesId)
+{
+    speciesId_.at(index) = speciesId;
+}
+
+void AgentStore::setColorAt(const std::size_t index, const ColorRgb color)
+{
+    color_.at(index) = color;
+}
+
 void AgentStore::removeAtIndex(const std::size_t index)
 {
     const std::size_t last = ids_.size() - 1U;

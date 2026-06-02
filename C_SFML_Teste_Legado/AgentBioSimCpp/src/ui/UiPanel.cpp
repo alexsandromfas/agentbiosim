@@ -60,8 +60,10 @@ std::vector<MenuDropdownItem> menuItemsForIndex(const int menuIndex) noexcept
             {"",                false, true},
             {"Sair",            true,  false}
         };
-    case 1: // View
+    case 1: // Exibir
         return {
+            {"Painel lateral",         true,  false},   // Phase 24.2: toggle left dock
+            {"",                       false, true},
             {"Fit world (F)",          true,  false},
             {"Reset camera",           true,  false},
             {"",                       false, true},
@@ -86,15 +88,13 @@ std::vector<MenuDropdownItem> menuItemsForIndex(const int menuIndex) noexcept
             {"",                              false, true},
             {"Substrato (Fase 24)",           true,  false}   // -> Substrate placeholder
         };
-    case 3: // Genoma (Phase 24: now functional with operational windows)
+    case 3: // Agente (Phase 24.2: Editor/Substrato/Labels moved to the left
+            // dock; this menu mirrors the Python "Agente" menu — all items are
+            // Fase 25/27 placeholders, no fake working buttons).
         return {
-            {"Editor Genetico",            true,  false},
-            {"Especies / Labels",          true,  false},
-            {"Populacao",                  true,  false},
-            {"Substrato e Comida",         true,  false},
-            {"",                           false, true},
-            {"Importar Genoma (Fase 27)",  false, false},
-            {"Exportar Genoma (Fase 27)",  false, false}
+            {"Exportar agente selecionado (Fase 27)",      false, false},
+            {"Carregar agente (Fase 27)",                  false, false},
+            {"Criar linhagem do selecionado (Fase 25)",    false, false}
         };
     case 4: // Ajuda
         return {
@@ -121,16 +121,17 @@ bool dispatchMenuItem(const int menuIndex, const int itemIndex, CommandQueue& qu
         if (itemIndex == 0) { queue.push(CmdNewSimulation{}); return true; }
         if (itemIndex == 8) { queue.push(CmdQuitApp{}); return true; }
         return false;
-    case 1: // View
+    case 1: // Exibir (Phase 24.2: item 0 = Painel lateral; indices shifted +2)
         switch (itemIndex)
         {
-        case 0: queue.push(CmdFitWorldCamera{}); return true;
-        case 1: queue.push(CmdResetCamera{}); return true;
-        case 3: queue.push(CmdToggleSimpleRender{}); return true;
-        case 4: queue.push(CmdToggleVisionDebug{}); return true;
-        case 5: queue.push(CmdToggleSpatialHashOverlay{}); return true;
-        case 6: queue.push(CmdToggleSelectionOverlay{}); return true;
-        case 7: queue.push(CmdToggleToolOverlay{}); return true;
+        case 0: queue.push(CmdToggleLeftDock{}); return true;
+        case 2: queue.push(CmdFitWorldCamera{}); return true;
+        case 3: queue.push(CmdResetCamera{}); return true;
+        case 5: queue.push(CmdToggleSimpleRender{}); return true;
+        case 6: queue.push(CmdToggleVisionDebug{}); return true;
+        case 7: queue.push(CmdToggleSpatialHashOverlay{}); return true;
+        case 8: queue.push(CmdToggleSelectionOverlay{}); return true;
+        case 9: queue.push(CmdToggleToolOverlay{}); return true;
         default: return false;
         }
     case 2: // Preferências - Phase 23.1: each item opens its own window.
@@ -154,15 +155,10 @@ bool dispatchMenuItem(const int menuIndex, const int itemIndex, CommandQueue& qu
         case 11: queue.push(CmdOpenSubstratePlaceholder{}); return true;
         default: return false;
         }
-    case 3: // Genoma — Phase 24
-        switch (itemIndex)
-        {
-        case 0: queue.push(CmdOpenEditorGenetico{}); return true;
-        case 1: queue.push(CmdOpenEspecies{});       return true;
-        case 2: queue.push(CmdOpenPopulacao{});      return true;
-        case 3: queue.push(CmdOpenSubstrato{});      return true;
-        default: return false;
-        }
+    case 3: // Agente — Phase 24.2: all items are Fase 25/27 placeholders
+            // (disabled), so the guard above already returned false. Editor /
+            // Substrato / Labels now live in the always-visible left dock.
+        return false;
     case 4: // Ajuda - Phase 23.1: opens dedicated Help window.
         if (itemIndex == 0) { queue.push(CmdOpenHelpWindow{}); return true; }
         if (itemIndex == 1) { queue.push(CmdToggleAboutPanel{}); return true; }

@@ -5,6 +5,7 @@
 #include "simulation/SpeciesBootstrap.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <random>
 
@@ -391,6 +392,151 @@ void SimulationRunner::deleteAgents(const std::vector<simulation::EntityId>& ids
     }
 }
 
+// Phase 24.2: Labels-tab species operations. -----------------------------------
+
+namespace
+{
+// Palette mirrors the Python label palette in engine.create_agent_label.
+constexpr std::array<simulation::ColorRgb, 6> kLabelPalette{{
+    {240, 94, 94}, {90, 170, 255}, {135, 220, 130},
+    {245, 195, 75}, {180, 130, 255}, {255, 140, 85}
+}};
+} // namespace
+
+void SimulationRunner::assignSelectedToSpecies(const std::vector<simulation::EntityId>& ids,
+                                                 const simulation::SpeciesId speciesId)
+{
+    const auto* rec = species_.find(speciesId);
+    if (rec == nullptr) return;
+    const simulation::ColorRgb color = rec->color;
+    const simulation::GenomeId genome = rec->defaultGenomeId;
+    for (const auto id : ids)
+    {
+        const auto idx = agents_.indexOf(id);
+        if (!idx.has_value()) continue;
+        agents_.setSpeciesIdAt(*idx, speciesId);
+        agents_.setColorAt(*idx, color);
+        if (genome != simulation::kInvalidGenomeId)
+        {
+            agents_.setGenomeIdAt(*idx, genome);
+        }
+    }
+}
+
+void SimulationRunner::removeSelectedFromSpecies(const std::vector<simulation::EntityId>& ids)
+{
+    // Python reassigns orphaned agents to the default label. Here the default
+    // is the bacteria species; if it is missing we leave the agent as-is.
+    const auto* bacteria = species_.findByName("bacteria");
+    if (bacteria == nullptr) return;
+    assignSelectedToSpecies(ids, bacteria->id);
+}
+
+simulation::SpeciesId SimulationRunner::createSpeciesFromSelected(
+    const std::string& label, const std::vector<simulation::EntityId>& ids)
+{
+    // The new species shares the bacteria template (prefix/genome/type/body),
+    // matching Python where all labels share one genome template and only differ
+    // by color + population limits. The color cycles through the label palette.
+    const auto* base = species_.findByName("bacteria");
+    simulation::SpeciesRecord rec;
+    if (base != nullptr) rec = *base;
+    rec.id = simulation::kInvalidSpeciesId;  // registerSpecies assigns a fresh id
+    rec.name = label;
+    rec.label = label;
+    rec.legacyAliases.clear();
+    rec.initialCount = 0;
+    rec.color = kLabelPalette[species_.size() % kLabelPalette.size()];
+    const simulation::SpeciesId id = species_.registerSpecies(rec);
+    assignSelectedToSpecies(ids, id);
+    return id;
+}
+
+bool SimulationRunner::setSpeciesColorAndRecolor(const simulation::SpeciesId speciesId,
+                                                   const simulation::ColorRgb color)
+{
+    if (!species_.setColor(speciesId, color)) return false;
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (agents_.aliveAt(i) && agents_.speciesIdAt(i) == speciesId)
+        {
+            agents_.setColorAt(i, color);
+        }
+    }
+    return true;
+}
+
+bool SimulationRunner::cycleSpeciesColor(const simulation::SpeciesId speciesId)
+{
+    const auto* rec = species_.find(speciesId);
+    if (rec == nullptr) return false;
+    // Find current palette index and advance to the next color.
+    std::size_t next = 0;
+    for (std::size_t i = 0; i < kLabelPalette.size(); ++i)
+    {
+        if (kLabelPalette[i].r == rec->color.r && kLabelPalette[i].g == rec->color.g &&
+            kLabelPalette[i].b == rec->color.b)
+        {
+            next = (i + 1) % kLabelPalette.size();
+            break;
+        }
+    }
+    return setSpeciesColorAndRecolor(speciesId, kLabelPalette[next]);
+}
+
+bool SimulationRunner::adjustSpeciesPopulation(const simulation::SpeciesId speciesId,
+                                                 const int field, const int delta)
+{
+    const auto* rec = species_.find(speciesId);
+    if (rec == nullptr) return false;
+    if (field == 0) return species_.setMinPopulation(speciesId, rec->minPopulation + delta);
+    if (field == 1) return species_.setMaxPopulation(speciesId, rec->maxPopulation + delta);
+    if (field == 2) return species_.setInitialCount(speciesId, rec->initialCount + delta);
+    return false;
+}
+
+bool SimulationRunner::setSpeciesShowGraph(const simulation::SpeciesId speciesId, const bool show)
+{
+    return species_.setShowGraph(speciesId, show);
+}
+
+bool SimulationRunner::setSpeciesLabel(const simulation::SpeciesId speciesId,
+                                         const std::string& label)
+{
+    return species_.setLabel(speciesId, label);
+}
+
+bool SimulationRunner::removeSpeciesSafe(const simulation::SpeciesId speciesId)
+{
+    const auto* bacteria = species_.findByName("bacteria");
+    // Never delete the default bacteria species.
+    if (bacteria != nullptr && bacteria->id == speciesId) return false;
+    // Reassign that species' live agents to bacteria, then soft-disable it.
+    if (bacteria != nullptr)
+    {
+        std::vector<simulation::EntityId> orphans;
+        for (std::size_t i = 0; i < agents_.size(); ++i)
+        {
+            if (agents_.aliveAt(i) && agents_.speciesIdAt(i) == speciesId)
+            {
+                orphans.push_back(agents_.idAt(i));
+            }
+        }
+        assignSelectedToSpecies(orphans, bacteria->id);
+    }
+    return species_.setEnabled(speciesId, false);
+}
+
+std::size_t SimulationRunner::countAgentsOfSpecies(const simulation::SpeciesId speciesId) const
+{
+    std::size_t n = 0;
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (agents_.aliveAt(i) && agents_.speciesIdAt(i) == speciesId) ++n;
+    }
+    return n;
+}
+
 bool SimulationRunner::applyCommand(const ui::Command& cmd)
 {
     return std::visit([&](auto&& c) -> bool {
@@ -539,6 +685,20 @@ bool SimulationRunner::applyCommand(const ui::Command& cmd)
         {
             static_cast<void>(foodSystem_.clearAll(foods_)); return true;
         }
+        // Phase 24.2: left dock + per-label commands are coordinated by the
+        // AppController (which owns the selection + dedicated runner methods),
+        // so the runner treats them as UI-only here.
+        else if constexpr (std::is_same_v<T, ui::CmdSetDockTab>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdScrollDock>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdToggleLeftDock>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRemoveSelectedFromSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCycleSpeciesColor>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdSetSpeciesShowGraph>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdAdjustSpeciesPop>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdRemoveSpecies>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdBeginEditSpeciesName>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCommitEditSpeciesName>) { return true; }
+        else if constexpr (std::is_same_v<T, ui::CmdCancelEditSpeciesName>) { return true; }
         else { return false; }
     }, cmd);
 }

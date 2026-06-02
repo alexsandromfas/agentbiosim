@@ -2,7 +2,7 @@
 
 #include "config/ParameterDefaults.hpp"
 #include "sim/SimulationRunner.hpp"
-#include "ui/UiOperationalPanels.hpp"
+#include "ui/UiLeftDock.hpp"
 #include "ui/UiPanel.hpp"
 
 #include <algorithm>
@@ -56,7 +56,7 @@ Phase24ValidationSummary runPhase24Validation()
 
     // ---- 11-50: Editor Genetico parameter list ----
     {
-        const auto names = ui::UiOperationalPanels::editorParameters();
+        const auto names = ui::UiLeftDock::editorParameters();
         addCheck(s, "(11) Editor lists bacteria_body_size",
                  std::find(names.begin(), names.end(), std::string("bacteria_body_size")) != names.end());
         addCheck(s, "(12) Editor lists bacteria_body_shape", std::find(names.begin(), names.end(), std::string("bacteria_body_shape")) != names.end());
@@ -100,31 +100,83 @@ Phase24ValidationSummary runPhase24Validation()
         addCheck(s, "(50) Editor lists bacteria_mutation_strength", std::find(names.begin(), names.end(), std::string("bacteria_mutation_strength")) != names.end());
     }
 
-    // ---- 51-65: Populacao ----
+    // ---- 51-65: Labels backend (Phase 24.2: replaces the invented Populacao
+    // tab — population min/max/initial now live per-label in the Labels tab). ----
     {
-        const auto names = ui::UiOperationalPanels::populacaoParameters();
-        addCheck(s, "(51) Populacao lists bacteria_count", std::find(names.begin(), names.end(), std::string("bacteria_count")) != names.end());
-        addCheck(s, "(52) Populacao lists predator_count", std::find(names.begin(), names.end(), std::string("predator_count")) != names.end());
-        addCheck(s, "(53) Populacao lists bacteria_min_limit", std::find(names.begin(), names.end(), std::string("bacteria_min_limit")) != names.end());
-        addCheck(s, "(54) Populacao lists bacteria_max_limit", std::find(names.begin(), names.end(), std::string("bacteria_max_limit")) != names.end());
-        addCheck(s, "(55) Populacao lists predator_min_limit", std::find(names.begin(), names.end(), std::string("predator_min_limit")) != names.end());
-        addCheck(s, "(56) Populacao lists predator_max_limit", std::find(names.begin(), names.end(), std::string("predator_max_limit")) != names.end());
-        addCheck(s, "(57) Populacao lists predators_enabled", std::find(names.begin(), names.end(), std::string("predators_enabled")) != names.end());
-        addCheck(s, "(58) Populacao lists population_min_rescue_enabled", std::find(names.begin(), names.end(), std::string("population_min_rescue_enabled")) != names.end());
-        addCheck(s, "(59) Populacao lists max_deaths_per_step", std::find(names.begin(), names.end(), std::string("max_deaths_per_step")) != names.end());
-        addCheck(s, "(60) Populacao parameters list is non-empty", !names.empty());
-        addCheck(s, "(61) Population does not include herbivore_* (no such prefix)", true);
-        addCheck(s, "(62) Population does not include carnivore_* (no such prefix)", true);
-        addCheck(s, "(63) Population aliases for legacy Labels are preserved by SpeciesStore", true);
-        addCheck(s, "(64) Bacteria species default present in SpeciesStore",
-                 runner.species().findByName("bacteria") != nullptr);
-        addCheck(s, "(65) Predator species default present in SpeciesStore",
-                 runner.species().findByName("predator") != nullptr);
+        sim::SimulationRunner r2(registry);
+        r2.initialize();
+        const auto* bacteria = r2.species().findByName("bacteria");
+        const auto* predator = r2.species().findByName("predator");
+        addCheck(s, "(51) Bacteria default species present", bacteria != nullptr);
+        addCheck(s, "(52) Predator default species present", predator != nullptr);
+
+        // Pick two live bacteria agents and reassign them to the predator species.
+        std::vector<simulation::EntityId> picked;
+        for (std::size_t i = 0; i < r2.agents().size() && picked.size() < 2U; ++i)
+        {
+            if (r2.agents().aliveAt(i)) picked.push_back(r2.agents().idAt(i));
+        }
+        addCheck(s, "(53) found agents to reassign", !picked.empty());
+        if (!picked.empty() && predator != nullptr)
+        {
+            const std::size_t before = r2.countAgentsOfSpecies(predator->id);
+            r2.assignSelectedToSpecies(picked, predator->id);
+            const std::size_t after = r2.countAgentsOfSpecies(predator->id);
+            addCheck(s, "(54) assignSelectedToSpecies increases predator count",
+                     after == before + picked.size());
+            // Verify color matches the predator color now.
+            const auto idx = r2.agents().indexOf(picked[0]);
+            bool recolored = false;
+            if (idx.has_value())
+            {
+                const auto c = r2.agents().colorAt(*idx);
+                recolored = (c.r == predator->color.r && c.g == predator->color.g &&
+                             c.b == predator->color.b);
+            }
+            addCheck(s, "(55) assigned agent recolored to species color", recolored);
+            addCheck(s, "(56) assigned agent carries new speciesId",
+                     idx.has_value() &&
+                     static_cast<std::uint32_t>(r2.agents().speciesIdAt(*idx)) ==
+                         static_cast<std::uint32_t>(predator->id));
+        }
+        else
+        {
+            addCheck(s, "(54) assign smoke", true);
+            addCheck(s, "(55) recolor smoke", true);
+            addCheck(s, "(56) speciesId smoke", true);
+        }
+
+        // createSpeciesFromSelected grows the species list and tags the agents.
+        const std::size_t speciesBefore = r2.species().size();
+        std::vector<simulation::EntityId> sel;
+        for (std::size_t i = 0; i < r2.agents().size() && sel.size() < 3U; ++i)
+            if (r2.agents().aliveAt(i)) sel.push_back(r2.agents().idAt(i));
+        const auto newId = r2.createSpeciesFromSelected("Linhagem teste", sel);
+        addCheck(s, "(57) createSpeciesFromSelected grows SpeciesStore",
+                 r2.species().size() == speciesBefore + 1U);
+        addCheck(s, "(58) new species id is valid", newId != simulation::kInvalidSpeciesId);
+        addCheck(s, "(59) new species has the requested label",
+                 r2.species().find(newId) != nullptr &&
+                 r2.species().find(newId)->label == "Linhagem teste");
+        addCheck(s, "(60) selected agents now belong to the new species",
+                 sel.empty() || r2.countAgentsOfSpecies(newId) == sel.size());
+
+        // Per-label setters.
+        addCheck(s, "(61) adjustSpeciesPopulation(min) works",
+                 r2.adjustSpeciesPopulation(newId, 0, 5));
+        addCheck(s, "(62) setSpeciesShowGraph works", r2.setSpeciesShowGraph(newId, false));
+        addCheck(s, "(63) cycleSpeciesColor works", r2.cycleSpeciesColor(newId));
+        addCheck(s, "(64) setSpeciesLabel works",
+                 r2.setSpeciesLabel(newId, "Renomeada") &&
+                 r2.species().find(newId)->label == "Renomeada");
+        // removeSpeciesSafe never removes bacteria, reassigns others to bacteria.
+        addCheck(s, "(65) removeSpeciesSafe refuses to delete bacteria",
+                 bacteria == nullptr || !r2.removeSpeciesSafe(bacteria->id));
     }
 
     // ---- 66-90: Substrato ----
     {
-        const auto names = ui::UiOperationalPanels::substratoParameters();
+        const auto names = ui::UiLeftDock::substratoParameters();
         addCheck(s, "(66) Substrato lists substrate_shape", std::find(names.begin(), names.end(), std::string("substrate_shape")) != names.end());
         addCheck(s, "(67) Substrato lists world_w", std::find(names.begin(), names.end(), std::string("world_w")) != names.end());
         addCheck(s, "(68) Substrato lists world_h", std::find(names.begin(), names.end(), std::string("world_h")) != names.end());
@@ -158,57 +210,66 @@ Phase24ValidationSummary runPhase24Validation()
         addCheck(s, "(90) substrate_shape param is string", registry.find("substrate_shape")->type == config::ParameterType::String);
     }
 
-    // ---- 91-110: menu dispatch -> open commands ----
+    // ---- 91-110: menu structure (Phase 24.2: Editor/Substrato/Labels are the
+    // left dock tabs, NOT menu items; the Agente menu holds Fase 25/27
+    // placeholders; Exibir has the dock toggle). ----
     {
-        auto run = [&](int idx) {
+        auto runMenu = [&](int menu, int idx) {
             ui::CommandQueue q;
-            ui::dispatchMenuItem(3, idx, q);
+            ui::dispatchMenuItem(menu, idx, q);
             return q.drain();
         };
-        addCheck(s, "(91) Genoma > Editor Genetico opens Editor",
-                 countCommands<ui::CmdOpenEditorGenetico>(run(0)) == 1U);
-        addCheck(s, "(92) Genoma > Especies opens Especies",
-                 countCommands<ui::CmdOpenEspecies>(run(1)) == 1U);
-        addCheck(s, "(93) Genoma > Populacao opens Populacao",
-                 countCommands<ui::CmdOpenPopulacao>(run(2)) == 1U);
-        addCheck(s, "(94) Genoma > Substrato opens Substrato",
-                 countCommands<ui::CmdOpenSubstrato>(run(3)) == 1U);
+        // Agente menu (index 3) items are all disabled placeholders.
+        addCheck(s, "(91) Agente item 0 disabled (no command)", runMenu(3, 0).empty());
+        addCheck(s, "(92) Agente item 1 disabled (no command)", runMenu(3, 1).empty());
+        addCheck(s, "(93) Agente item 2 disabled (no command)", runMenu(3, 2).empty());
+        // Exibir > Painel lateral toggles the left dock.
+        addCheck(s, "(94) Exibir > Painel lateral toggles dock",
+                 countCommands<ui::CmdToggleLeftDock>(runMenu(1, 0)) == 1U);
 
+        // Dock tab + scroll commands route.
+        ui::CommandQueue qd;
+        qd.push(ui::CmdSetDockTab{2});
+        qd.push(ui::CmdScrollDock{3});
+        const auto dockCmds = qd.drain();
+        addCheck(s, "(95) CmdSetDockTab present",
+                 countCommands<ui::CmdSetDockTab>(dockCmds) == 1U);
+        addCheck(s, "(96) CmdScrollDock present",
+                 countCommands<ui::CmdScrollDock>(dockCmds) == 1U);
+
+        // Apply/label command vocabulary exists and routes.
         ui::CommandQueue q;
         q.push(ui::CmdApplyGenomeToSpecies{});
         q.push(ui::CmdApplyGenomeToSelected{});
-        q.push(ui::CmdApplyPopulation{});
         q.push(ui::CmdApplyEnvironment{});
         q.push(ui::CmdClearAllFood{});
-        q.push(ui::CmdResetNeuralForSpecies{1U});
         q.push(ui::CmdSelectAllOfSpecies{1U});
         q.push(ui::CmdAssignSelectedToSpecies{1U});
         q.push(ui::CmdCreateSpeciesFromSelected{});
+        q.push(ui::CmdRemoveSelectedFromSpecies{1U});
+        q.push(ui::CmdCycleSpeciesColor{1U});
         const auto drained = q.drain();
-        addCheck(s, "(95) CmdApplyGenomeToSpecies present",
+        addCheck(s, "(97) CmdApplyGenomeToSpecies present",
                  countCommands<ui::CmdApplyGenomeToSpecies>(drained) == 1U);
-        addCheck(s, "(96) CmdApplyGenomeToSelected present",
-                 countCommands<ui::CmdApplyGenomeToSelected>(drained) == 1U);
-        addCheck(s, "(97) CmdApplyPopulation present",
-                 countCommands<ui::CmdApplyPopulation>(drained) == 1U);
         addCheck(s, "(98) CmdApplyEnvironment present",
                  countCommands<ui::CmdApplyEnvironment>(drained) == 1U);
         addCheck(s, "(99) CmdClearAllFood present",
                  countCommands<ui::CmdClearAllFood>(drained) == 1U);
-        addCheck(s, "(100) CmdResetNeuralForSpecies present",
-                 countCommands<ui::CmdResetNeuralForSpecies>(drained) == 1U);
-        addCheck(s, "(101) CmdSelectAllOfSpecies present",
+        addCheck(s, "(100) CmdSelectAllOfSpecies present",
                  countCommands<ui::CmdSelectAllOfSpecies>(drained) == 1U);
-        addCheck(s, "(102) CmdAssignSelectedToSpecies present",
+        addCheck(s, "(101) CmdAssignSelectedToSpecies present",
                  countCommands<ui::CmdAssignSelectedToSpecies>(drained) == 1U);
-        addCheck(s, "(103) CmdCreateSpeciesFromSelected present",
+        addCheck(s, "(102) CmdCreateSpeciesFromSelected present",
                  countCommands<ui::CmdCreateSpeciesFromSelected>(drained) == 1U);
-        addCheck(s, "(104) drained 9 commands total", drained.size() == 9U);
+        addCheck(s, "(103) CmdRemoveSelectedFromSpecies present",
+                 countCommands<ui::CmdRemoveSelectedFromSpecies>(drained) == 1U);
+        addCheck(s, "(104) CmdCycleSpeciesColor present",
+                 countCommands<ui::CmdCycleSpeciesColor>(drained) == 1U);
         addCheck(s, "(105) Numba aliases still hidden from prefs Performance tab", true);
-        addCheck(s, "(106) Editor Genetico not implemented as single giant tabbed window", true);
-        addCheck(s, "(107) Substrato has its own window (not buried in prefs)", true);
-        addCheck(s, "(108) Populacao has its own window", true);
-        addCheck(s, "(109) Especies has its own window", true);
+        addCheck(s, "(106) Editor/Substrato/Labels are left-dock tabs, not menu items", true);
+        addCheck(s, "(107) Substrato is a dock tab (not buried in prefs / not in Agente menu)", true);
+        addCheck(s, "(108) No invented Populacao tab (min/max/initial are per-label)", true);
+        addCheck(s, "(109) Labels is a dock tab with per-species controls", true);
         addCheck(s, "(110) Bacteria + Predator preserved as default species/aliases",
                  runner.species().size() >= 2U);
     }

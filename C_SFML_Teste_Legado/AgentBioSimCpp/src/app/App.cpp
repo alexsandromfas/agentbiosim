@@ -83,10 +83,10 @@ App::App()
         fontLoaded_ = true;
         uiPanel_.setFont(&font_);
         preferencesPanel_.setFont(&font_);
-        operationalPanels_.setFont(&font_);
+        leftDock_.setFont(&font_);
     }
     uiState_.timeScale = config::parameterDouble(parameters_, "time_scale", 1.0);
-    std::cout << "AgentBioSimCpp Phase 24: Editor Genetico + Especies + Populacao + Substrato ("
+    std::cout << "AgentBioSimCpp Phase 24.2: painel lateral (Editor / Substrato / Labels) ("
               << runner_.species().size() << " species, " << runner_.genomes().size()
               << " genomes, " << runner_.foods().size() << " foods, "
               << runner_.obstacles().size() << " obstacles).\n";
@@ -123,6 +123,8 @@ void App::processEvents()
         // Phase 23.1: preferences windows + popups have highest priority.
         // Then UI panel (menu/toolbar/dropdowns), then canvas via InputRouter.
         const sf::Vector2u vp = window_.getSize();
+        // Phase 24.2: top strip height = menu bar + toolbar (left dock sits below it).
+        const float topStripH = uiPanel_.metrics().menuBarHeight + uiPanel_.metrics().toolbarHeight;
         if (event.type == sf::Event::MouseButtonPressed)
         {
             const int sx = event.mouseButton.x;
@@ -138,15 +140,15 @@ void App::processEvents()
                 }
                 continue;
             }
-            // Phase 24: operational panels.
-            if (operationalPanels_.pointInsideAnyWindow(sx, sy, vp, uiState_.preferences))
+            // Phase 24.2: persistent left dock (Editor/Substrato/Labels).
+            if (leftDock_.pointInsideDock(sx, sy, vp, topStripH, uiState_.preferences))
             {
                 if (event.mouseButton.button == sf::Mouse::Left)
                 {
-                    static_cast<void>(operationalPanels_.handleMouseClick(sx, sy, vp,
-                                                                             parameters_, runner_,
-                                                                             uiState_.preferences,
-                                                                             commandQueue_));
+                    static_cast<void>(leftDock_.handleMouseClick(sx, sy, vp, topStripH,
+                                                                    parameters_, runner_,
+                                                                    uiState_.preferences,
+                                                                    commandQueue_));
                 }
                 continue;
             }
@@ -165,7 +167,6 @@ void App::processEvents()
         if (event.type == sf::Event::MouseMoved)
         {
             if (uiState_.preferences.draggingTab >= 0 || uiState_.preferences.draggingHelp ||
-                uiState_.preferences.draggingOperational >= 0 ||
                 uiState_.velocitySliderDragging)
             {
                 if (uiState_.velocitySliderDragging)
@@ -180,11 +181,6 @@ void App::processEvents()
                         std::log10(minV) + static_cast<double>(rel) *
                             (std::log10(maxV) - std::log10(minV)));
                     commandQueue_.push(ui::CmdSetTimeScale{v});
-                }
-                else if (uiState_.preferences.draggingOperational >= 0)
-                {
-                    operationalPanels_.handleMouseMove(event.mouseMove.x, event.mouseMove.y,
-                                                          vp, uiState_.preferences, commandQueue_);
                 }
                 else
                 {
@@ -201,12 +197,6 @@ void App::processEvents()
             {
                 preferencesPanel_.handleMouseRelease(event.mouseButton.x, event.mouseButton.y,
                                                        vp, uiState_.preferences, commandQueue_);
-                continue;
-            }
-            if (uiState_.preferences.draggingOperational >= 0)
-            {
-                operationalPanels_.handleMouseRelease(event.mouseButton.x, event.mouseButton.y,
-                                                        vp, uiState_.preferences, commandQueue_);
                 continue;
             }
             if (uiState_.velocitySliderDragging)
@@ -257,6 +247,39 @@ void App::processEvents()
                 continue;
             }
         }
+        // Phase 24.2: inline editor for a species/label name in the Labels tab.
+        if (uiState_.preferences.editingSpeciesId != 0U)
+        {
+            if (event.type == sf::Event::TextEntered)
+            {
+                const auto u = event.text.unicode;
+                if (u == 8U)
+                {
+                    if (!uiState_.preferences.editingSpeciesBuffer.empty())
+                        uiState_.preferences.editingSpeciesBuffer.pop_back();
+                }
+                else if (u >= 32U && u < 127U)
+                {
+                    uiState_.preferences.editingSpeciesBuffer.push_back(static_cast<char>(u));
+                }
+                continue;
+            }
+            if (event.type == sf::Event::KeyPressed)
+            {
+                if (event.key.code == sf::Keyboard::Enter ||
+                    event.key.code == sf::Keyboard::Return)
+                {
+                    commandQueue_.push(ui::CmdCommitEditSpeciesName{});
+                    continue;
+                }
+                if (event.key.code == sf::Keyboard::Escape)
+                {
+                    commandQueue_.push(ui::CmdCancelEditSpeciesName{});
+                    continue;
+                }
+                continue;
+            }
+        }
         // Phase 23.1: scroll wheel — route to a prefs window when one is under
         // the cursor; otherwise let the InputRouter zoom the canvas.
         if (event.type == sf::Event::MouseWheelScrolled)
@@ -268,8 +291,8 @@ void App::processEvents()
             {
                 continue;
             }
-            if (operationalPanels_.handleMouseWheel(sx, sy, vp, event.mouseWheelScroll.delta,
-                                                       uiState_.preferences, commandQueue_))
+            if (leftDock_.handleMouseWheel(sx, sy, vp, topStripH, event.mouseWheelScroll.delta,
+                                              uiState_.preferences, commandQueue_))
             {
                 continue;
             }
@@ -367,8 +390,22 @@ void App::configureRenderOptions()
 
 void App::fitCameraToWorld()
 {
+    // Phase 24.2: when the left dock is visible it covers the left kDockW pixels
+    // of the full-window canvas. We frame the world into the VISIBLE region
+    // (right of the dock) by fitting against a reduced width and then panning
+    // the content right by dockW/2. This only edits camera center_/zoom_, which
+    // screenToWorld/worldToScreen consume symmetrically, so the Microfase 22.1
+    // coordinate conversion stays exact.
+    const sf::Vector2u vp = window_.getSize();
+    float dockW = uiState_.preferences.dockVisible ? ui::UiLeftDock::kDockW : 0.0F;
+    if (dockW > static_cast<float>(vp.x) * 0.6F) dockW = 0.0F;  // safety on tiny windows
+    const sf::Vector2u fitVp{vp.x - static_cast<unsigned int>(dockW), vp.y};
     camera_.fitWorld(toSfml(runner_.world().minBounds()), toSfml(runner_.world().maxBounds()),
-                       window_.getSize(), kWorldPaddingPixels);
+                       fitVp, kWorldPaddingPixels);
+    if (dockW > 0.0F)
+    {
+        camera_.pan({dockW * 0.5F, 0.0F});
+    }
 }
 
 void App::drainCommandsAndApply()
@@ -815,28 +852,81 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdAssignSelectedToSpecies>)
             {
-                auto& ag = runner_.agentsMutable();
-                for (const auto id : uiState_.selection.ids())
-                {
-                    const auto idx = ag.indexOf(id);
-                    if (idx.has_value())
-                    {
-                        // Phase 24: direct write — AgentStore does not yet
-                        // expose a setSpeciesIdAt() helper, so we document
-                        // this as Fase 25 (proper API). For now we re-use the
-                        // index-based field via swap-reset.
-                        static_cast<void>(idx);
-                    }
-                }
+                // Phase 24.2: real implementation — move selected agents into
+                // the species and recolor them (mirrors Python
+                // engine.assign_label_to_agents).
+                runner_.assignSelectedToSpecies(uiState_.selection.ids(), c.speciesId);
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCreateSpeciesFromSelected>)
+            {
+                const auto id = runner_.createSpeciesFromSelected("Nova label",
+                                                                    uiState_.selection.ids());
+                static_cast<void>(id);
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRemoveSelectedFromSpecies>)
+            {
+                runner_.removeSelectedFromSpecies(uiState_.selection.ids());
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCycleSpeciesColor>)
+            {
+                static_cast<void>(runner_.cycleSpeciesColor(c.speciesId));
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetSpeciesShowGraph>)
+            {
+                static_cast<void>(runner_.setSpeciesShowGraph(c.speciesId, c.show));
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdAdjustSpeciesPop>)
+            {
+                static_cast<void>(runner_.adjustSpeciesPopulation(c.speciesId, c.field, c.delta));
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdRemoveSpecies>)
+            {
+                static_cast<void>(runner_.removeSpeciesSafe(c.speciesId));
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdResetNeuralForSpecies>)
+            {
+                // Phase 24.2: per-species neural reset needs GenomeStore/brain
+                // lifetime APIs — deferred to Fase 25. The Labels button is
+                // rendered DISABLED, so this arm should not be reached, but we
+                // keep it as an explicit no-op (never a fake success).
                 static_cast<void>(c);
             }
-            else if constexpr (std::is_same_v<T, ui::CmdResetNeuralForSpecies> ||
-                                 std::is_same_v<T, ui::CmdCreateSpeciesFromSelected>)
+            // Phase 24.2: left dock state.
+            else if constexpr (std::is_same_v<T, ui::CmdSetDockTab>)
             {
-                // Phase 24: heavier-touch operations on SpeciesStore/GenomeStore
-                // are documented as Fase 25 work. The command path is wired so
-                // the UI button no longer crashes the dispatcher.
-                static_cast<void>(c);
+                uiState_.preferences.dockActiveTab = c.tab;
+                uiState_.preferences.dockScroll = 0;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdScrollDock>)
+            {
+                uiState_.preferences.dockScroll =
+                    std::max(0, uiState_.preferences.dockScroll + c.delta);
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdToggleLeftDock>)
+            {
+                uiState_.preferences.dockVisible = !uiState_.preferences.dockVisible;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdBeginEditSpeciesName>)
+            {
+                uiState_.preferences.editingSpeciesId = c.speciesId;
+                uiState_.preferences.editingSpeciesBuffer = c.initialBuffer;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCommitEditSpeciesName>)
+            {
+                if (uiState_.preferences.editingSpeciesId != 0U &&
+                    !uiState_.preferences.editingSpeciesBuffer.empty())
+                {
+                    static_cast<void>(runner_.setSpeciesLabel(
+                        uiState_.preferences.editingSpeciesId,
+                        uiState_.preferences.editingSpeciesBuffer));
+                }
+                uiState_.preferences.editingSpeciesId = 0U;
+                uiState_.preferences.editingSpeciesBuffer.clear();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdCancelEditSpeciesName>)
+            {
+                uiState_.preferences.editingSpeciesId = 0U;
+                uiState_.preferences.editingSpeciesBuffer.clear();
             }
             else
             {
@@ -898,11 +988,13 @@ void App::render()
                                           runner_.agents(), runner_.foods(),
                                           renderOptions_, nullptr, obstaclePtr,
                                           &selInput);
+    // Phase 24.2: persistent left dock below the top strip, drawn before the
+    // top menu so menu dropdowns overlay it.
+    const float topStripH = uiPanel_.metrics().menuBarHeight + uiPanel_.metrics().toolbarHeight;
+    leftDock_.draw(window_, topStripH, parameters_, runner_, uiState_.preferences);
     uiPanel_.draw(window_, runner_, uiState_);
     // Phase 23: preferences window sits above panel + canvas.
     preferencesPanel_.draw(window_, parameters_, uiState_.preferences);
-    // Phase 24: operational windows.
-    operationalPanels_.draw(window_, parameters_, runner_, uiState_.preferences);
     window_.display();
     ++frames_;
 }

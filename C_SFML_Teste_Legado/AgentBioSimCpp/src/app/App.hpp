@@ -10,7 +10,7 @@
 #include "ui/Command.hpp"
 #include "ui/InputRouter.hpp"
 #include "ui/UiPanel.hpp"
-#include "ui/UiOperationalPanels.hpp"
+#include "ui/UiLeftDock.hpp"
 #include "ui/UiPreferencesPanel.hpp"
 #include "ui/UiState.hpp"
 
@@ -64,7 +64,7 @@ private:
     ui::InputRouter inputRouter_{};
     ui::UiPanel uiPanel_{};
     ui::UiPreferencesPanel preferencesPanel_{};
-    ui::UiOperationalPanels operationalPanels_{};
+    ui::UiLeftDock leftDock_{};
     ui::CommandQueue commandQueue_;
 
     unsigned int frames_ = 0;

@@ -1,8 +1,45 @@
 # Fase 24 — Editor Genetico, Especies/Labels, Populacao e Substrato
 
-Status: **CONCLUIDA** (2026-06-01)
+Status: **CONCLUIDA** (2026-06-01) + **MICROFASE 24.2 APLICADA** (2026-06-01)
 
-A Fase 24 entrega os 4 paineis operacionais da UI antiga, em janelas independentes (cada uma arrastavel, com scroll, header, footer com botoes de acao). A arquitetura segue rigorosamente o que aprendemos nas Microfases 22.1, 23.1 e 23.2: nada de painel unico gigante, nada de Numba na UI, nada de nome interno como label principal, nada de combo falso.
+> **Microfase 24.2 — reestruturacao para a usabilidade real do Python.**
+> A validacao manual da Fase 24 mostrou que a entrega original estava errada contra o Python:
+> os paineis eram janelas flutuantes abertas pelo **menu "Genoma"** (que nem existe no Python),
+> havia uma aba **"Populacao" inventada**, Substrato/Comida estavam no menu errado, e a aba
+> **Labels nao funcionava** (atribuir label era no-op). A microfase 24.2 corrigiu lendo o
+> `sim/ui.py` de verdade:
+> - **Painel lateral fixo a ESQUERDA** (`UiLeftDock`, ~460px, abaixo do top strip) com **3 abas**
+>   exatamente como o Python: **Editor Genetico | Substrato | Labels**. Nao sao mais janelas
+>   flutuantes, nao abrem por menu.
+> - **Aba Populacao removida** (nao existe no Python). Min/Max/Inicial agora sao **por-label** na
+>   aba Labels (espelhando `engine.agent_labels` do Python).
+> - **Aba Substrato** junta Comida + Substrato + acoes (Aplicar ambiente / Limpar comida).
+> - **Aba Labels funcional**: cada especie/label tem swatch de cor, nome editavel inline, contagem
+>   "{n} individuos", checkbox Grafico, spinners Min/Max/Inicial, e botoes Selecionar / Atribuir
+>   selecionados / Remover selecionados / Cor (cicla paleta) / Resetar rede (DESABILITADO, Fase 25)
+>   / Excluir; rodape "+ Nova label com selecionados". **Atribuir selecionados agora muda de fato
+>   o speciesId e recolore** os agentes (mirror do `engine.assign_label_to_agents`).
+> - **Menu "Genoma" -> "Agente"** com os itens do Python (Exportar/Carregar agente, Criar linhagem)
+>   como placeholders desabilitados (Fase 25/27). **Exibir > "Painel lateral"** liga/desliga o dock.
+> - **Backend novo**: `AgentStore::setSpeciesIdAt/setColorAt`; `SpeciesStore::setLabel/setMin/
+>   setMax/setInitialCount/setShowGraph`; `SimulationRunner::assignSelectedToSpecies/
+>   createSpeciesFromSelected/removeSelectedFromSpecies/setSpeciesColorAndRecolor/cycleSpeciesColor/
+>   adjustSpeciesPopulation/setSpeciesShowGraph/setSpeciesLabel/removeSpeciesSafe/countAgentsOfSpecies`.
+> - **Camera (24.2)**: `fitCameraToWorld` enquadra o mundo na regiao VISIVEL a direita do dock
+>   (ajusta center_/zoom_ apenas; screen<->world da Microfase 22.1 intacto). Aplicar ambiente
+>   continua **sem** auto-fit (organismos mantem tamanho visual — fix da 24.1).
+> - **Removido** `UiOperationalPanels` (janelas flutuantes). `Phase24Diagnostics` atualizado para a
+>   nova realidade (dock + backend de labels): **130 checks PASS**. Selftests 22/22.1/23/23.1/23.2
+>   e regressoes 7-21 todos PASS.
+> - **Decisao honesta**: "Resetar rede neural por especie" e botao DESABILITADO (precisa reinit de
+>   brain/GenomeStore — Fase 25). "Cor" cicla a paleta de labels (color picker completo por especie
+>   = polimento futuro). Sem botao falso no-op.
+
+---
+
+A Fase 24 (entrega original) criou os 4 paineis operacionais como janelas independentes. A Microfase
+24.2 acima os reorganizou no painel lateral fixo do Python. O texto abaixo descreve a entrega
+original (mantido para historico); onde divergir, **vale a 24.2**.
 
 ## Estado verificado antes do trabalho
 

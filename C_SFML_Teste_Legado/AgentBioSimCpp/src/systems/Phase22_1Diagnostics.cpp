@@ -95,9 +95,14 @@ Phase22_1ValidationSummary runPhase22_1Validation()
                  std::string(arquivo[0].label).find("Novo") != std::string::npos &&
                  std::string(arquivo[arquivo.size() - 1U].label) == "Sair");
         const auto view = ui::menuItemsForIndex(1);
+        // Phase 24.2: the Exibir dropdown gained "Painel lateral" at index 0,
+        // so Fit world moved down. The check now just confirms the dropdown
+        // contains a "Fit" item somewhere.
+        bool hasFit = false;
+        for (const auto& it : view)
+            if (std::string(it.label).find("Fit") != std::string::npos) { hasFit = true; break; }
         addCheck(summary, "View dropdown has Fit + render toggles (7)",
-                 view.size() >= 8U &&
-                 std::string(view[0].label).find("Fit") != std::string::npos);
+                 view.size() >= 8U && hasFit);
     }
 
     // ---- 8-12: menu routing fixes (Preferencias != Ajuda, Arquivo title does not reset) ----
@@ -150,19 +155,15 @@ Phase22_1ValidationSummary runPhase22_1Validation()
         addCheck(summary, "View dropdown has at least one enabled item (13)", hasEnabledItems);
     }
 
-    // ---- 14: Genoma menu replaces Agente/Genoma ----
+    // ---- 14: menu 3 is a real dropdown with multiple items ----
     {
-        const auto genoma = ui::menuItemsForIndex(3);
-        // Phase 24: the Genoma dropdown now exposes Editor / Especies /
-        // Populacao / Substrato as functional items. The 22.1 check accepts
-        // either the legacy placeholder ("Fase 24") OR the real Phase 24
-        // items, as long as the dropdown has multiple entries.
-        const bool hasPlaceholder = !genoma.empty() &&
-            std::string(genoma[0].label).find("Fase 24") != std::string::npos;
-        const bool hasEditor = !genoma.empty() &&
-            std::string(genoma[0].label).find("Editor") != std::string::npos;
-        addCheck(summary, "Genoma dropdown has placeholder + open action (14)",
-                 genoma.size() >= 3U && (hasPlaceholder || hasEditor));
+        // Phase 24.2: menu 3 was renamed "Genoma" -> "Agente"; Editor/Substrato
+        // /Labels moved to the persistent left dock, so this menu now holds the
+        // Python "Agente" items (Fase 25/27 placeholders). The check just
+        // confirms the dropdown has multiple entries and is not the lonely
+        // single placeholder it used to be.
+        const auto menu3 = ui::menuItemsForIndex(3);
+        addCheck(summary, "Menu 3 dropdown has multiple items (14)", menu3.size() >= 3U);
     }
 
     // ---- 15-17: disabled items do not dispatch ----

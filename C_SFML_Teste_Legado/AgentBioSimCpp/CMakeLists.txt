@@ -67,7 +67,7 @@ add_executable(AgentBioSimCpp
     src/ui/InputRouter.cpp
     src/ui/UiPanel.cpp
     src/ui/UiPreferencesPanel.cpp
-    src/ui/UiOperationalPanels.cpp
+    src/ui/UiLeftDock.cpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp

@@ -137,6 +137,43 @@ bool SpeciesStore::setColor(const SpeciesId id, const ColorRgb color)
     return false;
 }
 
+// Phase 24.2: per-label setters used by the Labels tab in the left dock.
+bool SpeciesStore::setLabel(const SpeciesId id, const std::string& label)
+{
+    if (auto* r = find(id))
+    {
+        if (!r->label.empty()) aliasIndex_.erase(normalize(r->label));
+        r->label = label;
+        if (!label.empty()) aliasIndex_[normalize(label)] = id;
+        return true;
+    }
+    return false;
+}
+
+bool SpeciesStore::setMinPopulation(const SpeciesId id, const int value)
+{
+    if (auto* r = find(id)) { r->minPopulation = value < 0 ? 0 : value; return true; }
+    return false;
+}
+
+bool SpeciesStore::setMaxPopulation(const SpeciesId id, const int value)
+{
+    if (auto* r = find(id)) { r->maxPopulation = value < 0 ? 0 : value; return true; }
+    return false;
+}
+
+bool SpeciesStore::setInitialCount(const SpeciesId id, const int value)
+{
+    if (auto* r = find(id)) { r->initialCount = value < 0 ? 0 : value; return true; }
+    return false;
+}
+
+bool SpeciesStore::setShowGraph(const SpeciesId id, const bool show)
+{
+    if (auto* r = find(id)) { r->showGraph = show; return true; }
+    return false;
+}
+
 bool SpeciesStore::setEnabled(const SpeciesId id, const bool enabled)
 {
     if (auto* r = find(id))

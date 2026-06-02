@@ -154,6 +154,19 @@ struct CmdApplyPopulation       {};   // honors bacteria_count etc. on next rese
 struct CmdApplyEnvironment      {};   // reads world_w/h/shape/radius and resets
 struct CmdClearAllFood          {};   // wipes FoodStore now (rescue continues working)
 
+// Phase 24.2: persistent left dock + per-label (species) operations.
+struct CmdSetDockTab            { int tab = 0; };
+struct CmdScrollDock            { int delta = 0; };
+struct CmdToggleLeftDock        {};
+struct CmdRemoveSelectedFromSpecies { std::uint32_t speciesId = 0; };  // reassign to bacteria
+struct CmdCycleSpeciesColor     { std::uint32_t speciesId = 0; };       // next palette color
+struct CmdSetSpeciesShowGraph   { std::uint32_t speciesId = 0; bool show = true; };
+struct CmdAdjustSpeciesPop      { std::uint32_t speciesId = 0; int field = 0; int delta = 0; };
+struct CmdRemoveSpecies         { std::uint32_t speciesId = 0; };       // soft-disable + reassign
+struct CmdBeginEditSpeciesName  { std::uint32_t speciesId = 0; std::string initialBuffer; };
+struct CmdCommitEditSpeciesName {};
+struct CmdCancelEditSpeciesName {};
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -235,7 +248,18 @@ using Command = std::variant<
     CmdCreateSpeciesFromSelected,
     CmdApplyPopulation,
     CmdApplyEnvironment,
-    CmdClearAllFood
+    CmdClearAllFood,
+    CmdSetDockTab,
+    CmdScrollDock,
+    CmdToggleLeftDock,
+    CmdRemoveSelectedFromSpecies,
+    CmdCycleSpeciesColor,
+    CmdSetSpeciesShowGraph,
+    CmdAdjustSpeciesPop,
+    CmdRemoveSpecies,
+    CmdBeginEditSpeciesName,
+    CmdCommitEditSpeciesName,
+    CmdCancelEditSpeciesName
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

@@ -66,6 +66,12 @@ public:
     bool setEnabled(SpeciesId id, bool enabled);
     bool addAlias(SpeciesId id, const std::string& alias);
     bool setDietSnapshot(SpeciesId id, const DietConfig& diet);
+    // Phase 24.2: per-label setters for the Labels tab.
+    bool setLabel(SpeciesId id, const std::string& label);
+    bool setMinPopulation(SpeciesId id, int value);
+    bool setMaxPopulation(SpeciesId id, int value);
+    bool setInitialCount(SpeciesId id, int value);
+    bool setShowGraph(SpeciesId id, bool show);
 
     [[nodiscard]] const std::vector<SpeciesRecord>& records() const noexcept;
 

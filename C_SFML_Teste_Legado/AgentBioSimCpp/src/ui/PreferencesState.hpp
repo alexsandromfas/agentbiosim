@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -86,6 +87,18 @@ struct PreferencesState
     int substratoScroll = 0;
     // 0=editor, 1=especies, 2=populacao, 3=substrato. -1 = none.
     int draggingOperational = -1;
+
+    // Phase 24.2: persistent LEFT DOCK PANEL (replaces the floating operational
+    // windows). Mirrors the Python left tab panel with 3 tabs: Editor Genetico,
+    // Substrato, Labels. dockActiveTab 0=Editor 1=Substrato 2=Labels.
+    bool dockVisible = true;
+    int dockActiveTab = 0;
+    int dockScroll = 0;  // shared; reset to 0 when the active tab changes.
+
+    // Phase 24.2: inline edit of a species/label name in the Labels tab.
+    // 0 = not editing. Separate from editingParam (registry-param editor).
+    std::uint32_t editingSpeciesId = 0;
+    std::string editingSpeciesBuffer;
 
     // Dirty pending edits keyed by registry parameter name.
     std::unordered_map<std::string, config::ParameterValue> pendingValues;
