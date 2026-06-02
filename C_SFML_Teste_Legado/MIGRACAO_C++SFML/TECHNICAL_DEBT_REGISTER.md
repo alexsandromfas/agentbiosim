@@ -203,6 +203,118 @@ Arquivos afetados:
 - `src/systems/ReproductionSystem.hpp` (assinatura).
 - `src/systems/ReproductionSystem.cpp` (implementacao).
 
+## Divida 8 — Inversao de camada: sim::SimulationRunner depende de ui::Command
+
+Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
+
+Descricao:
+`src/sim/SimulationRunner.hpp` inclui `ui/Command.hpp` e `applyCommand(const ui::Command&)`. Ou
+seja, o engine (camada `sim::`) conhece um tipo da camada de UI (`ui::`). `Command` e apenas dado
+passivo (um `std::variant` de structs POD, sem logica), entao o acoplamento e leve e nao quebra o
+modo headless na pratica — mas a seta de dependencia esta invertida: o correto e que so a UI
+dependa do engine, nunca o contrario.
+
+Impacto:
+- Impacto funcional hoje: baixo (engine compila e roda headless; `Command` nao traz comportamento).
+- Impacto arquitetural: o engine carrega um conceito de UI no seu cabecalho publico, o que confunde
+  a fronteira e atrapalha reuso/teste do engine isolado.
+
+Acao recomendada:
+- Mover `Command`/`CommandQueue` para uma camada neutra (por exemplo `core/` ou `sim/`), num
+  namespace neutro (por exemplo `app::` ou `sim::`), de modo que `SimulationRunner` deixe de
+  incluir `ui/`. A UI passa a depender dessa camada neutra; o engine nao depende de `ui/`.
+- Refator puro, sem mudanca de comportamento; cobrir com os selftests existentes.
+
+Momento sugerido:
+**Fase 25** (Migracao Total da UI para Dear ImGui), como pre-requisito tecnico. Como a Fase 25
+reescreve toda a fronteira UI/engine, e o momento natural e mais barato para corrigir a inversao
+antes de construir a nova UI sobre ela.
+
+Prioridade:
+Media. Nao bloqueia funcionalidade, mas deve ser feita antes de empilhar mais UI.
+
+Bloqueia alguma fase?
+Nao bloqueia; e pre-requisito recomendado da Fase 25.
+
+Arquivos afetados:
+- `src/sim/SimulationRunner.hpp/.cpp`
+- `src/ui/Command.hpp` (movido para camada neutra)
+- `src/app/App.cpp` e demais consumidores de `ui::Command`.
+
+## Divida 9 — UI feita a mao em SFML imediato com hit-test duplicado
+
+Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
+
+Descricao:
+Toda a camada de UI (`UiPanel`, `UiPreferencesPanel`, `UiLeftDock`) foi construida a mao em SFML
+imediato: cada widget desenha primitivos e calcula a geometria de hit-test manualmente, e essa
+geometria e DUPLICADA entre o codigo de desenho (`draw`) e o handler de clique. Toda mudanca de
+layout exige manter os dois lados em sincronia, ou um bug aparece. Varios bugs das microfases 23.1,
+23.2 e 24.x (slider que nao arrastava, combo no lugar errado, edicao por caixa de texto, "x"
+descentralizado, color picker, scroll) sao exatamente problemas que um framework de UI imediata
+maduro resolve de fabrica. Foi uma decisao de escopo deliberada (UI SFML-native, sem dependencias
+externas), mas virou divida tecnica acumulada: a area mais fragil do projeto.
+
+Impacto:
+- Complexidade crescente e propensa a regressao em cada ajuste de UI.
+- Custo de desenvolvimento alto para features de UI futuras (Fases 26, 30, 31).
+- Nucleo de simulacao continua excelente; o calcanhar de Aquiles e a UI.
+
+Acao recomendada:
+- Migrar 100% da UI para Dear ImGui (via ImGui-SFML), eliminando hit-test manual. O engine nao
+  fica sabendo da troca, gracas ao desacoplamento por comandos (ver Divida 8).
+- Estabelecer tema/estilo proprio de nivel especialista em UI/UX (Gestalt, hierarquia, espacamento,
+  tipografia, icones).
+
+Momento sugerido:
+**Fase 25** (Migracao Total da UI para Dear ImGui). E a fase dedicada a esta divida.
+
+Prioridade:
+Alta. E o motivo de a Fase 25 ter sido inserida como proxima fase.
+
+Bloqueia alguma fase?
+Recomenda-se resolver na Fase 25 antes de construir as Fases 26, 30 e 31 (mais UI) em cima.
+
+Arquivos afetados:
+- `src/ui/UiPanel.hpp/.cpp`, `src/ui/UiPreferencesPanel.hpp/.cpp`, `src/ui/UiLeftDock.hpp/.cpp`
+  (substituidos por UI ImGui).
+- `src/app/App.cpp` (loop de UI/eventos), CMake (dependencia ImGui/ImGui-SFML).
+
+## Divida 10 — Performance prometida ainda nao comprovada ponta a ponta em escala
+
+Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
+
+Descricao:
+A arquitetura foi construida PARA alta performance (stores SoA/data-oriented, engine headless,
+spatial hash, variant neural sem heap alloc por cerebro) e ha microbenchmarks por fase, mas a
+promessa central da migracao — "C++ comprovadamente mais rapido que o Python em 1000+ agentes" —
+ainda nao foi medida ponta a ponta numa campanha formal. A fundacao esta pronta; o ganho ainda nao
+esta provado.
+
+Impacto:
+- Risco de descobrir tarde um gargalo que so aparece em escala (visao sector, NEAT, alocacoes do
+  NeuralSystem — ver Divida 5).
+- A justificativa da migracao depende de numeros que ainda nao existem de forma consolidada.
+
+Acao recomendada:
+- Construir o profiler por sistema (Fase 27) e o benchmark runner formal (Fase 29).
+- Tornar o custo por sistema visivel dentro do app (Fase 30, Janela do Desenvolvedor).
+- Otimizar guiado por dados (Fase 32, resolve tambem a Divida 5).
+- Fechar com a campanha comparativa C++ vs Python em escala (Fase 33), com relatorio reproduzivel.
+
+Momento sugerido:
+Distribuida: surface na **Fase 30**, ataque na **Fase 32**, prova final e fechamento na **Fase 33**.
+
+Prioridade:
+Alta futura. E o criterio de sucesso final da migracao.
+
+Bloqueia alguma fase?
+Nao bloqueia, mas e o gate de conclusao da migracao (Fase 33).
+
+Arquivos afetados:
+- Profiler/benchmark (Fases 27, 29), Janela do Desenvolvedor (Fase 30), hot loop neural/percepcao
+  (Fase 32), relatorio final (Fase 33).
+
 ## Resumo por fase futura impactada
 
 | Divida | Fase recomendada para resolver | Prioridade |
@@ -211,9 +323,12 @@ Arquivos afetados:
 | 2. BrainSlot/MLPBrain concreto | **RESOLVIDA na Fase 14** (variant) | Alta futura |
 | 3. Nomes Numba/Python | **RESOLVIDA na Fase 14** (renomeio + aliases) | Baixa/media |
 | 4. App acumulando responsabilidades | **RESOLVIDA na Fase 22** (SimulationRunner + InputRouter + UiPanel; mantido limpo na Fase 22.1 e na Fase 23) | Media |
-| 5. Alocacoes temporarias neural | Fase 30 ou antes se gargalo medido | Alta futura |
+| 5. Alocacoes temporarias neural | Fase 32 (otimizacao) ou antes se gargalo medido | Alta futura |
 | 6. Version.hpp | Qualquer housekeeping | Baixa |
 | 7. ReproductionSystem brainSignatureConfig alias | **RESOLVIDA na Fase 18** (pass-by-value) | Media |
+| 8. Inversao de camada sim->ui::Command | Fase 25 (pre-requisito) | Media |
+| 9. UI feita a mao / hit-test duplicado | Fase 25 (migracao para Dear ImGui) | Alta |
+| 10. Performance nao comprovada em escala | Fases 30/32/33 (surface, ataque, prova) | Alta futura |
 
 ## Regra
 

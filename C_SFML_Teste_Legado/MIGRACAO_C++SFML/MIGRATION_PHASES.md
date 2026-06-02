@@ -4,12 +4,51 @@ Cada fase deve ser pequena, testavel e revisavel. Nao migrar tudo de uma vez.
 
 Estado atual oficial:
 
-- Fase 0 concluida.
-- Fases 1 a 8 implementadas e comitadas.
-- A proxima fase de implementacao sera a Fase 9, somente depois de autorizacao explicita do usuario.
-- As Fases 0 a 8 nao devem ser renumeradas nem reabertas como trabalho pendente.
-- Qualquer correcao em fase ja concluida deve ser tratada como bugfix ou fase futura documentada.
-- A partir da Fase 9, cada fase deve citar explicitamente quais itens de `FEATURE_INVENTORY.md`, `PARAMETER_INVENTORY.md` e `UI_INVENTORY.md` cobre.
+- Fases 0 a 24 implementadas e comitadas (Fase 24 inclui as microfases 24.1 e 24.2).
+- A proxima fase de implementacao sera a Fase 25 (Migracao Total da UI para Dear ImGui), somente depois de autorizacao explicita do usuario.
+- As Fases 0 a 24 nao devem ser renumeradas nem reabertas como trabalho pendente.
+- Qualquer correcao em fase ja concluida deve ser tratada como bugfix ou microfase documentada (padrao 22.1, 23.1, 23.2, 24.1, 24.2).
+- Cada fase deve citar explicitamente quais itens de `FEATURE_INVENTORY.md`, `PARAMETER_INVENTORY.md` e `UI_INVENTORY.md` cobre.
+- Cada fase a partir da 25 tem um arquivo de prompt dedicado `PHASE_NN.md` na mesma pasta. Para executar uma fase, basta dizer "bora para a Fase NN" e seguir o `PHASE_NN.md` correspondente.
+
+## Nota de re-sequenciamento (2026-06-01)
+
+As fases 25 a 31 foram re-sequenciadas para refletir duas decisoes de arquitetura tomadas
+apos a Fase 24:
+
+1. **A UI precisa ser refundada antes de receber mais features.** Toda a camada de UI foi
+   construida a mao em SFML imediato (UiPanel, UiPreferencesPanel, UiLeftDock), com geometria
+   de hit-test duplicada entre desenho e clique. Isso e divida tecnica (ver Divida 9 em
+   `TECHNICAL_DEBT_REGISTER.md`) e e a area mais fragil do projeto. Antes de empilhar visualizador
+   neural, save/load e paridade, a UI inteira sera migrada para Dear ImGui (nova Fase 25). Junto
+   vai a correcao da inversao de camada `sim -> ui` (Divida 8). Regra: corrigir a fundacao antes
+   de construir em cima dela.
+2. **O usuario quer um painel de performance dentro do app**, mostrando o custo de cada sistema
+   (render, redes neurais, visao, fisica, percepcao...) como um teste headless visivel na propria
+   UI. Isso virou a nova Fase 30, posicionada depois do profiler (Fase 27) e do benchmark runner
+   (Fase 29), que sao a base de dados que ela consome.
+
+Mapeamento (antigo -> novo):
+
+| Tema | Numero antigo | Numero novo |
+|---|---|---|
+| Migracao Total da UI para Dear ImGui | (nao existia) | **25 (nova)** |
+| Agente Selecionado e Visualizador Neural | 25 | 26 |
+| Metricas, Inteligencia, Logs, Diagnostico e Profiler | 26 | 27 |
+| Save/Load/Export/Import/Autosave | 27 | 28 |
+| Benchmark Runner e Experimentos Headless Formais | 28 | 29 |
+| Janela do Desenvolvedor (performance/profiling in-app) | (nao existia) | **30 (nova)** |
+| Paridade Completa de UI | 29 | 31 |
+| Otimizacao Data-Oriented e Escala | 30 | 32 |
+| Campanha Final de Paridade + Prova de Performance | 31 | 33 |
+
+Regra de usabilidade que vale para todas as fases de UI (25, 26, 30, 31): a **usabilidade,
+as funcionalidades e os parametros** vem do programa Python (disposicao de botoes, fluxo de
+menus, abas, o que cada controle faz). A **arquitetura de codigo NAO** vem do Python — vem da
+arquitetura nova C++ (engine headless, stores data-oriented/SoA, UI desacoplada por comandos).
+Parametros internos relevantes que nao existiam na UI Python mas que a arquitetura nova expoe
+podem ser adicionados, desde que colocados no lugar logico/adequado seguindo o esqueleto de UI
+ja existente, sempre com rotulo amigavel em PT-BR.
 
 ## Fase 0: Auditoria e Documentacao
 
@@ -519,6 +558,10 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
 
 ## Fase 24: Editor Genetico, Especies e Substrato
 
+Status: concluida (Fase 24 + microfases 24.1 e 24.2, 2026-05-31). Entregou o painel lateral
+esquerdo fixo com 3 abas (Editor Genetico, Substrato, Labels) reproduzindo a usabilidade do
+Python, ainda em SFML imediato (a refundacao em Dear ImGui e a Fase 25).
+
 - Objetivo: reconstruir paineis operacionais principais.
 - Escopo:
   - Editor de genoma.
@@ -546,11 +589,55 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Labels/especies UI.
   - Substrato UI.
 
-## Fase 25: Agente Selecionado e Visualizador Neural
+## Fase 25: Migracao Total da UI para Dear ImGui
 
-- Objetivo: conectar inspector e visualizador neural.
+Prompt dedicado: `PHASE_25.md`.
+
+Prerequisito tecnico obrigatorio: resolver a Divida 8 de `TECHNICAL_DEBT_REGISTER.md` — mover
+`ui::Command` (e a CommandQueue) para uma camada neutra para que `sim::SimulationRunner` deixe de
+depender de `ui::`. A seta de dependencia deve apontar so UI -> engine. Como esta fase reescreve
+toda a fronteira UI/engine, este e o momento certo de corrigir a inversao de camada antes de
+construir a nova UI sobre ela.
+
+- Objetivo: substituir 100% da UI feita a mao em SFML imediato (UiPanel, UiPreferencesPanel,
+  UiLeftDock e qualquer hit-test manual) por uma UI Dear ImGui (via ImGui-SFML), de nivel
+  especialista em UI/UX, elegante, moderna e coerente, preservando a arquitetura (engine headless,
+  stores SoA, UI desacoplada por comandos) e toda a usabilidade/funcionalidade ja entregue.
 - Escopo:
-  - Painel retratil.
+  - Integrar Dear ImGui + ImGui-SFML no CMake (Debug/Release), sem acoplar ao engine.
+  - Resolver Divida 8 (Command em camada neutra).
+  - Reimplementar em ImGui: menu superior (Arquivo/Exibir/Preferencias/Agente/Ajuda), toolbar de
+    ferramentas de canvas, painel lateral esquerdo (Editor Genetico, Substrato, Labels), janela de
+    Preferencias (todos os grupos da Fase 23), overlays de ajuda/seleccao.
+  - Sistema de tema/estilo proprio (cores, espacamento, raio de borda, tipografia, icones da pasta
+    Assets), aplicando hierarquia visual e principios de Gestalt.
+  - Manter todos os comandos, parametros, combos, color pickers, sliders, edicao por texto, labels
+    PT-BR, e o roteamento de eventos (a UI consome o mouse antes do canvas via `WantCaptureMouse`).
+- Fora de escopo:
+  - Visualizador neural completo (Fase 26), metricas/profiler (Fase 27), save/load (Fase 28),
+    janela do desenvolvedor (Fase 30), paridade final exaustiva (Fase 31).
+- Referencias: `sim/ui.py` (usabilidade/disposicao), `UI_INVENTORY.md`, `PARAMETER_INVENTORY.md`,
+  `PROPOSED_CPP_ARCHITECTURE.md`, status das Fases 22, 22.1, 23, 23.1, 23.2, 24.
+- Criterios de conclusao:
+  - Nenhum widget critico depende mais de hit-test manual; Divida 9 resolvida.
+  - Engine continua headless; `sim/` nao inclui mais `ui/`.
+  - Paridade de usabilidade com o que existia antes (nada de funcionalidade perdida).
+- Testes minimos:
+  - `--phase25-selftest`: comandos disparados pela UI continuam chegando ao runner; engine sem ImGui.
+  - Smoke: app abre, todos os paineis/menus renderizam, clique no painel nao pinta no canvas.
+- Benchmark:
+  - Custo de UI ImGui on/off vs baseline SFML manual.
+- Cobre:
+  - Refundacao da camada de UI.
+  - Divida 8 e Divida 9.
+
+## Fase 26: Agente Selecionado e Visualizador Neural
+
+Prompt dedicado: `PHASE_26.md`.
+
+- Objetivo: conectar inspector e visualizador neural, ja em Dear ImGui.
+- Escopo:
+  - Painel retratil do agente selecionado.
   - Abas Genoma e Rede Neural.
   - ActivationTrace.
   - MLP, RNN simplificada e NEAT apropriada.
@@ -573,9 +660,12 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Agente selecionado.
   - Visualizador neural.
 
-## Fase 26: Metricas, Inteligencia, Logs, Diagnostico e Profiler
+## Fase 27: Metricas, Inteligencia, Logs, Diagnostico e Profiler
 
-- Objetivo: preservar observabilidade da simulacao.
+Prompt dedicado: `PHASE_27.md`.
+
+- Objetivo: preservar observabilidade da simulacao e criar o profiler por sistema que a Fase 30
+  (Janela do Desenvolvedor) vai consumir.
 - Escopo:
   - MetricsSystem.
   - Graficos.
@@ -583,13 +673,15 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Logger.
   - Heartbeat.
   - Crash/recovery hooks.
-  - Scoped profiler.
+  - Scoped profiler com instrumentacao por sistema (perception, neural, movement, collision,
+    energy, interaction, food, reproduction, death, spatialhash, render).
 - Fora de escopo:
-  - Benchmark runner formal.
+  - Benchmark runner formal (Fase 29).
+  - Janela do desenvolvedor (Fase 30).
 - Referencias: `sim/intelligence.py`, `sim/profiler.py`, `sim/diagnostics.py`, `UI_INVENTORY.md`.
 - Criterios de conclusao:
   - Metricas batem em cenarios controlados.
-  - Profiler mede por sistema.
+  - Profiler mede por sistema com overhead baixo e desligavel.
 - Testes minimos:
   - Series por especie.
   - Profiler on/off.
@@ -600,7 +692,9 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Graficos/metricas.
   - Logs/diagnostico/profiling.
 
-## Fase 27: Save/Load/Export/Import/Autosave
+## Fase 28: Save/Load/Export/Import/Autosave
+
+Prompt dedicado: `PHASE_28.md`.
 
 - Objetivo: persistencia versionada e compatibilidade.
 - Escopo:
@@ -632,15 +726,18 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Autosave.
   - Compatibilidade de saves/genomas.
 
-## Fase 28: Benchmark Runner e Experimentos Headless Formais
+## Fase 29: Benchmark Runner e Experimentos Headless Formais
 
-- Objetivo: criar infraestrutura formal de benchmark.
+Prompt dedicado: `PHASE_29.md`.
+
+- Objetivo: criar infraestrutura formal de benchmark — base de dados da Fase 30 (Janela do
+  Desenvolvedor) e da prova de performance da Fase 33.
 - Escopo:
   - CLI headless.
   - Scenarios.
   - CSV/JSON/Markdown reports.
   - Commit/build metadata.
-  - Percentuais por sistema.
+  - Percentuais por sistema (reusa o profiler da Fase 27).
 - Fora de escopo:
   - Otimizacao sem relatorio.
 - Referencias: `BENCHMARK_PLAN.md`, `sim/profiler.py`.
@@ -656,9 +753,43 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Execucao headless.
   - Benchmarks formais.
 
-## Fase 29: Paridade Completa de UI
+## Fase 30: Janela do Desenvolvedor — Performance e Profiling In-App
 
-- Objetivo: fechar checklist de `UI_INVENTORY.md`.
+Prompt dedicado: `PHASE_30.md`.
+
+Posicionada apos a Fase 27 (profiler por sistema) e a Fase 29 (benchmark runner) porque consome
+ambos como fonte de dados. Surface visual da Divida 10 (performance prometida ainda nao
+comprovada ponta a ponta).
+
+- Objetivo: uma janela de desenvolvedor (Dear ImGui) que mostra, em tempo real e de forma facil de
+  ler, o custo de cada parte do sistema (render, redes neurais, visao/percepcao, fisica/colisao,
+  energia, interacao, comida, reproducao, morte, spatial hash, UI), como um teste headless visivel
+  dentro da propria UI — para identificar o que consome mais sem precisar rodar benchmark externo.
+- Escopo:
+  - Overlay/janela com graficos de tempo por sistema (us/step e % do frame), historico (sparklines),
+    FPS, us/step, contagem de agentes/comida/obstaculos, memoria aproximada.
+  - Botao para rodar um cenario de benchmark embutido (reusando a Fase 29) e ver o resultado na UI.
+  - Toggles para ligar/desligar sistemas e medir o delta de custo.
+  - Tudo desligavel e com custo proximo de zero quando oculto.
+- Fora de escopo:
+  - Otimizacao em si (Fase 32) — esta fase so MEDE e MOSTRA.
+- Referencias: `sim/profiler.py`, `BENCHMARK_PLAN.md`, status da Fase 27 e Fase 29.
+- Criterios de conclusao:
+  - Soma dos tempos por sistema bate com o tempo total medido (dentro de margem).
+  - Janela oculta nao adiciona custo relevante.
+- Testes minimos:
+  - `--phase30-selftest`: numeros do profiler expostos batem com os do benchmark headless.
+- Benchmark:
+  - Overhead da janela aberta vs fechada.
+- Cobre:
+  - Observabilidade de performance dentro do app.
+  - Surface da Divida 10.
+
+## Fase 31: Paridade Completa de UI
+
+Prompt dedicado: `PHASE_31.md`.
+
+- Objetivo: fechar checklist de `UI_INVENTORY.md` sobre a UI ImGui.
 - Escopo:
   - Menus.
   - Abas.
@@ -668,7 +799,7 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
   - Ferramentas de canvas.
   - Fluxos criticos.
 - Fora de escopo:
-  - Novas features nao existentes.
+  - Novas features nao existentes (exceto as ja justificadas em fases anteriores).
 - Referencias: `UI_INVENTORY.md`, `FEATURE_INVENTORY.md`.
 - Criterios de conclusao:
   - Checklist revisado item a item.
@@ -681,11 +812,17 @@ Prerequisito tecnico: antes ou durante esta fase, resolver a Divida 4 de `TECHNI
 - Cobre:
   - Paridade completa de UI.
 
-## Fase 30: Otimizacao Data-Oriented e Escala
+## Fase 32: Otimizacao Data-Oriented e Escala
 
-Prerequisito tecnico: resolver a Divida 5 de `TECHNICAL_DEBT_REGISTER.md` — substituir alocacoes temporarias de `std::vector<double>` por agente no `NeuralSystem` por buffers persistentes pre-alocados por assinatura neural. Se benchmarks de fases anteriores (12, 14) ja mostrarem gargalo, antecipar a correcao.
+Prompt dedicado: `PHASE_32.md`.
 
-- Objetivo: otimizar gargalos medidos sem remover comportamento.
+Prerequisito tecnico: resolver a Divida 5 de `TECHNICAL_DEBT_REGISTER.md` — substituir alocacoes
+temporarias de `std::vector<double>` por agente no `NeuralSystem` por buffers persistentes
+pre-alocados por assinatura neural. Se a Fase 30 (Janela do Desenvolvedor) ou os benchmarks das
+Fases 12/14/29 ja mostrarem gargalo, ataca-lo primeiro, guiado pelos numeros.
+
+- Objetivo: otimizar gargalos medidos sem remover comportamento. Atacar a Divida 10 (prova de
+  performance) com base nos dados da Fase 30 e Fase 29.
 - Escopo:
   - Buffers persistentes.
   - Batch por assinatura.
@@ -695,9 +832,9 @@ Prerequisito tecnico: resolver a Divida 5 de `TECHNICAL_DEBT_REGISTER.md` — su
   - Cache neural por grupo.
 - Fora de escopo:
   - Otimizar sem benchmark.
-- Referencias: `BENCHMARK_PLAN.md`, `PROPOSED_CPP_ARCHITECTURE.md`.
+- Referencias: `BENCHMARK_PLAN.md`, `PROPOSED_CPP_ARCHITECTURE.md`, status da Fase 29 e Fase 30.
 - Criterios de conclusao:
-  - Ganho medido antes/depois.
+  - Ganho medido antes/depois (mostrado tambem na Janela do Desenvolvedor).
   - Sem regressao funcional.
 - Testes minimos:
   - Regressao por seed.
@@ -707,30 +844,36 @@ Prerequisito tecnico: resolver a Divida 5 de `TECHNICAL_DEBT_REGISTER.md` — su
 - Cobre:
   - Performance/otimizacoes.
 
-## Fase 31: Campanha Final de Paridade Python vs C++
+## Fase 33: Campanha Final de Paridade + Prova de Performance Python vs C++
 
-- Objetivo: validar a migracao completa contra o Python.
+Prompt dedicado: `PHASE_33.md`.
+
+- Objetivo: validar a migracao completa contra o Python e PROVAR a promessa de performance da
+  arquitetura (resolver definitivamente a Divida 10): a versao C++ deve ser comprovadamente mais
+  rapida que a Python em escala (1000+, 2000+, 5000+ agentes), com numeros reproduziveis.
 - Escopo:
   - Paridade por seed.
   - Saves/genomas reais.
   - UI completa.
-  - Benchmarks headless/renderizados.
-  - Relatorio final.
+  - Benchmarks headless/renderizados, C++ vs Python lado a lado.
+  - Relatorio final de performance (tabelas, speedup por cenario, gargalos restantes).
 - Fora de escopo:
   - Implementar novas features.
 - Referencias: `BENCHMARK_PLAN.md`, `PLANNING_COVERAGE_AUDIT.md`, todos os inventarios.
 - Criterios de conclusao:
   - Nenhum item inventariado sem decisao.
   - Diferencas conhecidas documentadas.
-  - Performance C++ comprovada em Release.
+  - Performance C++ comprovada em Release contra o Python, com relatorio (Divida 10 fechada).
 - Testes minimos:
   - Suite final por seed.
   - Roundtrip de saves.
   - Checklist UI.
+  - Comparativo de tempo/step C++ vs Python por cenario.
 - Benchmark:
-  - Plano completo de `BENCHMARK_PLAN.md`.
+  - Plano completo de `BENCHMARK_PLAN.md` + comparativo Python vs C++.
 - Cobre:
   - Paridade completa.
+  - Prova de performance ponta a ponta.
   - Gate de migracao funcional.
 
 ## Regra de Avanco
