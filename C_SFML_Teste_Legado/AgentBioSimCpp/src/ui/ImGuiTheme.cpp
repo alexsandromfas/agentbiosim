@@ -34,10 +34,12 @@ void applyImGuiTheme()
     ImGuiStyle& s = ImGui::GetStyle();
 
     // Spacing rhythm (multiples of 4/8) and rounding for a modern, soft look.
-    s.WindowPadding     = ImVec2(14.0f, 12.0f);
-    s.FramePadding      = ImVec2(10.0f, 6.0f);
-    s.ItemSpacing       = ImVec2(8.0f, 8.0f);
-    s.ItemInnerSpacing  = ImVec2(8.0f, 6.0f);
+    // Phase 25.1: shorter frame padding -> lower text boxes and less vertical
+    // space between parameter rows (denser, calmer list).
+    s.WindowPadding     = ImVec2(12.0f, 10.0f);
+    s.FramePadding      = ImVec2(8.0f, 3.0f);
+    s.ItemSpacing       = ImVec2(8.0f, 5.0f);
+    s.ItemInnerSpacing  = ImVec2(6.0f, 4.0f);
     s.IndentSpacing     = 18.0f;
     s.ScrollbarSize     = 13.0f;
     s.GrabMinSize       = 11.0f;

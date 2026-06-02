@@ -309,6 +309,20 @@ const std::vector<LabelEntry> kFriendlyLabels{
     {"predator_max_limit",  "Limite maximo de predadores (0 = sem limite)"},
     {"predators_enabled",   "Habilitar predadores"},
     {"max_deaths_per_step", "Mortes maximas por passo"},
+
+    // Phase 25.1: substrato + comida (apareciam com nome interno em ingles).
+    {"food_mode",                    "Modo da comida"},
+    {"food_target",                  "Quantidade alvo de comida"},
+    {"food_min_r",                   "Raio minimo de spawn da comida"},
+    {"food_max_r",                   "Raio maximo de spawn da comida"},
+    {"food_replenish_interval",      "Intervalo de reposicao (s)"},
+    {"food_color",                   "Cor da comida"},
+    {"food_bite_seconds",            "Tempo para consumir uma particula (s)"},
+    {"food_piece_particle_radius",   "Raio da particula (pedaco)"},
+    {"food_piece_cluster_radius",    "Raio do cluster (pedaco)"},
+    {"food_piece_particle_spacing",  "Espacamento entre particulas"},
+    {"food_piece_replenish_mode",    "Modo de reposicao (pedacos)"},
+    {"food_trim_max_per_step",       "Maximo de particulas removidas por passo"},
 };
 } // namespace
 
@@ -387,8 +401,32 @@ const char* prefsFriendlyLabelBySuffix(const std::string& suffix) noexcept
 // Phase 23.2: dedicated enum values for string parameters that the prefs UI
 // renders as combos. The registry's `domains` field stores tags, not enum
 // values, so we cannot derive the combo content from it.
+namespace
+{
+bool nameEndsWith(const std::string& name, const char* suffix) noexcept
+{
+    const std::string s = suffix;
+    return name.size() >= s.size() &&
+           name.compare(name.size() - s.size(), s.size(), s) == 0;
+}
+} // namespace
+
 std::vector<std::string> prefsEnumValuesFor(const std::string& name)
 {
+    // Phase 25.1: species-prefixed enums (bacteria_/predator_/<new species>_).
+    // Matched by suffix so the Editor Genetico renders them as dropdowns.
+    if (name == "body_shape" || nameEndsWith(name, "_body_shape"))
+        return {"ellipse", "circle"};
+    if (name == "movement_mode" || nameEndsWith(name, "_movement_mode"))
+        return {"forward", "omni"};
+    if (name == "retina_input_mode" || nameEndsWith(name, "_retina_input_mode"))
+        return {"distance_only", "color_distance", "color_plus_distance", "color_only"};
+
+    // Phase 25.1: food/substrate enums.
+    if (name == "food_mode")          return {"instant", "chunk"};
+    if (name == "food_piece_replenish_mode")
+        return {"spawn_cluster", "grow_existing", "grow_particles"};
+
     if (name == "substrate_shape")    return {"rectangular", "circular"};
     if (name == "neural_network_type") return {
         "mlp",
@@ -409,6 +447,115 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
     if (name == "neural_proto_neat_initial_topology")      return {"empty", "minimal", "layered"};
     if (name == "neural_recurrent_neat_initial_topology")  return {"empty", "minimal", "layered"};
     return {};
+}
+
+std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
+{
+    const auto is = [&v](const char* x) { return v == x; };
+
+    if (name == "substrate_shape")
+    {
+        if (is("rectangular")) return "Retangular";
+        if (is("circular"))    return "Circular";
+    }
+    if (name == "food_mode")
+    {
+        if (is("instant")) return "Instantanea";
+        if (is("chunk"))   return "Em pedacos";
+    }
+    if (name == "food_piece_replenish_mode")
+    {
+        if (is("spawn_cluster"))  return "Novo cluster";
+        if (is("grow_existing"))  return "Crescer existentes";
+        if (is("grow_particles")) return "Crescer particulas";
+    }
+    if (name == "body_shape" || nameEndsWith(name, "_body_shape"))
+    {
+        if (is("ellipse")) return "Elipse";
+        if (is("circle"))  return "Circulo";
+    }
+    if (name == "movement_mode" || nameEndsWith(name, "_movement_mode"))
+    {
+        if (is("forward")) return "Para frente";
+        if (is("omni"))    return "Omnidirecional";
+    }
+    if (name == "retina_input_mode" || nameEndsWith(name, "_retina_input_mode"))
+    {
+        if (is("distance_only"))      return "Apenas distancia";
+        if (is("color_distance"))     return "Cor + distancia (combinadas)";
+        if (is("color_plus_distance"))return "Cor e distancia (separadas)";
+        if (is("color_only"))         return "Apenas cor";
+    }
+    if (name == "retina_vision_mode")
+    {
+        if (is("frontal"))      return "Frontal";
+        if (is("omni"))         return "Omni";
+        if (is("raycast"))      return "Raycast";
+        if (is("raycast_omni")) return "Raycast omni";
+    }
+    if (name == "retina_bins_mode")
+    {
+        if (is("single"))      return "Unico";
+        if (is("sector"))      return "Setor";
+        if (is("global"))      return "Global";
+        if (is("auto_sector")) return "Auto-setor";
+    }
+    if (name == "retina_bins_distance_distribution")
+    {
+        if (is("linear"))    return "Linear";
+        if (is("log"))       return "Logaritmica";
+        if (is("quadratic")) return "Quadratica";
+    }
+    if (name == "retina_bins_distance_falloff")
+    {
+        if (is("none"))        return "Nenhum";
+        if (is("linear"))      return "Linear";
+        if (is("exponential")) return "Exponencial";
+    }
+    if (name == "retina_bins_projection")
+    {
+        if (is("flat"))    return "Plana";
+        if (is("fisheye")) return "Olho de peixe";
+    }
+    if (nameEndsWith(name, "initial_topology"))
+    {
+        if (is("empty"))   return "Vazia";
+        if (is("minimal")) return "Minima";
+        if (is("layered")) return "Em camadas";
+    }
+    if (name == "neural_network_type")
+    {
+        if (is("mlp"))            return "MLP";
+        if (is("gated_mlp"))      return "MLP com portao (gated)";
+        if (is("shortcut_mlp"))   return "MLP com atalho (shortcut)";
+        if (is("modulated_mlp"))  return "MLP modulada";
+        if (is("simple_rnn"))     return "RNN simples";
+        if (is("neat"))           return "NEAT";
+        if (is("proto_neat"))     return "NEAT simplificada";
+        if (is("recurrent_neat")) return "NEAT recorrente";
+    }
+    return v;
+}
+
+int prefsDecimalsFor(const std::string& name) noexcept
+{
+    // Integer-like doubles: whole numbers make sense, decimals do not.
+    if (name == "world_w" || name == "world_h" || name == "substrate_radius") return 0;
+    if (name == "food_piece_particle_radius" || name == "food_piece_cluster_radius" ||
+        name == "food_piece_particle_spacing") return 0;
+    if (nameEndsWith(name, "_body_size") || nameEndsWith(name, "_vision_radius") ||
+        nameEndsWith(name, "_max_speed") || nameEndsWith(name, "_retina_fov_degrees") ||
+        nameEndsWith(name, "_eye_angle_degrees")) return 0;
+
+    // Fine-grained fractions: small values that need precision.
+    const auto has = [&name](const char* token) {
+        return name.find(token) != std::string::npos;
+    };
+    if (has("rate") || has("_std") || has("decay") || has("clip") || has("scale") ||
+        has("strength") || has("restitution") || has("drag") || has("efficiency") ||
+        has("elasticity") || has("init")) return 3;
+
+    return 2;
 }
 
 // Phase 23.2: per-architecture parameter prefixes used by the neural window

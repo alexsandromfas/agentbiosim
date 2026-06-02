@@ -11,7 +11,10 @@
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -67,8 +70,11 @@ std::string friendlyLabelFor(const std::string& name)
     return name;
 }
 
-// One parameter row: label + the type-appropriate widget. Emits
-// CmdSetParameterValue on change (queues a pending edit; Apply commits).
+// One parameter row inside a 2-column table (col 0 = label, col 1 = control).
+// Emits CmdSetParameterValue on change (queues a pending edit; Apply commits).
+// Phase 25.1: numeric params are plain TEXT BOXES (no +/- step buttons); enums
+// are dropdowns showing PT-BR labels (canonical value stored); floats use a
+// per-parameter number of decimals; the control fills the fixed narrow column.
 void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& prefs,
                   const std::string& name, core::CommandQueue& queue)
 {
@@ -77,14 +83,17 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
     const config::ParameterValue eff = prefsEffectiveValue(reg, prefs, name);
     const std::string label = friendlyLabelFor(name);
 
-    ImGui::PushID(name.c_str());
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label.c_str());
     if (ImGui::IsItemHovered() && !def->description.empty())
     {
         ImGui::SetTooltip("%s", def->description.c_str());
     }
-    ImGui::SameLine(196.0F);
+
+    ImGui::TableSetColumnIndex(1);
+    ImGui::PushID(name.c_str());
     ImGui::SetNextItemWidth(-1.0F);
 
     switch (def->type)
@@ -101,17 +110,8 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
     case config::ParameterType::Integer:
     {
         int v = asInt(eff);
-        bool changed = false;
-        if (def->range.min && def->range.max)
-        {
-            changed = ImGui::SliderInt("##v", &v, static_cast<int>(*def->range.min),
-                                         static_cast<int>(*def->range.max));
-        }
-        else
-        {
-            changed = ImGui::InputInt("##v", &v);
-        }
-        if (changed)
+        ImGui::InputInt("##v", &v, 0, 0);  // step=0 -> plain text box, no +/- buttons
+        if (ImGui::IsItemDeactivatedAfterEdit())
         {
             queue.push(core::CmdSetParameterValue{name, v});
         }
@@ -120,17 +120,10 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
     case config::ParameterType::Floating:
     {
         float f = static_cast<float>(asDouble(eff));
-        bool changed = false;
-        if (def->range.min && def->range.max)
-        {
-            changed = ImGui::SliderFloat("##v", &f, static_cast<float>(*def->range.min),
-                                           static_cast<float>(*def->range.max), "%.3f");
-        }
-        else
-        {
-            changed = ImGui::DragFloat("##v", &f, 0.01F, 0.0F, 0.0F, "%.3f");
-        }
-        if (changed)
+        char fmt[8];
+        std::snprintf(fmt, sizeof(fmt), "%%.%df", config::prefsDecimalsFor(name));
+        ImGui::InputFloat("##v", &f, 0.0F, 0.0F, fmt);  // no +/- buttons
+        if (ImGui::IsItemDeactivatedAfterEdit())
         {
             queue.push(core::CmdSetParameterValue{name, static_cast<double>(f)});
         }
@@ -142,12 +135,14 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
         const std::string cur = asString(eff);
         if (!options.empty())
         {
-            if (ImGui::BeginCombo("##v", cur.c_str()))
+            const std::string curLabel = config::prefsEnumDisplayLabel(name, cur);
+            if (ImGui::BeginCombo("##v", curLabel.c_str()))
             {
                 for (const auto& opt : options)
                 {
                     const bool sel = (opt == cur);
-                    if (ImGui::Selectable(opt.c_str(), sel))
+                    const std::string optLabel = config::prefsEnumDisplayLabel(name, opt);
+                    if (ImGui::Selectable(optLabel.c_str(), sel))
                     {
                         queue.push(core::CmdSetParameterValue{name, opt});
                     }
@@ -158,8 +153,7 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
         }
         else
         {
-            // Non-enum strings are shown read-only (most are hidden by the
-            // model anyway); free-form string editing is not required for parity.
+            // Non-enum strings are shown read-only (most are hidden by the model).
             std::string buf = cur;
             ImGui::InputText("##v", &buf, ImGuiInputTextFlags_ReadOnly);
         }
@@ -182,6 +176,26 @@ void drawParamRow(const config::ParameterRegistry& reg, const PreferencesState& 
     }
     }
     ImGui::PopID();
+}
+
+// Render a list of parameters as a 2-column table: label (stretch) + value
+// (fixed, narrow ~1/3 width). Keeps controls compact and avoids the
+// label/control overlap seen in the Performance window.
+void drawParamTable(const char* tableId, const config::ParameterRegistry& reg,
+                    const PreferencesState& prefs, const std::vector<std::string>& names,
+                    core::CommandQueue& queue)
+{
+    if (names.empty()) return;
+    if (ImGui::BeginTable(tableId, 2, ImGuiTableFlags_PadOuterX))
+    {
+        ImGui::TableSetupColumn("p", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthFixed, 148.0F);
+        for (const auto& n : names)
+        {
+            drawParamRow(reg, prefs, n, queue);
+        }
+        ImGui::EndTable();
+    }
 }
 
 bool toolButton(const char* label, bool active)
@@ -241,21 +255,23 @@ void drawLabelsTab(const config::ParameterRegistry& reg, const sim::SimulationRu
             queue.push(core::CmdSetSpeciesShowGraph{sid, sg});
         }
 
+        // Phase 25.1: Min / Max / Inicial as plain text boxes (no +/- buttons).
+        // The runner command takes a delta, so commit new-minus-current.
         const auto popField = [&](const char* lbl, int field, int value) {
             ImGui::PushID(field);
-            ImGui::TextUnformatted(lbl);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("-")) queue.push(core::CmdAdjustSpeciesPop{sid, field, -1});
-            ImGui::SameLine();
-            ImGui::Text("%d", value);
-            ImGui::SameLine();
-            if (ImGui::SmallButton("+")) queue.push(core::CmdAdjustSpeciesPop{sid, field, 1});
+            ImGui::SetNextItemWidth(64.0F);
+            int v = value;
+            ImGui::InputInt(lbl, &v, 0, 0);
+            if (ImGui::IsItemDeactivatedAfterEdit() && v != value)
+            {
+                queue.push(core::CmdAdjustSpeciesPop{sid, field, v - value});
+            }
             ImGui::PopID();
         };
         popField("Min", 0, rec.minPopulation);
-        ImGui::SameLine(0.0F, 14.0F);
+        ImGui::SameLine();
         popField("Max", 1, rec.maxPopulation);
-        ImGui::SameLine(0.0F, 14.0F);
+        ImGui::SameLine();
         popField("Ini", 2, rec.initialCount);
 
         if (ImGui::Button("Selecionar")) queue.push(core::CmdSelectAllOfSpecies{sid});
@@ -436,8 +452,48 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                 if (ImGui::BeginTabItem("Editor Genetico"))
                 {
                     ImGui::BeginChild("##editorscroll", ImVec2(0.0F, -52.0F));
-                    for (const auto& n : UiLeftDock::editorParameters())
-                        drawParamRow(registry, prefs, n, queue);
+                    // Phase 25.1: Gestalt grouping — params split into labeled
+                    // sections (thin separator + small title), mirroring the
+                    // Python genetic editor. The editor edits the "bacteria"
+                    // species. (Per-group Aplicar + reset-network message: Fase 25.2.)
+                    struct EditorGroup { const char* title; std::vector<const char*> suffixes; };
+                    static const std::vector<EditorGroup> kGroups = {
+                        {"Corpo e locomocao",
+                            {"body_size", "body_shape", "max_speed", "max_turn",
+                             "allow_reverse_locomotion", "movement_mode"}},
+                        {"Energia e reproducao",
+                            {"initial_energy", "death_energy", "split_energy", "v0_cost",
+                             "vmax_cost", "energy_cap", "death_by_age_enabled", "death_age",
+                             "corpse_to_food", "reproduction_min_age", "reproduction_cooldown"}},
+                        {"Visao",
+                            {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",
+                             "eye_angle_degrees", "see_food", "see_agents", "see_predators",
+                             "see_obstacles", "see_through_walls", "retina_channel_r",
+                             "retina_channel_g", "retina_channel_b", "retina_channel_d",
+                             "retina_input_mode"}},
+                        {"Dieta",
+                            {"diet_food", "diet_agents", "diet_same_label", "food_efficiency",
+                             "agent_efficiency"}},
+                        {"Rede neural",
+                            {"hidden_layers", "mutation_rate", "mutation_strength"}},
+                    };
+                    const auto editorNames = UiLeftDock::editorParameters();
+                    for (const auto& g : kGroups)
+                    {
+                        std::vector<std::string> present;
+                        for (const char* suf : g.suffixes)
+                        {
+                            const std::string full = std::string("bacteria_") + suf;
+                            if (std::find(editorNames.begin(), editorNames.end(), full) !=
+                                editorNames.end())
+                            {
+                                present.push_back(full);
+                            }
+                        }
+                        if (present.empty()) continue;
+                        ImGui::SeparatorText(g.title);
+                        drawParamTable(g.title, registry, prefs, present, queue);
+                    }
                     ImGui::EndChild();
                     ImGui::Separator();
                     if (ImGui::Button("Aplicar a especie")) queue.push(core::CmdApplyGenomeToSpecies{});
@@ -456,8 +512,18 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                 if (ImGui::BeginTabItem("Substrato"))
                 {
                     ImGui::BeginChild("##substratoscroll", ImVec2(0.0F, -52.0F));
+                    std::vector<std::string> worldParams;
+                    std::vector<std::string> foodParams;
                     for (const auto& n : UiLeftDock::substratoParameters())
-                        drawParamRow(registry, prefs, n, queue);
+                    {
+                        const bool isWorld = (n == "substrate_shape" || n == "world_w" ||
+                                              n == "world_h" || n == "substrate_radius");
+                        (isWorld ? worldParams : foodParams).push_back(n);
+                    }
+                    ImGui::SeparatorText("Substrato");
+                    drawParamTable("##subworld", registry, prefs, worldParams, queue);
+                    ImGui::SeparatorText("Comida");
+                    drawParamTable("##subfood", registry, prefs, foodParams, queue);
                     ImGui::EndChild();
                     ImGui::Separator();
                     if (ImGui::Button("Aplicar ambiente")) queue.push(core::CmdApplyEnvironment{});
@@ -498,10 +564,7 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
             {
                 ImGui::TextDisabled("Nenhum parametro nesta categoria.");
             }
-            for (const auto& n : names)
-            {
-                drawParamRow(registry, prefs, n, queue);
-            }
+            drawParamTable("##prefstbl", registry, prefs, names, queue);
             ImGui::EndChild();
             ImGui::Separator();
             if (ImGui::Button("Aplicar")) queue.push(core::CmdApplyPreferences{});

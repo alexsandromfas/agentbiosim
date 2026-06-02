@@ -65,6 +65,19 @@ enum class PrefsTab : int
 // Returns an empty vector when the parameter is not an enum.
 [[nodiscard]] std::vector<std::string> prefsEnumValuesFor(const std::string& parameterName);
 
+// Phase 25.1: PT-BR display label for one enum value of a combo parameter. The
+// canonical value (e.g. "circular") is stored in the registry; the UI shows the
+// friendly label (e.g. "Circular"). Returns `value` unchanged when no
+// translation is registered. Handles species-prefixed params by suffix.
+[[nodiscard]] std::string prefsEnumDisplayLabel(const std::string& parameterName,
+                                                  const std::string& value);
+
+// Phase 25.1: number of decimal places to show for a Floating parameter in the
+// UI. Integer-like doubles (world size, radii, spacing, sizes/angles/speeds)
+// return 0 so the field shows whole numbers; fine-grained fractions (rates,
+// std, decay, scale, strength) return 3; the default is 2.
+[[nodiscard]] int prefsDecimalsFor(const std::string& parameterName) noexcept;
+
 // Phase 23.2 fix: returns true if a parameter should appear in the neural
 // network window given the currently-selected neural_network_type. Common
 // knobs (the network type itself) always return true; per-architecture knobs

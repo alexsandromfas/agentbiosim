@@ -179,12 +179,16 @@ bool ParameterRegistry::setValue(const std::string& nameOrAlias, const Parameter
     {
         const auto* s = std::get_if<std::string>(&value);
         if (s == nullptr) return false;
-        if (!def.domains.empty())
-        {
-            const auto found =
-                std::find(def.domains.begin(), def.domains.end(), *s) != def.domains.end();
-            if (!found) return false;
-        }
+        // Phase 25.1 fix: the `domains` field stores filter TAGS (e.g.
+        // {"runtime","world"}), NOT enum values. Validating a string against it
+        // wrongly rejected valid enum values such as substrate_shape="circular"
+        // (the combo change was silently dropped via setValue() returning false,
+        // so "Aplicar ambiente" reverted the substrate to rectangular). The same
+        // silently broke every string-enum apply (movement mode, body shape,
+        // food mode, vision mode, ...). The real enum option lists live in
+        // prefsEnumValuesFor() in the UI layer, which already restricts the combo
+        // to valid values, and the engine maps any unknown string to a safe
+        // default. So accept any string here.
         def.defaultValue = *s;
         return true;
     }

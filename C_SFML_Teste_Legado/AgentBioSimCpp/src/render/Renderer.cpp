@@ -305,15 +305,21 @@ std::size_t Renderer::drawAgents(sf::RenderTarget& target,
         const double angle = agents.angleAt(i);
 
         // Phase 22.1: vetorial body — 40-segment disc with a subtle dark
-        // outline and a small inner lightness gradient. The previous version
-        // used a single 32-segment fill with no outline, which made small
-        // agents look rasterized.
+        // outline and a small inner lightness gradient.
+        // Phase 25.1 fix: honor the per-agent body shape. Ellipse organisms are
+        // drawn elongated along their heading (scaled + rotated disc) instead of
+        // a perfect circle, so "Forma do corpo: Elipse" is actually visible.
         sf::CircleShape body(radius, 40);
         body.setOrigin(radius, radius);
         body.setPosition(position);
         body.setFillColor(base);
         body.setOutlineThickness(std::max(0.8F, camera.zoom() * 0.35F));
         body.setOutlineColor(darken(base, 0.55F));
+        if (agents.bodyShapeAt(i) == simulation::BodyShapeCode::Ellipse)
+        {
+            body.setRotation(static_cast<float>(angle * 180.0 / 3.14159265358979));
+            body.setScale(1.35F, 0.72F);  // long axis along heading
+        }
         target.draw(body);
 
         // Inner lightness gradient (two soft concentric discs).

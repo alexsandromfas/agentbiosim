@@ -117,9 +117,17 @@ Phase23ValidationSummary runPhase23Validation()
         const int clamped = std::get<int>(registry.find("physics_steps_per_second")->defaultValue);
         addCheck(s, "(24) numeric clamp respects range", ok && clamped <= 1000);
 
-        // Enum invalid
-        const bool ngBad = registry.setValue("neural_network_type", std::string("doesnotexist"));
-        addCheck(s, "(25) invalid enum rejected", !ngBad);
+        // Phase 25.1: the `domains` field stores filter TAGS, not enum values, so
+        // setValue no longer rejects strings by domain — that silently dropped
+        // valid combo edits like substrate_shape="circular" (the substrate
+        // reverted to rectangular on Aplicar). Enum option lists live in the UI
+        // layer (prefsEnumValuesFor). This check now guards that fix: a valid
+        // string value is accepted and read back.
+        const bool circOk = registry.setValue("substrate_shape", std::string("circular"));
+        const bool circRead =
+            std::get<std::string>(registry.find("substrate_shape")->defaultValue) == "circular";
+        addCheck(s, "(25) string enum value accepted (substrate_shape=circular)",
+                 circOk && circRead);
 
         // Pending future phase flag
         const auto* aes = registry.find("auto_export_substrate");
