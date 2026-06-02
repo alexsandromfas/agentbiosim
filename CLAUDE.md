@@ -77,9 +77,19 @@ de codigo.
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 
+ATENCAO (portabilidade entre maquinas): o `CMakeLists.txt` tem um caminho FIXO de SFML desta
+maquina (`.../AntSimulator-master/.../third_party/SFML-2.6.2`). Em outro PC esse caminho nao
+existe e o CMake da FATAL_ERROR. Solucao: ter o **SFML 2.6.2** (build MSVC) em algum lugar e
+apontar o CMake com `-DSFML_ROOT=...`:
+```
+cmake -S . -B build -DSFML_ROOT="C:/caminho/para/SFML-2.6.2"
+```
+A fonte da UI carrega de `C:/Windows/Fonts/segoeui.ttf` (cai no fallback embutido se faltar).
+Dear ImGui/ImGui-SFML ja estao vendados em `third_party/` (vem com o clone).
+
 ```
 cd C_SFML_Teste_Legado/AgentBioSimCpp
-cmake -S . -B build
+cmake -S . -B build   # adicione -DSFML_ROOT=... se o caminho fixo nao existir nesta maquina
 cmake --build build --config Debug
 cmake --build build --config Release
 ```
