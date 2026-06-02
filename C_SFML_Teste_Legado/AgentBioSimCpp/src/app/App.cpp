@@ -4,6 +4,11 @@
 #include "config/ParameterHelpers.hpp"
 #include "config/ParameterMetadata.hpp"
 #include "core/Version.hpp"
+#include "ui/ImGuiTheme.hpp"
+#include "ui/UiPreferencesPanel.hpp"  // prefs* model free functions (prefsApplyPending, etc.)
+
+#include <imgui.h>
+#include <imgui-SFML.h>
 
 #include <SFML/Graphics/View.hpp>
 #include <SFML/Window/ContextSettings.hpp>
@@ -77,19 +82,36 @@ App::App()
     configureFromParameters();
     configureRenderOptions();
     fitCameraToWorld();
-    if (font_.loadFromFile("C:/Windows/Fonts/segoeui.ttf") ||
-        font_.loadFromFile("C:/Windows/Fonts/arial.ttf"))
+    // Phase 25: initialize Dear ImGui (ImGui-SFML backend). Load Segoe UI at
+    // 18px for a modern look with Latin-1 glyphs (covers PT-BR accents); fall
+    // back to the built-in font if the file is unavailable. Then apply the
+    // project's dark theme so every panel shares one visual language.
+    if (!ImGui::SFML::Init(window_))
     {
-        fontLoaded_ = true;
-        uiPanel_.setFont(&font_);
-        preferencesPanel_.setFont(&font_);
-        leftDock_.setFont(&font_);
+        std::cerr << "AgentBioSimCpp: falha ao inicializar ImGui-SFML.\n";
     }
+    {
+        ImGuiIO& io = ImGui::GetIO();
+        io.IniFilename = nullptr;  // do not write imgui.ini next to the executable
+        io.Fonts->Clear();
+        if (io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf", 18.0F) == nullptr)
+        {
+            io.Fonts->AddFontDefault();
+        }
+        static_cast<void>(ImGui::SFML::UpdateFontTexture());
+    }
+    ui::applyImGuiTheme();
     uiState_.timeScale = config::parameterDouble(parameters_, "time_scale", 1.0);
-    std::cout << "AgentBioSimCpp Phase 24.2: painel lateral (Editor / Substrato / Labels) ("
+    std::cout << "AgentBioSimCpp Phase 25: UI Dear ImGui (Editor / Substrato / Labels) ("
               << runner_.species().size() << " species, " << runner_.genomes().size()
               << " genomes, " << runner_.foods().size() << " foods, "
               << runner_.obstacles().size() << " obstacles).\n";
+}
+
+App::~App()
+{
+    // Phase 25: tear down the ImGui-SFML context.
+    ImGui::SFML::Shutdown();
 }
 
 int App::run()
@@ -110,6 +132,9 @@ void App::processEvents()
     sf::Event event{};
     while (window_.pollEvent(event))
     {
+        // Phase 25: feed every event to Dear ImGui first so its widgets react.
+        ImGui::SFML::ProcessEvent(window_, event);
+
         if (event.type == sf::Event::Closed)
         {
             window_.close();
@@ -120,210 +145,27 @@ void App::processEvents()
             handleResize(event.size.width, event.size.height);
             continue;
         }
-        // Phase 23.1: preferences windows + popups have highest priority.
-        // Then UI panel (menu/toolbar/dropdowns), then canvas via InputRouter.
-        const sf::Vector2u vp = window_.getSize();
-        // Phase 24.2: top strip height = menu bar + toolbar (left dock sits below it).
-        const float topStripH = uiPanel_.metrics().menuBarHeight + uiPanel_.metrics().toolbarHeight;
-        if (event.type == sf::Event::MouseButtonPressed)
+        // Phase 25 (Divida 9): ImGui owns ALL widget interaction. When the
+        // pointer is over an ImGui window, or a text field has keyboard focus,
+        // ImGui captures the event and the world canvas must not react.
+        // Otherwise the event belongs to the canvas and goes to the InputRouter.
+        // This single capture test replaces the hand-rolled hit-testing of the
+        // old SFML panels (UiPanel / UiPreferencesPanel / UiLeftDock) and the
+        // manual text-edit / scroll / drag handling, while preserving the
+        // Microfase 22.1 screen->world conversion in the InputRouter.
+        const ImGuiIO& io = ImGui::GetIO();
+        const bool mouseEvent =
+            event.type == sf::Event::MouseButtonPressed ||
+            event.type == sf::Event::MouseButtonReleased ||
+            event.type == sf::Event::MouseMoved ||
+            event.type == sf::Event::MouseWheelScrolled;
+        const bool keyboardEvent =
+            event.type == sf::Event::KeyPressed ||
+            event.type == sf::Event::KeyReleased ||
+            event.type == sf::Event::TextEntered;
+        if ((mouseEvent && io.WantCaptureMouse) || (keyboardEvent && io.WantCaptureKeyboard))
         {
-            const int sx = event.mouseButton.x;
-            const int sy = event.mouseButton.y;
-            if (preferencesPanel_.pointInsideAnyWindow(sx, sy, vp, uiState_.preferences))
-            {
-                if (event.mouseButton.button == sf::Mouse::Left)
-                {
-                    static_cast<void>(preferencesPanel_.handleMouseClick(sx, sy, vp,
-                                                                            parameters_,
-                                                                            uiState_.preferences,
-                                                                            commandQueue_));
-                }
-                continue;
-            }
-            // Phase 24.2: persistent left dock (Editor/Substrato/Labels).
-            if (leftDock_.pointInsideDock(sx, sy, vp, topStripH, uiState_.preferences))
-            {
-                if (event.mouseButton.button == sf::Mouse::Left)
-                {
-                    static_cast<void>(leftDock_.handleMouseClick(sx, sy, vp, topStripH,
-                                                                    parameters_, runner_,
-                                                                    uiState_.preferences,
-                                                                    commandQueue_));
-                }
-                continue;
-            }
-            if (uiPanel_.pointInsidePanel(sx, sy, uiState_))
-            {
-                if (event.mouseButton.button == sf::Mouse::Left)
-                {
-                    static_cast<void>(uiPanel_.handleMouseClick(sx, sy, runner_, uiState_,
-                                                                   commandQueue_));
-                }
-                continue;
-            }
-        }
-        // Phase 23.2: drag prefs window when a drag is in progress; otherwise
-        // let the InputRouter receive the move.
-        if (event.type == sf::Event::MouseMoved)
-        {
-            if (uiState_.preferences.draggingTab >= 0 || uiState_.preferences.draggingHelp ||
-                uiState_.velocitySliderDragging)
-            {
-                if (uiState_.velocitySliderDragging)
-                {
-                    const float x = static_cast<float>(event.mouseMove.x) -
-                                        uiState_.velocitySliderTrackX;
-                    const float w = uiState_.velocitySliderTrackW;
-                    const float rel = std::clamp(x / std::max(1.0F, w), 0.0F, 1.0F);
-                    const double minV = 0.1;
-                    const double maxV = 50.0;
-                    const double v = std::pow(10.0,
-                        std::log10(minV) + static_cast<double>(rel) *
-                            (std::log10(maxV) - std::log10(minV)));
-                    commandQueue_.push(ui::CmdSetTimeScale{v});
-                }
-                else
-                {
-                    preferencesPanel_.handleMouseMove(event.mouseMove.x, event.mouseMove.y,
-                                                        vp, uiState_.preferences, commandQueue_);
-                }
-                continue;
-            }
-        }
-        if (event.type == sf::Event::MouseButtonReleased &&
-            event.mouseButton.button == sf::Mouse::Left)
-        {
-            if (uiState_.preferences.draggingTab >= 0 || uiState_.preferences.draggingHelp)
-            {
-                preferencesPanel_.handleMouseRelease(event.mouseButton.x, event.mouseButton.y,
-                                                       vp, uiState_.preferences, commandQueue_);
-                continue;
-            }
-            if (uiState_.velocitySliderDragging)
-            {
-                uiState_.velocitySliderDragging = false;
-                continue;
-            }
-        }
-        // Phase 23.2: inline text editor for numeric parameters.
-        if (!uiState_.preferences.editingParam.empty())
-        {
-            if (event.type == sf::Event::TextEntered)
-            {
-                const auto u = event.text.unicode;
-                if (u == 8U)  // backspace
-                {
-                    if (!uiState_.preferences.editingBuffer.empty())
-                    {
-                        uiState_.preferences.editingBuffer.pop_back();
-                    }
-                }
-                else if (u >= 32U && u < 127U)
-                {
-                    const char ch = static_cast<char>(u);
-                    if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-' ||
-                        ch == '+' || ch == 'e' || ch == 'E')
-                    {
-                        uiState_.preferences.editingBuffer.push_back(ch);
-                    }
-                }
-                continue;
-            }
-            if (event.type == sf::Event::KeyPressed)
-            {
-                if (event.key.code == sf::Keyboard::Enter ||
-                    event.key.code == sf::Keyboard::Return)
-                {
-                    commandQueue_.push(ui::CmdCommitEditParameter{});
-                    continue;
-                }
-                if (event.key.code == sf::Keyboard::Escape)
-                {
-                    commandQueue_.push(ui::CmdCancelEditParameter{});
-                    continue;
-                }
-                // Swallow all other keys while editing so the canvas tools
-                // do not react to digits/letters.
-                continue;
-            }
-        }
-        // Phase 24.2: inline editor for a species/label name in the Labels tab.
-        if (uiState_.preferences.editingSpeciesId != 0U)
-        {
-            if (event.type == sf::Event::TextEntered)
-            {
-                const auto u = event.text.unicode;
-                if (u == 8U)
-                {
-                    if (!uiState_.preferences.editingSpeciesBuffer.empty())
-                        uiState_.preferences.editingSpeciesBuffer.pop_back();
-                }
-                else if (u >= 32U && u < 127U)
-                {
-                    uiState_.preferences.editingSpeciesBuffer.push_back(static_cast<char>(u));
-                }
-                continue;
-            }
-            if (event.type == sf::Event::KeyPressed)
-            {
-                if (event.key.code == sf::Keyboard::Enter ||
-                    event.key.code == sf::Keyboard::Return)
-                {
-                    commandQueue_.push(ui::CmdCommitEditSpeciesName{});
-                    continue;
-                }
-                if (event.key.code == sf::Keyboard::Escape)
-                {
-                    commandQueue_.push(ui::CmdCancelEditSpeciesName{});
-                    continue;
-                }
-                continue;
-            }
-        }
-        // Phase 23.1: scroll wheel — route to a prefs window when one is under
-        // the cursor; otherwise let the InputRouter zoom the canvas.
-        if (event.type == sf::Event::MouseWheelScrolled)
-        {
-            const int sx = static_cast<int>(event.mouseWheelScroll.x);
-            const int sy = static_cast<int>(event.mouseWheelScroll.y);
-            if (preferencesPanel_.handleMouseWheel(sx, sy, vp, event.mouseWheelScroll.delta,
-                                                      uiState_.preferences, commandQueue_))
-            {
-                continue;
-            }
-            if (leftDock_.handleMouseWheel(sx, sy, vp, topStripH, event.mouseWheelScroll.delta,
-                                              uiState_.preferences, commandQueue_))
-            {
-                continue;
-            }
-        }
-        // Phase 23.1: Esc closes the topmost open prefs surface first.
-        if (event.type == sf::Event::KeyPressed && event.key.code == sf::Keyboard::Escape)
-        {
-            if (!uiState_.preferences.openPopup.empty())
-            {
-                commandQueue_.push(ui::CmdClosePrefsPopup{});
-                continue;
-            }
-            if (uiState_.preferences.helpWindowOpen)
-            {
-                commandQueue_.push(ui::CmdCloseHelpWindow{});
-                continue;
-            }
-            if (uiState_.preferences.substratePlaceholderOpen)
-            {
-                commandQueue_.push(ui::CmdCloseSubstratePlaceholder{});
-                continue;
-            }
-            for (int t = 0; t < static_cast<int>(config::PrefsTab::Count); ++t)
-            {
-                if (uiState_.preferences.windowOpen[static_cast<std::size_t>(t)])
-                {
-                    commandQueue_.push(ui::CmdClosePreferencesWindow{t});
-                    break;
-                }
-            }
-            // Fall through to InputRouter so Esc also clears selection.
+            continue;
         }
         inputRouter_.handleEvent(event, window_.getSize(), camera_, runner_, uiState_,
                                    commandQueue_);
@@ -397,7 +239,7 @@ void App::fitCameraToWorld()
     // screenToWorld/worldToScreen consume symmetrically, so the Microfase 22.1
     // coordinate conversion stays exact.
     const sf::Vector2u vp = window_.getSize();
-    float dockW = uiState_.preferences.dockVisible ? ui::UiLeftDock::kDockW : 0.0F;
+    float dockW = uiState_.preferences.dockVisible ? ui::ImGuiUi::kDockW : 0.0F;
     if (dockW > static_cast<float>(vp.x) * 0.6F) dockW = 0.0F;  // safety on tiny windows
     const sf::Vector2u fitVp{vp.x - static_cast<unsigned int>(dockW), vp.y};
     camera_.fitWorld(toSfml(runner_.world().minBounds()), toSfml(runner_.world().maxBounds()),
@@ -928,6 +770,23 @@ void App::drainCommandsAndApply()
                 uiState_.preferences.editingSpeciesId = 0U;
                 uiState_.preferences.editingSpeciesBuffer.clear();
             }
+            // Phase 25: ImGui-native direct species label/color edits.
+            else if constexpr (std::is_same_v<T, ui::CmdSetSpeciesLabel>)
+            {
+                if (!c.label.empty())
+                {
+                    static_cast<void>(runner_.setSpeciesLabel(
+                        static_cast<simulation::SpeciesId>(c.speciesId), c.label));
+                }
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetSpeciesColor>)
+            {
+                static_cast<void>(runner_.setSpeciesColorAndRecolor(
+                    static_cast<simulation::SpeciesId>(c.speciesId),
+                    simulation::ColorRgb{static_cast<std::uint8_t>(c.r),
+                                           static_cast<std::uint8_t>(c.g),
+                                           static_cast<std::uint8_t>(c.b)}));
+            }
             else
             {
                 static_cast<void>(c);
@@ -951,50 +810,61 @@ void App::update()
 
 void App::render()
 {
-    if (!renderOptions_.renderEnabled)
+    // Phase 25: build the Dear ImGui frame every render pass (between
+    // ImGui::SFML::Update and ImGui::SFML::Render), regardless of whether the
+    // world is drawn, so the UI stays responsive. ImGuiUi reads engine/UI state
+    // and emits commands; it never mutates stores.
+    ImGui::SFML::Update(window_, uiDeltaClock_.restart());
+    ui::ImGuiFrameInfo info;
+    info.fps = lastFps_;
+    info.steps = simulatedSteps_;
+    info.agents = runner_.agents().size();
+    info.foods = runner_.foods().size();
+    info.obstacles = runner_.obstacles().size();
+    info.paused = runner_.paused();
+    info.simpleRender = renderOptions_.simpleRender;
+    imguiUi_.draw(parameters_, runner_, uiState_, commandQueue_, info);
+
+    if (renderOptions_.renderEnabled)
+    {
+        const auto* obstaclePtr = runner_.obstacles().empty() ? nullptr : &runner_.obstacles();
+
+        // Phase 22.1: wire selection overlays into the renderer. Marquee/lasso
+        // are taken from uiState_; selection halos read agent positions through
+        // SimulationRunner via the entity ids the selection stores.
+        render::SelectionRenderInput selInput;
+        if (uiState_.showSelectionOverlay)
+        {
+            selInput.selectedIds = &uiState_.selection.ids();
+        }
+        selInput.marqueeActive = uiState_.marquee.active;
+        selInput.marqueeStartWorld = uiState_.marquee.startWorld;
+        selInput.marqueeEndWorld = uiState_.marquee.endWorld;
+        selInput.lassoActive = uiState_.lasso.active;
+        selInput.lassoPoints = &uiState_.lasso.points;
+        if (uiState_.lastMouseValid &&
+            (uiState_.activeTool == ui::CanvasTool::PaintObstacle ||
+             uiState_.activeTool == ui::CanvasTool::EraseObstacle))
+        {
+            selInput.brushCursorActive = true;
+            selInput.brushCursorWorld = uiState_.lastMouseWorld;
+            selInput.brushCursorRadius = uiState_.brushRadius *
+                (uiState_.activeTool == ui::CanvasTool::EraseObstacle ? 1.5 : 1.0);
+            selInput.brushIsEraser = uiState_.activeTool == ui::CanvasTool::EraseObstacle;
+        }
+
+        lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
+                                              runner_.agents(), runner_.foods(),
+                                              renderOptions_, nullptr, obstaclePtr,
+                                              &selInput);
+    }
+    else
     {
         window_.clear();
-        window_.display();
-        ++frames_;
-        return;
-    }
-    const auto* obstaclePtr = runner_.obstacles().empty() ? nullptr : &runner_.obstacles();
-
-    // Phase 22.1: wire selection overlays into the renderer. Marquee/lasso
-    // are taken from uiState_; selection halos read agent positions through
-    // SimulationRunner via the entity ids the selection stores.
-    render::SelectionRenderInput selInput;
-    if (uiState_.showSelectionOverlay)
-    {
-        selInput.selectedIds = &uiState_.selection.ids();
-    }
-    selInput.marqueeActive = uiState_.marquee.active;
-    selInput.marqueeStartWorld = uiState_.marquee.startWorld;
-    selInput.marqueeEndWorld = uiState_.marquee.endWorld;
-    selInput.lassoActive = uiState_.lasso.active;
-    selInput.lassoPoints = &uiState_.lasso.points;
-    if (uiState_.lastMouseValid &&
-        (uiState_.activeTool == ui::CanvasTool::PaintObstacle ||
-         uiState_.activeTool == ui::CanvasTool::EraseObstacle))
-    {
-        selInput.brushCursorActive = true;
-        selInput.brushCursorWorld = uiState_.lastMouseWorld;
-        selInput.brushCursorRadius = uiState_.brushRadius *
-            (uiState_.activeTool == ui::CanvasTool::EraseObstacle ? 1.5 : 1.0);
-        selInput.brushIsEraser = uiState_.activeTool == ui::CanvasTool::EraseObstacle;
     }
 
-    lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
-                                          runner_.agents(), runner_.foods(),
-                                          renderOptions_, nullptr, obstaclePtr,
-                                          &selInput);
-    // Phase 24.2: persistent left dock below the top strip, drawn before the
-    // top menu so menu dropdowns overlay it.
-    const float topStripH = uiPanel_.metrics().menuBarHeight + uiPanel_.metrics().toolbarHeight;
-    leftDock_.draw(window_, topStripH, parameters_, runner_, uiState_.preferences);
-    uiPanel_.draw(window_, runner_, uiState_);
-    // Phase 23: preferences window sits above panel + canvas.
-    preferencesPanel_.draw(window_, parameters_, uiState_.preferences);
+    // Phase 25: Dear ImGui draws on top of the world canvas.
+    ImGui::SFML::Render(window_);
     window_.display();
     ++frames_;
 }

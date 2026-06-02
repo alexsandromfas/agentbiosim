@@ -173,6 +173,12 @@ struct CmdBeginEditSpeciesName  { std::uint32_t speciesId = 0; std::string initi
 struct CmdCommitEditSpeciesName {};
 struct CmdCancelEditSpeciesName {};
 
+// Phase 25 (Dear ImGui): direct species label/color edits. ImGui owns the text
+// field and color picker state, so the begin/commit dance and the palette-cycle
+// from the SFML dock are no longer needed — the widget emits the final value.
+struct CmdSetSpeciesLabel  { std::uint32_t speciesId = 0; std::string label; };
+struct CmdSetSpeciesColor  { std::uint32_t speciesId = 0; int r = 0; int g = 0; int b = 0; };
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -265,7 +271,9 @@ using Command = std::variant<
     CmdRemoveSpecies,
     CmdBeginEditSpeciesName,
     CmdCommitEditSpeciesName,
-    CmdCancelEditSpeciesName
+    CmdCancelEditSpeciesName,
+    CmdSetSpeciesLabel,
+    CmdSetSpeciesColor
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

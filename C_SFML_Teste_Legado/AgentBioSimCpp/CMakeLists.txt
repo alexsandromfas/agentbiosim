@@ -107,6 +107,8 @@ add_executable(AgentBioSimCpp
     src/ui/UiPanel.cpp
     src/ui/UiPreferencesPanel.cpp
     src/ui/UiLeftDock.cpp
+    src/ui/ImGuiTheme.cpp
+    src/ui/ImGuiUi.cpp
     src/systems/DeathSystem.cpp
     src/systems/EnergySystem.cpp
     src/systems/InteractionSystem.cpp

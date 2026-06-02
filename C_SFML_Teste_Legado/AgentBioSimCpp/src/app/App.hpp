@@ -7,11 +7,9 @@
 #include "sim/SimulationRunner.hpp"
 #include "simulation/FixedTimestep.hpp"
 #include "simulation/SpatialHash.hpp"
-#include "ui/Command.hpp"
+#include "core/Command.hpp"
+#include "ui/ImGuiUi.hpp"
 #include "ui/InputRouter.hpp"
-#include "ui/UiPanel.hpp"
-#include "ui/UiLeftDock.hpp"
-#include "ui/UiPreferencesPanel.hpp"
 #include "ui/UiState.hpp"
 
 #include <SFML/Graphics/Font.hpp>
@@ -31,6 +29,7 @@ class App
 {
 public:
     App();
+    ~App();
 
     int run();
 
@@ -57,15 +56,14 @@ private:
     sf::Clock fpsClock_;
     sf::Vector2i lastMousePosition_{0, 0};
     perception::VisionDebugData visionDebug_{};
-    sf::Font font_;
-    bool fontLoaded_ = false;
+
+    // Phase 25: ImGui delta clock (ImGui::SFML::Update needs frame dt).
+    sf::Clock uiDeltaClock_;
 
     ui::UiState uiState_{};
     ui::InputRouter inputRouter_{};
-    ui::UiPanel uiPanel_{};
-    ui::UiPreferencesPanel preferencesPanel_{};
-    ui::UiLeftDock leftDock_{};
-    ui::CommandQueue commandQueue_;
+    ui::ImGuiUi imguiUi_{};
+    core::CommandQueue commandQueue_;
 
     unsigned int frames_ = 0;
     float lastFps_ = 0.0F;
