@@ -4,7 +4,11 @@
 #include "core/Command.hpp"
 #include "ui/UiState.hpp"
 
+#include <SFML/Graphics/Texture.hpp>
+
 #include <cstddef>
+#include <string>
+#include <unordered_map>
 
 namespace agentbiosim::sim
 {
@@ -53,6 +57,31 @@ public:
     [[nodiscard]] float topStripHeight() const noexcept { return topStripHeight_; }
 
 private:
+    // Phase 25.3: lazily load the toolbar icon textures (once, on the first
+    // draw, when the GL context is live) and look them up by key. A missing icon
+    // resolves to nullptr so the toolbar falls back to a text label.
+    void loadIcons();
+    [[nodiscard]] const sf::Texture* icon(const char* key) const;
+
+    // Phase 26: retractable inspector for the selected agent (Genoma + Rede
+    // Neural tabs). It reads the runner read-only and writes UiState's trace
+    // signal so App can drive the engine trace target. No-op when no agent is
+    // selected or the panel is closed.
+    void drawAgentInspector(const config::ParameterRegistry& registry,
+                            const sim::SimulationRunner& runner,
+                            UiState& state,
+                            core::CommandQueue& queue);
+
+    // Phase 27: metrics charts + per-system profiler table. Reads the runner's
+    // MetricsSystem/Profiler (read-only) and toggles the engine knobs via
+    // commands. No-op when the window is closed.
+    void drawMetricsWindow(const config::ParameterRegistry& registry,
+                           const sim::SimulationRunner& runner,
+                           UiState& state,
+                           core::CommandQueue& queue);
+
     float topStripHeight_ = 0.0F;
+    std::unordered_map<std::string, sf::Texture> icons_;
+    bool iconsLoaded_ = false;
 };
 } // namespace agentbiosim::ui

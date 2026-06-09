@@ -39,11 +39,12 @@ enum class PrefsTab : int
 // in the Fase 24 editor).
 [[nodiscard]] int prefsTabForCategory(const std::string& registryCategory) noexcept;
 
-// Phase 23.1 hotfix: friendly Portuguese label for the parameter row in the
-// preferences UI. Returns nullptr if no friendly label is registered (the UI
-// then falls back to the raw name). ASCII-only on purpose — the SFML bitmap
-// glyph cache that ships with segoeui.ttf renders Latin-1 correctly but using
-// ASCII labels avoids encoding surprises across machines/locales.
+// Phase 23.1 hotfix: friendly label for the parameter row in the preferences
+// UI, localized to the active i18n language (Phase 25.2). Returns nullptr if no
+// friendly label is registered (the UI then falls back to the raw name).
+// ASCII-only on purpose — the SFML bitmap glyph cache that ships with
+// segoeui.ttf renders Latin-1 correctly but using ASCII labels avoids encoding
+// surprises across machines/locales.
 [[nodiscard]] const char* prefsFriendlyLabel(const std::string& parameterName) noexcept;
 
 // Phase 24.1 fix: friendly label by SUFFIX for species-prefixed parameters.
@@ -65,12 +66,21 @@ enum class PrefsTab : int
 // Returns an empty vector when the parameter is not an enum.
 [[nodiscard]] std::vector<std::string> prefsEnumValuesFor(const std::string& parameterName);
 
-// Phase 25.1: PT-BR display label for one enum value of a combo parameter. The
-// canonical value (e.g. "circular") is stored in the registry; the UI shows the
-// friendly label (e.g. "Circular"). Returns `value` unchanged when no
-// translation is registered. Handles species-prefixed params by suffix.
+// Phase 25.1: localized display label for one enum value of a combo parameter.
+// The canonical value (e.g. "circular") is stored in the registry; the UI shows
+// the friendly label (e.g. "Circular"/"Circular") in the active language.
+// Returns `value` unchanged when no translation is registered. Handles
+// species-prefixed params by suffix.
 [[nodiscard]] std::string prefsEnumDisplayLabel(const std::string& parameterName,
                                                   const std::string& value);
+
+// Phase 25.2: curated, localized help text for a parameter's tooltip. This
+// supersedes the registry's terse raw `description` with a fuller explanation
+// (what the parameter controls and the practical effect of changing it) in the
+// active language. Returns nullptr when no curated help exists for the
+// parameter, in which case the caller falls back to the raw description.
+// Species-prefixed parameters (bacteria_*, predator_*) are matched by suffix.
+[[nodiscard]] const char* prefsParameterHelp(const std::string& parameterName) noexcept;
 
 // Phase 25.1: number of decimal places to show for a Floating parameter in the
 // UI. Integer-like doubles (world size, radii, spacing, sizes/angles/speeds)

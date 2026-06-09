@@ -1,8 +1,13 @@
 #pragma once
 
 #include "config/ParameterRegistry.hpp"
+#include "core/Profiler.hpp"
+#include "neural/ActivationTrace.hpp"
 #include "neural/BrainConfig.hpp"
+#include "neural/NeuralView.hpp"
 #include "perception/PerceptionSystem.hpp"
+#include "perception/VisionDebug.hpp"
+#include "systems/MetricsSystem.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
@@ -124,6 +129,31 @@ public:
     [[nodiscard]] bool spatialHashOverlay() const noexcept { return showSpatialHash_; }
     [[nodiscard]] bool simpleRender() const noexcept { return simpleRender_; }
 
+    // Phase 26: neural viewer for the selected agent. Setting a target makes the
+    // next step also capture an ActivationTrace + NeuralView for that one agent
+    // (trace-on-demand); with no target nothing is captured and neuralTraceCount()
+    // does not grow, so the cost is zero when the viewer is hidden.
+    void setNeuralViewerTarget(simulation::EntityId id);
+    void clearNeuralViewerTarget() noexcept { neuralSystem_.clearTraceTarget(); }
+    [[nodiscard]] std::uint64_t neuralTraceCount() const noexcept { return neuralSystem_.traceCount(); }
+    [[nodiscard]] bool hasSelectedNeuralView() const noexcept { return neuralSystem_.hasLastView(); }
+    [[nodiscard]] const neural::NeuralView& selectedNeuralView() const noexcept { return neuralSystem_.lastView(); }
+    [[nodiscard]] const neural::ActivationTrace& selectedNeuralTrace() const noexcept { return neuralSystem_.lastTrace(); }
+
+    // Phase 26: selected-agent vision overlay, reusing the Phase 11/12 debug
+    // rays. Setting a target makes the next step fill visionDebug() for that
+    // agent only; with no target the perception step requests no debug data.
+    void setVisionDebugTarget(simulation::EntityId id) noexcept { visionDebugTargetId_ = id.isValid() ? id.value : 0U; }
+    void clearVisionDebugTarget() noexcept { visionDebugTargetId_ = 0U; visionDebug_.clear(); }
+    [[nodiscard]] const perception::VisionDebugData& visionDebug() const noexcept { return visionDebug_; }
+
+    // Phase 27: observability. The runner owns the profiler (instruments its own
+    // step) and the metrics system; the UI reads them and App adds Render/Ui
+    // scopes via profilerMutable(). Both are toggled from the registry each step.
+    [[nodiscard]] const core::Profiler& profiler() const noexcept { return profiler_; }
+    [[nodiscard]] core::Profiler& profilerMutable() noexcept { return profiler_; }
+    [[nodiscard]] const systems::MetricsSystem& metrics() const noexcept { return metrics_; }
+
 private:
     void spawnInitial();
     void rebuildSpatial();
@@ -139,6 +169,9 @@ private:
     simulation::ObstacleStore obstacles_;
     simulation::SpatialHash spatialHash_;
 
+    core::Profiler profiler_;
+    systems::MetricsSystem metrics_;
+
     perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;
     systems::NeuralSystem neuralSystem_;
@@ -153,6 +186,10 @@ private:
     bool stepOnce_ = false;
     bool showSpatialHash_ = false;
     bool simpleRender_ = false;
+
+    // Phase 26: selected-agent vision overlay state (0 = no target).
+    perception::VisionDebugData visionDebug_{};
+    std::uint64_t visionDebugTargetId_ = 0;
     std::uint64_t seed_ = 1337U;
     double timeScale_ = 1.0;
 

@@ -38,6 +38,9 @@ public:
     bool mutate(const NeuralMutationConfig& mutCfg, std::mt19937_64& rng);
 
     [[nodiscard]] const std::vector<std::vector<double>>& gates() const noexcept { return gates_; }
+    // Phase 26: whole-network read access for the neural viewer (read-only).
+    [[nodiscard]] const std::vector<std::vector<double>>& weights() const noexcept { return weights_; }
+    [[nodiscard]] const std::vector<std::vector<double>>& biases() const noexcept { return biases_; }
 
 private:
     void initialize(std::mt19937_64& rng);

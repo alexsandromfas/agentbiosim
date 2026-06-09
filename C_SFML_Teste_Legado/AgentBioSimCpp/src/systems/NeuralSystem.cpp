@@ -59,6 +59,14 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
 
     syncBrains(agents, config);
 
+    // Phase 26: with no trace target the previous view becomes stale immediately
+    // (viewer is hidden). With a target we capture during its forward below.
+    if (traceTargetId_ == 0)
+    {
+        lastViewValid_ = false;
+    }
+    bool capturedTrace = false;
+
     std::vector<MovementControl> controls(agents.size());
     for (std::size_t index = 0; index < agents.size(); ++index)
     {
@@ -80,7 +88,24 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
             input = syntheticInputForAgent(agents, world, config, index);
         }
 
-        const std::vector<double> output = executor_.forward(it->second.brain, input);
+        std::vector<double> output;
+        if (traceTargetId_ != 0 && id.value == traceTargetId_)
+        {
+            // Trace-capturing forward for the single selected agent. This is the
+            // real forward (it still advances RNN/NEAT recurrent state); we just
+            // also record the activations and rebuild the read-only view.
+            neural::ActivationTrace trace;
+            output = executor_.forward(it->second.brain, input, &trace);
+            lastView_ = neural::buildNeuralView(it->second.brain, trace, &input);
+            lastTrace_ = std::move(trace);
+            lastViewValid_ = true;
+            capturedTrace = true;
+            ++traceCount_;
+        }
+        else
+        {
+            output = executor_.forward(it->second.brain, input);
+        }
         MovementControl control;
         if (output.size() >= 3U)
         {
@@ -95,6 +120,12 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
         }
         controls[index] = control;
         ++lastStats_.agentsProcessed;
+    }
+    // Phase 26: a target that did not match any live agent this step (e.g. it
+    // just died) leaves no fresh view — mark it stale so the UI hides it safely.
+    if (traceTargetId_ != 0 && !capturedTrace)
+    {
+        lastViewValid_ = false;
     }
     lastStats_.brainCount = brainsByAgentId_.size();
     return controls;
@@ -167,6 +198,12 @@ void NeuralSystem::clear()
 {
     brainsByAgentId_.clear();
     lastStats_ = {};
+    // Phase 26: keep the trace target (the selection survives a soft reset) but
+    // drop captured data so the viewer does not show a stale network.
+    traceCount_ = 0;
+    lastTrace_.clear();
+    lastView_.clear();
+    lastViewValid_ = false;
 }
 
 const NeuralStats& NeuralSystem::lastStats() const noexcept

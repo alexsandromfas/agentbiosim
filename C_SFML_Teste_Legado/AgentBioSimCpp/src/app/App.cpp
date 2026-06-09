@@ -3,7 +3,11 @@
 #include "config/ParameterDefaults.hpp"
 #include "config/ParameterHelpers.hpp"
 #include "config/ParameterMetadata.hpp"
+#include "core/AssetPath.hpp"
+#include "core/Logger.hpp"
+#include "core/Profiler.hpp"
 #include "core/Version.hpp"
+#include "i18n/Locale.hpp"
 #include "ui/ImGuiTheme.hpp"
 #include "ui/UiPreferencesPanel.hpp"  // prefs* model free functions (prefsApplyPending, etc.)
 
@@ -82,6 +86,12 @@ App::App()
     configureFromParameters();
     configureRenderOptions();
     fitCameraToWorld();
+    // Phase 27: crash hook + session log (level driven by the log_level param,
+    // set in configureFromParameters). Off by default -> the file just records
+    // session start/end and crashes.
+    core::installCrashHandler();
+    core::Logger::instance().open(core::executableDir());
+    core::Logger::instance().log(core::LogLevel::Info, "APP_START", std::string(kVersionString));
     // Phase 25: initialize Dear ImGui (ImGui-SFML backend). Load Segoe UI at
     // 18px for a modern look with Latin-1 glyphs (covers PT-BR accents); fall
     // back to the built-in font if the file is unavailable. Then apply the
@@ -110,6 +120,9 @@ App::App()
 
 App::~App()
 {
+    // Phase 27: flush + close the session log.
+    core::Logger::instance().log(core::LogLevel::Info, "APP_STOP");
+    core::Logger::instance().close();
     // Phase 25: tear down the ImGui-SFML context.
     ImGui::SFML::Shutdown();
 }
@@ -191,6 +204,16 @@ void App::handleResize(const unsigned int width, const unsigned int height)
 
 void App::configureFromParameters()
 {
+    // Phase 25.2: mirror the persisted ui_language setting into the i18n module
+    // (the runtime source of truth the UI reads). Runs on startup and again on
+    // every Immediate-flag apply, so changing the language takes effect live.
+    i18n::setLanguage(i18n::languageFromTag(
+        config::parameterString(parameters_, "ui_language", "pt-br")));
+
+    // Phase 27: log verbosity follows the registry (also applied live on Apply).
+    core::Logger::instance().setLevel(
+        core::logLevelFromString(config::parameterString(parameters_, "log_level", "off")));
+
     simulation::FixedTimestepConfig timestepConfig;
     timestepConfig.physicsStepsPerSecond = config::parameterDouble(parameters_,
         "physics_steps_per_second", 30.0);
@@ -371,8 +394,28 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdSetParameterValue>)
             {
-                uiState_.preferences.pendingValues[c.name] = c.value;
-                ++uiState_.preferences.controlInteractions;
+                // Live UI/engine knobs apply immediately and in isolation (no
+                // pending edit, no reset): the language combo (Phase 25.2) and
+                // the observability toggles (Phase 27). configureFromParameters
+                // syncs i18n + log level; the runner reads the profiler/metrics
+                // flags from the registry each step.
+                const bool immediate =
+                    c.name == "ui_language" || c.name == "log_level" ||
+                    c.name == "profiler_enabled" || c.name == "metrics_enabled" ||
+                    c.name == "metrics_max_samples" || c.name == "metrics_sample_interval";
+                if (immediate)
+                {
+                    if (parameters_.setValue(c.name, c.value))
+                    {
+                        configureFromParameters();
+                    }
+                    uiState_.preferences.pendingValues.erase(c.name);
+                }
+                else
+                {
+                    uiState_.preferences.pendingValues[c.name] = c.value;
+                    ++uiState_.preferences.controlInteractions;
+                }
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyPreferences>)
             {
@@ -800,12 +843,54 @@ void App::update()
 {
     const double realDeltaSeconds = frameClock_.restart().asSeconds();
     drainCommandsAndApply();
+
+    // Phase 26: drive the engine's neural-trace and vision-debug targets from the
+    // UI state the inspector set last frame. When the Rede Neural tab is hidden
+    // (or no agent selected) the target is cleared, so the engine captures no
+    // trace and the cost is zero.
+    if (uiState_.neuralTraceActive && runner_.agents().contains(uiState_.neuralTraceAgent))
+    {
+        runner_.setNeuralViewerTarget(uiState_.neuralTraceAgent);
+    }
+    else
+    {
+        runner_.clearNeuralViewerTarget();
+    }
+    if (uiState_.selectedVisionOverlay)
+    {
+        simulation::EntityId visionId{};
+        for (const auto id : uiState_.selection.ids())
+        {
+            if (runner_.agents().contains(id)) { visionId = id; break; }
+        }
+        if (visionId.isValid())
+        {
+            runner_.setVisionDebugTarget(visionId);
+        }
+        else
+        {
+            runner_.clearVisionDebugTarget();
+        }
+    }
+    else
+    {
+        runner_.clearVisionDebugTarget();
+    }
+
     lastStepsThisFrame_ = timestep_.beginFrame(realDeltaSeconds);
     for (unsigned int step = 0; step < lastStepsThisFrame_; ++step)
     {
         runner_.step(timestep_.fixedDeltaSeconds());
         ++simulatedSteps_;
     }
+
+    // Phase 27: heartbeat (no-op unless logging is enabled). Interval from the
+    // existing diagnostic_heartbeat_minutes knob.
+    const double heartbeatSeconds =
+        std::max(1.0, config::parameterDouble(parameters_, "diagnostic_heartbeat_minutes", 5.0) * 60.0);
+    core::Logger::instance().heartbeat(
+        heartbeatSeconds, "steps=" + std::to_string(simulatedSteps_) +
+                              " agents=" + std::to_string(runner_.agents().size()));
 }
 
 void App::render()
@@ -823,7 +908,11 @@ void App::render()
     info.obstacles = runner_.obstacles().size();
     info.paused = runner_.paused();
     info.simpleRender = renderOptions_.simpleRender;
-    imguiUi_.draw(parameters_, runner_, uiState_, commandQueue_, info);
+    {
+        // Phase 27: profile the ImGui frame build under the "ui" section.
+        core::ScopedTimer uiTimer(runner_.profilerMutable(), core::ProfileSection::Ui);
+        imguiUi_.draw(parameters_, runner_, uiState_, commandQueue_, info);
+    }
 
     if (renderOptions_.renderEnabled)
     {
@@ -853,9 +942,16 @@ void App::render()
             selInput.brushIsEraser = uiState_.activeTool == ui::CanvasTool::EraseObstacle;
         }
 
+        // Phase 26: selected-agent vision overlay (rays come from the engine's
+        // debug data, only filled when a vision target is set).
+        const auto& visionData = runner_.visionDebug();
+        const auto* visionDebugPtr =
+            (uiState_.selectedVisionOverlay && visionData.active) ? &visionData : nullptr;
+
+        core::ScopedTimer renderTimer(runner_.profilerMutable(), core::ProfileSection::Render);
         lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
                                               runner_.agents(), runner_.foods(),
-                                              renderOptions_, nullptr, obstaclePtr,
+                                              renderOptions_, visionDebugPtr, obstaclePtr,
                                               &selInput);
     }
     else

@@ -19,6 +19,8 @@
 #include "systems/Phase23_2Diagnostics.hpp"
 #include "systems/Phase24Diagnostics.hpp"
 #include "systems/Phase25Diagnostics.hpp"
+#include "systems/Phase26Diagnostics.hpp"
+#include "systems/Phase27Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -76,6 +78,10 @@ int main(const int argc, char* argv[])
         bool runPhase23_2Validation = false;
         bool runPhase24Validation = false;
         bool runPhase25Validation = false;
+        bool runPhase26Validation = false;
+        bool runPhase26Benchmark = false;
+        bool runPhase27Validation = false;
+        bool runPhase27Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -357,6 +363,22 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase25-selftest")
             {
                 runPhase25Validation = true;
+            }
+            else if (argument == "--phase26-selftest")
+            {
+                runPhase26Validation = true;
+            }
+            else if (argument == "--phase26-diagnostics")
+            {
+                runPhase26Benchmark = true;
+            }
+            else if (argument == "--phase27-selftest")
+            {
+                runPhase27Validation = true;
+            }
+            else if (argument == "--phase27-diagnostics")
+            {
+                runPhase27Benchmark = true;
             }
         }
 
@@ -1196,6 +1218,57 @@ int main(const int argc, char* argv[])
                       << " (" << summary.checks << " checks)\n"
                       << summary.details << '\n';
             return summary.passed ? 0 : 25;
+        }
+
+        if (runPhase26Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase26Validation();
+            std::cout << "Phase26 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 26;
+        }
+
+        if (runPhase26Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase26Diagnostics();
+            std::cout << "Phase26 selected-agent neural viewer diagnostics\n";
+            std::cout << "brain_type,agents,viewer_on,step_ms,trace_count\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.brainType << ','
+                          << row.agents << ','
+                          << (row.viewerOn ? "true" : "false") << ','
+                          << row.stepMilliseconds << ','
+                          << row.traceCount << '\n';
+            }
+            return 0;
+        }
+
+        if (runPhase27Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase27Validation();
+            std::cout << "Phase27 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 27;
+        }
+
+        if (runPhase27Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase27Diagnostics();
+            std::cout << "Phase27 metrics/profiler diagnostics\n";
+            std::cout << "agents,profiler_on,metrics_on,step_ms\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.agents << ','
+                          << (row.profilerOn ? "true" : "false") << ','
+                          << (row.metricsOn ? "true" : "false") << ','
+                          << row.stepMilliseconds << '\n';
+            }
+            return 0;
         }
 
         agentbiosim::App app;

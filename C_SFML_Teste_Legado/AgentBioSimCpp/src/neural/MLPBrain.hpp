@@ -38,6 +38,9 @@ public:
 
     [[nodiscard]] const std::vector<double>& weightsAt(std::size_t layer) const;
     [[nodiscard]] const std::vector<double>& biasesAt(std::size_t layer) const;
+    // Phase 26: whole-network read access for the neural viewer (read-only).
+    [[nodiscard]] const std::vector<std::vector<double>>& weights() const noexcept { return weights_; }
+    [[nodiscard]] const std::vector<std::vector<double>>& biases() const noexcept { return biases_; }
     bool setLayerForTesting(std::size_t layer, std::vector<double> weights, std::vector<double> biases);
 
 private:

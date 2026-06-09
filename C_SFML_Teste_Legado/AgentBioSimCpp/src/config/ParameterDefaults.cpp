@@ -236,6 +236,16 @@ ParameterRegistry createDefaultParameterRegistry()
 
 void registerDefaultParameters(ParameterRegistry& registry)
 {
+    // Phase 25.2: UI language. Category "appearance" routes it to the Appearance
+    // preferences tab; the value is the locale tag consumed by i18n ("pt-br"/"en").
+    // Stored like any other setting so it persists with the rest of the prefs.
+    addString(registry, "ui_language", "pt-br", "appearance", "UI display language (pt-br or en).", {}, {"runtime", "ui"});
+    // Phase 27: observability toggles (off by default; near-zero cost when off).
+    addBool(registry, "profiler_enabled", false, "performance.observability", "Enable the per-system profiler.", {}, {"runtime", "performance", "ui"});
+    addBool(registry, "metrics_enabled", false, "performance.observability", "Enable time-series metrics collection.", {}, {"runtime", "performance", "ui"});
+    addInt(registry, "metrics_max_samples", 600, "performance.observability", "Maximum metrics samples kept (ring buffer).", 10.0, 100000.0, {}, {"runtime", "performance"});
+    addInt(registry, "metrics_sample_interval", 1, "performance.observability", "Sample metrics every N steps.", 1.0, 1000.0, {}, {"runtime", "performance"});
+    addString(registry, "log_level", "off", "performance.observability", "Log verbosity: off, error, warn, info, debug.", {}, {"runtime", "ui"});
     addDouble(registry, "time_scale", 1.0, "simulation.time", "Simulation time multiplier.", 0.1, std::nullopt, {}, {"runtime"});
     addInt(registry, "fps", 60, "render.timing", "Target render frames per second.", 1.0, 240.0, {}, {"runtime", "render"});
     addBool(registry, "paused", false, "simulation.time", "Pause simulation updates.", {}, {"runtime", "ui"});

@@ -195,56 +195,139 @@ void SimulationRunner::rebuildSpatial()
 
 void SimulationRunner::runOneStep(const double dt)
 {
+    // Phase 27: SimStep wraps the whole step so overhead = SimStep - sum(sections).
+    core::ScopedTimer stepTimer(profiler_, core::ProfileSection::SimStep);
+
     const auto perceptionConfig = perception::PerceptionSystem::fromRegistry(parameters_, "bacteria");
     const simulation::ObstacleStore* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
+    // Phase 26: only request debug rays when an agent is targeted by the viewer.
     perception::PerceptionDebugRequest debugRequest;
-    const auto perceptionResult = perceptionSystem_.computeInputs(
-        agents_, foods_, &spatialHash_, world_, perceptionConfig, debugRequest, obstaclePtr);
+    if (visionDebugTargetId_ != 0U)
+    {
+        visionDebug_.clear();
+        debugRequest.agentId = visionDebugTargetId_;
+        debugRequest.out = &visionDebug_;
+    }
+    perception::PerceptionResult perceptionResult;
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Perception);
+        perceptionResult = perceptionSystem_.computeInputs(
+            agents_, foods_, &spatialHash_, world_, perceptionConfig, debugRequest, obstaclePtr);
+    }
 
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);
     const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(
         parameters_, movementConfig, perceptionResult.inputSize);
-    const std::vector<systems::MovementControl> neuralControls =
-        neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
-    static_cast<void>(movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls,
-                                              obstaclePtr));
+    std::vector<systems::MovementControl> neuralControls;
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Neural);
+        neuralControls = neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
+    }
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Movement);
+        static_cast<void>(movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls,
+                                                  obstaclePtr));
+    }
 
     systems::CollisionConfig collisionConfig = systems::CollisionSystem::fromRegistry(parameters_);
     collisionConfig.dt = dt;
-    static_cast<void>(collisionSystem_.apply(agents_, foods_, world_, &spatialHash_, obstaclePtr,
-                                               collisionConfig));
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Collision);
+        static_cast<void>(collisionSystem_.apply(agents_, foods_, world_, &spatialHash_, obstaclePtr,
+                                                   collisionConfig));
+    }
 
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
-    static_cast<void>(energySystem_.apply(agents_, dt, energyConfig));
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Energy);
+        static_cast<void>(energySystem_.apply(agents_, dt, energyConfig));
+    }
 
-    rebuildSpatial();
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
+        rebuildSpatial();
+    }
 
     systems::DietInteractionConfig dietCfg =
         systems::InteractionSystem::dietConfigFromRegistry(parameters_);
     dietCfg.dt = dt;
-    const auto interStats = interactionSystem_.applyWithDiet(agents_, foods_, genomes_, &spatialHash_, dietCfg);
-    stats_.foodEaten += interStats.foodsConsumed + interStats.chunkParticlesDepleted;
+    std::size_t foodsConsumed = 0;
+    std::size_t predationEvents = 0;
+    double foodEnergyGained = 0.0;
+    double predationEnergyGained = 0.0;
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Interaction);
+        const auto interStats =
+            interactionSystem_.applyWithDiet(agents_, foods_, genomes_, &spatialHash_, dietCfg);
+        foodsConsumed = interStats.foodsConsumed + interStats.chunkParticlesDepleted;
+        predationEvents = interStats.predationEvents;
+        foodEnergyGained = interStats.agentEnergyGainedByFood;
+        predationEnergyGained = interStats.agentEnergyGainedByPredation;
+    }
+    stats_.foodEaten += foodsConsumed;
 
     const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
-    static_cast<void>(foodSystem_.replenishToTarget(foods_, world_, foodCfg, obstaclePtr));
-    static_cast<void>(foodSystem_.trimExcess(foods_, foodCfg));
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Food);
+        static_cast<void>(foodSystem_.replenishToTarget(foods_, world_, foodCfg, obstaclePtr));
+        static_cast<void>(foodSystem_.trimExcess(foods_, foodCfg));
+    }
 
     const systems::ReproductionConfig reproductionConfig =
         systems::ReproductionSystem::fromRegistry(parameters_, "bacteria", neuralConfig.brainConfig);
-    const auto reproStats = reproductionSystem_.apply(
-        agents_, genomes_, neuralSystem_, world_,
-        neuralConfig.brainConfig, reproductionConfig, dt);
-    stats_.births += reproStats.birthsThisStep;
+    std::size_t birthsThisStep = 0;
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Reproduction);
+        const auto reproStats = reproductionSystem_.apply(
+            agents_, genomes_, neuralSystem_, world_,
+            neuralConfig.brainConfig, reproductionConfig, dt);
+        birthsThisStep = reproStats.birthsThisStep;
+    }
+    stats_.births += birthsThisStep;
 
     const systems::DeathConfig deathConfig = systems::DeathSystem::fromRegistry(parameters_);
-    const auto deathStats = deathSystem_.apply(agents_, deathConfig);
-    stats_.deaths += deathStats.deaths;
+    std::size_t deathsThisStep = 0;
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Death);
+        const auto deathStats = deathSystem_.apply(agents_, deathConfig);
+        deathsThisStep = deathStats.deaths;
+    }
+    stats_.deaths += deathsThisStep;
 
-    rebuildSpatial();
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
+        rebuildSpatial();
+    }
+
+    // Phase 27: feed the metrics ring buffers (no-op when metrics are disabled).
+    if (metrics_.enabled())
+    {
+        systems::MetricsStepInput mi;
+        mi.step = stats_.stepsExecuted;
+        mi.dt = dt;
+        mi.births = birthsThisStep;
+        mi.deaths = deathsThisStep;
+        mi.foodsConsumed = foodsConsumed;
+        mi.predationEvents = predationEvents;
+        mi.foodEnergyConsumed = foodEnergyGained;
+        mi.predationEnergyConsumed = predationEnergyGained;
+        mi.referenceVisionRadius =
+            config::parameterDouble(parameters_, "bacteria_vision_radius", 120.0);
+        metrics_.record(mi, agents_, foods_, species_, world_);
+    }
 }
 
 void SimulationRunner::step(const double dt)
 {
+    // Phase 27: refresh observability toggles from the registry every frame
+    // (cheap), before the paused check, so the Render/Ui scopes App adds keep
+    // working — and the profiler enabled flag is set before runOneStep builds
+    // its scopes.
+    profiler_.setEnabled(config::parameterBool(parameters_, "profiler_enabled", false));
+    metrics_.setEnabled(config::parameterBool(parameters_, "metrics_enabled", false));
+    metrics_.configure(
+        static_cast<std::size_t>(std::max(1, config::parameterInt(parameters_, "metrics_max_samples", 600))),
+        static_cast<std::size_t>(std::max(1, config::parameterInt(parameters_, "metrics_sample_interval", 1))));
     if (paused_ && !stepOnce_)
     {
         return;
@@ -389,6 +472,19 @@ void SimulationRunner::deleteAgents(const std::vector<simulation::EntityId>& ids
     for (const auto id : ids)
     {
         static_cast<void>(agents_.removeAgent(id));
+    }
+}
+
+void SimulationRunner::setNeuralViewerTarget(const simulation::EntityId id)
+{
+    // Only target a live agent; otherwise clear so the viewer captures nothing.
+    if (id.isValid() && agents_.contains(id))
+    {
+        neuralSystem_.setTraceTarget(id.value);
+    }
+    else
+    {
+        neuralSystem_.clearTraceTarget();
     }
 }
 

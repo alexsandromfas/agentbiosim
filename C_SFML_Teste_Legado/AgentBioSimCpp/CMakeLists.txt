@@ -62,11 +62,16 @@ add_executable(AgentBioSimCpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterMetadata.cpp
     src/config/ParameterRegistry.cpp
+    src/core/AssetPath.cpp
+    src/core/Logger.cpp
+    src/core/Profiler.cpp
+    src/i18n/Locale.cpp
     src/neural/BrainFactory.cpp
     src/neural/GatedMLPBrain.cpp
     src/neural/MLPBrain.cpp
     src/neural/ModulatedMLPBrain.cpp
     src/neural/NEATGraphBrain.cpp
+    src/neural/NeuralView.cpp
     src/neural/Phase9Diagnostics.cpp
     src/neural/Phase14Diagnostics.cpp
     src/neural/Phase15Diagnostics.cpp
@@ -104,6 +109,9 @@ add_executable(AgentBioSimCpp
     src/systems/Phase23_2Diagnostics.cpp
     src/systems/Phase24Diagnostics.cpp
     src/systems/Phase25Diagnostics.cpp
+    src/systems/Phase26Diagnostics.cpp
+    src/systems/Phase27Diagnostics.cpp
+    src/systems/MetricsSystem.cpp
     src/ui/InputRouter.cpp
     src/ui/UiPanel.cpp
     src/ui/UiPreferencesPanel.cpp
@@ -151,3 +159,11 @@ if(WIN32)
         )
     endforeach()
 endif()
+
+# Phase 25.3: bundle runtime assets (toolbar icons, etc.) next to the executable
+# so they resolve via core::executableDir() regardless of the working directory.
+add_custom_command(TARGET AgentBioSimCpp POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/Assets"
+        "$<TARGET_FILE_DIR:AgentBioSimCpp>/Assets"
+)

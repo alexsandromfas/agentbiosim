@@ -150,6 +150,17 @@ std::vector<std::string> prefsParametersForTabFiltered(
     const config::PrefsTab tab)
 {
     auto names = prefsParametersForTab(registry, tab, state.searchQuery);
+    if (tab == config::PrefsTab::Appearance)
+    {
+        // Phase 25.2: the language selector is the most consequential appearance
+        // setting (it relabels everything), so pin it to the top of the tab
+        // regardless of registration order.
+        const auto it = std::find(names.begin(), names.end(), "ui_language");
+        if (it != names.end() && it != names.begin())
+        {
+            std::rotate(names.begin(), it, it + 1);
+        }
+    }
     if (tab == config::PrefsTab::Neural)
     {
         // Use the pending edit of neural_network_type if any; else the

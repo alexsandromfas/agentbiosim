@@ -74,6 +74,23 @@ struct UiState
     // Painter knob (brush radius for PaintObstacle/EraseObstacle).
     double brushRadius = 20.0;
 
+    // Phase 26: selected-agent inspector + neural viewer.
+    // `agentPanelOpen` is the retractable panel toggle (menu Agente). The panel
+    // only shows when an agent is also selected.
+    bool agentPanelOpen = true;
+    // Neural viewer layout: false = fixed node spacing (scrolls), true = fill panel.
+    bool neuralViewerFillLayout = false;
+    // Toggle for the selected-agent vision overlay (Phase 11/12 rays).
+    bool selectedVisionOverlay = false;
+    // Cross-frame signals written by ImGuiUi and consumed by App to drive the
+    // engine's trace target (so the trace is only captured while the Rede Neural
+    // tab is actually visible — zero cost otherwise).
+    bool neuralTraceActive = false;
+    simulation::EntityId neuralTraceAgent{};
+
+    // Phase 27: metrics/profiler window toggle.
+    bool showMetricsWindow = false;
+
     // Phase 23: preferences window state. Owned by UiState so the main loop
     // and the InputRouter can both inspect/react to it (e.g. InputRouter
     // skips canvas tools while preferences is open and captures the click).

@@ -48,6 +48,9 @@ public:
     void resetState() noexcept;
     [[nodiscard]] const std::vector<double>& recurrentState() const noexcept { return state_; }
     [[nodiscard]] const std::vector<double>& recurrentWeights() const noexcept { return recurrentWeights_; }
+    // Phase 26: whole-network read access for the neural viewer (read-only).
+    [[nodiscard]] const std::vector<std::vector<double>>& weights() const noexcept { return weights_; }
+    [[nodiscard]] const std::vector<std::vector<double>>& biases() const noexcept { return biases_; }
     [[nodiscard]] double memoryDecay() const noexcept { return memoryDecay_; }
     [[nodiscard]] double stateClip() const noexcept { return stateClip_; }
     [[nodiscard]] double recurrentScale() const noexcept { return recurrentScale_; }

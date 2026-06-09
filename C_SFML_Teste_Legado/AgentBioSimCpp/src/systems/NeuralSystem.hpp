@@ -1,10 +1,12 @@
 #pragma once
 
 #include "config/ParameterRegistry.hpp"
+#include "neural/ActivationTrace.hpp"
 #include "neural/BrainConfig.hpp"
 #include "neural/BrainExecutor.hpp"
 #include "neural/BrainVariant.hpp"
 #include "neural/MLPBrain.hpp"
+#include "neural/NeuralView.hpp"
 #include "neural/NeuralMutationConfig.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/World.hpp"
@@ -88,6 +90,20 @@ public:
     [[nodiscard]] const NeuralStats& lastStats() const noexcept;
     [[nodiscard]] std::size_t brainCount() const noexcept;
 
+    // Phase 26: neural viewer trace-on-demand. When a trace target is set, the
+    // forward of that one agent also captures an ActivationTrace and builds a
+    // read-only NeuralView; every other agent runs the cheap trace-free forward.
+    // With no target (viewer hidden) nothing is captured and traceCount() stays
+    // put, so the cost is zero. The agent id is the AgentStore EntityId value;
+    // 0 means "no target".
+    void setTraceTarget(std::uint64_t agentId) noexcept { traceTargetId_ = agentId; }
+    void clearTraceTarget() noexcept { traceTargetId_ = 0; lastViewValid_ = false; }
+    [[nodiscard]] std::uint64_t traceTarget() const noexcept { return traceTargetId_; }
+    [[nodiscard]] std::uint64_t traceCount() const noexcept { return traceCount_; }
+    [[nodiscard]] const neural::ActivationTrace& lastTrace() const noexcept { return lastTrace_; }
+    [[nodiscard]] bool hasLastView() const noexcept { return lastViewValid_; }
+    [[nodiscard]] const neural::NeuralView& lastView() const noexcept { return lastView_; }
+
 private:
     // Phase 14: BrainSlot holds a BrainVariant (no heap allocation per brain).
     // Future RNN/NEAT types extend the variant without changing BrainSlot.
@@ -106,5 +122,12 @@ private:
     neural::BrainExecutor executor_;
     std::unordered_map<std::uint64_t, BrainSlot> brainsByAgentId_;
     NeuralStats lastStats_{};
+
+    // Phase 26: trace-on-demand state for the neural viewer.
+    std::uint64_t traceTargetId_ = 0;
+    std::uint64_t traceCount_ = 0;
+    neural::ActivationTrace lastTrace_{};
+    neural::NeuralView lastView_{};
+    bool lastViewValid_ = false;
 };
 } // namespace agentbiosim::systems
