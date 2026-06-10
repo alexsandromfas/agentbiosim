@@ -74,7 +74,29 @@ de codigo.
   especie + smart factor de grupo), `core::Logger` (niveis/heartbeat/crash hook), janela de Metricas
   ImGui (graficos + tabela do profiler). Tudo OFF por padrao, custo ~zero. `--phase27-selftest`
   (19 checks) e `--phase27-diagnostics`.
-- **Dividas 8 e 9 resolvidas** (engine desacoplado de ui::; UI 100% ImGui).
+- **Fase 28 (Save/Load) concluida** (ver `PHASE_28_SAVE_LOAD_AUTOSAVE_STATUS.md`): formato
+  `.agentbiosim` (JSON versionado, modo simples — sem RNG state/bit-exact, sem legado Python, por
+  decisao do usuario), `io/Json` + `io/SaveFile` + `io/FileDialog` (Win32), `neural::BrainSerializer`
+  (6 tipos, friend), `sim::SimulationSnapshot` + runner `snapshot()/restore()`, menu Arquivo
+  Salvar/Salvar Como/Abrir, autosave em thread de fundo (padrao 30 min) e export/import de organismo
+  (`.organism`). `--phase28-selftest` (128 checks).
+- **Fase 29 (Benchmark Runner) concluida** (ver `PHASE_29_BENCHMARK_RUNNER_STATUS.md`):
+  `bench/Benchmark` headless (`--phase29-bench`), cenarios escala/visao/neural com repeticoes,
+  relatorios CSV/JSON/MD com commit/build (CMake injeta `AGENTBIOSIM_GIT_COMMIT`), saida em
+  `benchmarks/` (gitignored). Baseline: percepcao ~49% + neural ~34% do passo a 1000 agentes.
+  `--phase29-selftest` (8 checks).
+- **Fase 30 (Janela do Desenvolvedor) concluida** (ver `PHASE_30_DEV_PERFORMANCE_WINDOW_STATUS.md`):
+  Exibir > Janela do Desenvolvedor — custo por sistema (barras de calor), sparklines, contadores do
+  mundo, toggles de isolamento (restaurados ao fechar) e cenario de benchmark embutido em thread de
+  fundo isolada. Runner: `setProfilerForced` + dev-toggles (`CmdSetDevSystemEnabled`).
+  `--phase30-selftest` (13 checks) e `--phase30-diagnostics`.
+- **Fase 31 (Paridade de UI) concluida** (ver `PHASE_31_UI_PARITY_STATUS.md`, checklist completo):
+  4 bugs corrigidos — tecla H (ajuda), tecla V/menu Debug de visao (eram no-ops), Ajuda "WASD"
+  (camera = setas; W removido), e "Resetar rede neural" por especie agora FUNCIONAL
+  (`NeuralSystem::resetBrainsBySeed`, botao na aba Labels). `--phase31-selftest` (59 checks:
+  atalhos via InputRouter headless + abas + fluxos criticos).
+- **Dividas 8 e 9 resolvidas** (engine desacoplado de ui::; UI 100% ImGui). Divida 10: surface
+  entregue (27/29/30); ataque na Fase 32, prova na Fase 33.
 - **PENDENTE — Microfase 25.2:** botao "Aplicar" por grupo no editor genetico + mensagem de
   confirmacao "isto vai resetar a rede" ao mudar parametros neurais (sem mensagem ao mudar raio de
   visao; mudar nº de retinas afeta a entrada da rede).
@@ -83,8 +105,8 @@ de codigo.
   funcoes de MODELO (`prefsParametersForTab*`, `prefsApplyPending`, `editorParameters()`,
   `substratoParameters()`) para um arquivo proprio (ex.: `ui/PreferencesModel.*`), e remover os
   shims `ui/Command.hpp` / `ui/CanvasTool.hpp` migrando os testes para `core::`.
-- **Proxima fase (apos autorizacao):** Fase 28 — Save/Load/Export/Import/Autosave
-  (ver `PHASE_28.md`).
+- **Proxima fase (apos autorizacao):** Fase 32 — Otimizacao Data-Oriented e Escala
+  (ver `PHASE_32.md`; alvo #1 = percepcao ~49% do passo, depois neural ~34%).
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 
@@ -109,9 +131,11 @@ Selftests headless (rodar TODOS como regressao; devem dar PASS):
 ```
 build/Release/AgentBioSimCpp.exe --phase7-selftest
 ... ate ...
-build/Release/AgentBioSimCpp.exe --phase27-selftest
+build/Release/AgentBioSimCpp.exe --phase31-selftest
 ```
-Diagnostics extras: `--phase26-diagnostics` (viewer neural), `--phase27-diagnostics` (metricas/profiler).
+Diagnostics extras: `--phase26-diagnostics` (viewer neural), `--phase27-diagnostics`
+(metricas/profiler), `--phase28-diagnostics` (save/load), `--phase29-bench` (suite de benchmark +
+relatorios em benchmarks/), `--phase30-diagnostics` (overhead da janela do desenvolvedor).
 Flags especiais: `--phase22-hotfix-selftest` (22.1), `--phase23-hotfix-selftest` (23.1),
 `--phase23-hotfix2-selftest` (23.2). Sem flag, o exe abre a janela (UI ImGui).
 
