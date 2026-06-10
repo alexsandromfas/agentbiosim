@@ -59,6 +59,7 @@ endif()
 add_executable(AgentBioSimCpp
     src/main.cpp
     src/app/App.cpp
+    src/bench/Benchmark.cpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterMetadata.cpp
     src/config/ParameterRegistry.cpp
@@ -152,6 +153,19 @@ if(WIN32)
     # Phase 28: native Save/Open dialogs (GetSaveFileNameA / GetOpenFileNameA).
     target_link_libraries(AgentBioSimCpp PRIVATE comdlg32)
 endif()
+
+# Phase 29: embed the git commit (configure-time) for benchmark report metadata.
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE AGENTBIOSIM_GIT_COMMIT
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT AGENTBIOSIM_GIT_COMMIT)
+    set(AGENTBIOSIM_GIT_COMMIT "unknown")
+endif()
+target_compile_definitions(AgentBioSimCpp PRIVATE AGENTBIOSIM_GIT_COMMIT="${AGENTBIOSIM_GIT_COMMIT}")
 
 if(MSVC)
     target_compile_options(AgentBioSimCpp PRIVATE /W4 /permissive-)

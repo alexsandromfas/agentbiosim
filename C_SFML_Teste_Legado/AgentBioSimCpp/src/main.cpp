@@ -22,6 +22,7 @@
 #include "systems/Phase26Diagnostics.hpp"
 #include "systems/Phase27Diagnostics.hpp"
 #include "systems/Phase28Diagnostics.hpp"
+#include "bench/Benchmark.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -85,6 +86,8 @@ int main(const int argc, char* argv[])
         bool runPhase27Benchmark = false;
         bool runPhase28Validation = false;
         bool runPhase28Benchmark = false;
+        bool runPhase29Validation = false;
+        bool runPhase29Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -390,6 +393,14 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase28-diagnostics")
             {
                 runPhase28Benchmark = true;
+            }
+            else if (argument == "--phase29-selftest")
+            {
+                runPhase29Validation = true;
+            }
+            else if (argument == "--phase29-bench" || argument == "--benchmark")
+            {
+                runPhase29Benchmark = true;
             }
         }
 
@@ -1304,6 +1315,35 @@ int main(const int argc, char* argv[])
                           << row.saveMilliseconds << ','
                           << row.loadMilliseconds << ','
                           << row.fileBytes << '\n';
+            }
+            return 0;
+        }
+
+        if (runPhase29Validation)
+        {
+            const auto summary = agentbiosim::bench::runPhase29Validation();
+            std::cout << "Phase29 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 29;
+        }
+
+        if (runPhase29Benchmark)
+        {
+            const auto meta = agentbiosim::bench::currentMeta();
+            std::cout << "AgentBioSim benchmark (headless) — commit=" << meta.commit
+                      << " build=" << meta.buildMode << " date=" << meta.dateTime << "\n";
+            const auto results = agentbiosim::bench::runSuite(agentbiosim::bench::defaultScenarios());
+            std::cout << agentbiosim::bench::toCsv(results, meta);
+            const std::string base = agentbiosim::bench::writeReports(results, meta);
+            if (!base.empty())
+            {
+                std::cout << "\nRelatorios: benchmarks/results/" << base << ".{csv,json} + "
+                          << "benchmarks/reports/" << base << ".md\n";
+            }
+            else
+            {
+                std::cerr << "Aviso: falha ao gravar os relatorios em benchmarks/.\n";
             }
             return 0;
         }

@@ -1,0 +1,9 @@
+# Build output
+build/
+
+# Phase 29: generated benchmark reports (artefacts, not source)
+benchmarks/
+
+# Phase 28: local saves / organism exports / autosave (generated)
+*.agentbiosim
+*.organism
