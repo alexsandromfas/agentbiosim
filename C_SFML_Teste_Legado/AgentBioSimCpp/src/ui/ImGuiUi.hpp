@@ -2,6 +2,7 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "core/Command.hpp"
+#include "ui/DevWindow.hpp"
 #include "ui/UiState.hpp"
 
 #include <SFML/Graphics/Texture.hpp>
@@ -83,5 +84,9 @@ private:
     float topStripHeight_ = 0.0F;
     std::unordered_map<std::string, sf::Texture> icons_;
     bool iconsLoaded_ = false;
+
+    // Phase 30: in-app performance window (reads the profiler; can launch an
+    // isolated Phase 29 benchmark scenario in the background).
+    DevWindow devWindow_;
 };
 } // namespace agentbiosim::ui

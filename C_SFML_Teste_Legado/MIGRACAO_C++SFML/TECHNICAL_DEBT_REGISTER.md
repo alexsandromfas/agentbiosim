@@ -312,6 +312,12 @@ Arquivos afetados:
 
 ## Divida 10 — Performance prometida ainda nao comprovada ponta a ponta em escala
 
+Status parcial (2026-06-10): **surface entregue**. A Fase 27 entregou o profiler por sistema, a
+Fase 29 o benchmark runner formal (baseline: percepcao ~49% + neural ~34% do passo a 1000 agentes)
+e a Fase 30 a Janela do Desenvolvedor (custo por sistema ao vivo, historico, toggles de isolamento
+e cenario embutido). O ataque guiado por dados e a Fase 32; a prova final C++ vs Python fecha a
+divida na Fase 33.
+
 Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
 
 Descricao:

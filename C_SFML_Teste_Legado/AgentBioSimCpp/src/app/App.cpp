@@ -1045,6 +1045,10 @@ void App::update()
     const double realDeltaSeconds = frameClock_.restart().asSeconds();
     drainCommandsAndApply();
 
+    // Phase 30: while the developer window is open, keep the profiler on without
+    // touching the user's profiler_enabled preference. Zero cost when closed.
+    runner_.setProfilerForced(uiState_.showDevWindow);
+
     // Phase 26: drive the engine's neural-trace and vision-debug targets from the
     // UI state the inspector set last frame. When the Rede Neural tab is hidden
     // (or no agent selected) the target is cleared, so the engine captures no

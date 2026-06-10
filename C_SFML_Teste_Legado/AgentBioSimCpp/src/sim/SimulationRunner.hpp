@@ -26,6 +26,7 @@
 #include "systems/ReproductionSystem.hpp"
 #include "core/Command.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -167,6 +168,26 @@ public:
     [[nodiscard]] core::Profiler& profilerMutable() noexcept { return profiler_; }
     [[nodiscard]] const systems::MetricsSystem& metrics() const noexcept { return metrics_; }
 
+    // Phase 30: developer window support.
+    // `setProfilerForced(true)` keeps the profiler on while the window is open
+    // without touching the user's `profiler_enabled` preference.
+    void setProfilerForced(const bool forced) noexcept { profilerForced_ = forced; }
+    [[nodiscard]] bool profilerForced() const noexcept { return profilerForced_; }
+    // Dev cost-isolation toggles: skip individual systems to see the us/step
+    // delta live. Indices follow core::ProfileSection (Perception..SpatialHash).
+    // DIAGNOSTIC ONLY — the simulation is not biologically meaningful with a
+    // system off. All default to enabled; reset() does not touch them (the UI
+    // restores them when the window closes). The flags are read at step time, so
+    // toggling off and back on before the next step leaves the run untouched.
+    static constexpr int kDevToggleCount = static_cast<int>(core::ProfileSection::SpatialHash) + 1;
+    void setDevSystemEnabled(int section, bool enabled) noexcept;
+    [[nodiscard]] bool devSystemEnabled(int section) const noexcept;
+    void resetDevToggles() noexcept { for (bool& b : devSystemEnabled_) b = true; }
+    [[nodiscard]] bool anyDevToggleOff() const noexcept;
+    // Dev-window counters (O(brains); call only while the window is open).
+    [[nodiscard]] std::array<std::size_t, 8> brainTypeCounts() const { return neuralSystem_.brainTypeCounts(); }
+    [[nodiscard]] std::size_t approxBrainBytes() const { return neuralSystem_.approxBrainBytes(); }
+
 private:
     void spawnInitial();
     void rebuildSpatial();
@@ -184,6 +205,11 @@ private:
 
     core::Profiler profiler_;
     systems::MetricsSystem metrics_;
+
+    // Phase 30: developer-window state (profiler force + per-system toggles).
+    bool profilerForced_ = false;
+    bool devSystemEnabled_[kDevToggleCount] = {true, true, true, true, true,
+                                                true, true, true, true, true};
 
     perception::PerceptionSystem perceptionSystem_;
     systems::MovementSystem movementSystem_;

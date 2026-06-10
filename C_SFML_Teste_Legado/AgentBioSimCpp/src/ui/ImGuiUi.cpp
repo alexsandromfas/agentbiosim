@@ -893,6 +893,8 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
             ImGui::Separator();
             if (ImGui::MenuItem(tr("Metricas e profiler", "Metrics & profiler"), nullptr, state.showMetricsWindow))
                 state.showMetricsWindow = !state.showMetricsWindow;
+            if (ImGui::MenuItem(tr("Janela do Desenvolvedor", "Developer Window"), nullptr, state.showDevWindow))
+                state.showDevWindow = !state.showDevWindow;
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu(tr("Preferencias", "Preferences")))
@@ -1206,6 +1208,9 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
 
     // ------------------------------------------------------- metrics window
     drawMetricsWindow(registry, runner, state, queue);
+
+    // ----------------------------------------------- developer window (Fase 30)
+    devWindow_.draw(registry, runner, state, queue, info.fps);
 
     // ----------------------------------------------------------- help / about
     if (prefs.helpWindowOpen)

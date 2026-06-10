@@ -220,6 +220,28 @@ void NeuralSystem::restoreBrains(
     lastViewValid_ = false;
 }
 
+std::array<std::size_t, 8> NeuralSystem::brainTypeCounts() const
+{
+    std::array<std::size_t, 8> counts{};
+    for (const auto& entry : brainsByAgentId_)
+    {
+        const int type = static_cast<int>(neural::brainTypeOf(entry.second.brain));
+        if (type >= 0 && type < 8) ++counts[static_cast<std::size_t>(type)];
+    }
+    return counts;
+}
+
+std::size_t NeuralSystem::approxBrainBytes() const
+{
+    std::size_t bytes = 0;
+    for (const auto& entry : brainsByAgentId_)
+    {
+        bytes += std::visit([](const auto& b) { return b.parameterCount(); },
+                            entry.second.brain) * sizeof(double);
+    }
+    return bytes;
+}
+
 bool NeuralSystem::captureBrain(const std::uint64_t agentId, neural::BrainSnapshot& out) const
 {
     const auto it = brainsByAgentId_.find(agentId);

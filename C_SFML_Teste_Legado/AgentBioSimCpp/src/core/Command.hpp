@@ -190,6 +190,11 @@ struct CmdLoadSimulation {};
 struct CmdExportAgent {};
 struct CmdImportAgent {};
 
+// Phase 30: developer-window cost-isolation toggle. `section` follows
+// core::ProfileSection indices (Perception..SpatialHash); -1 restores all
+// systems to enabled. Handled by SimulationRunner::applyCommand.
+struct CmdSetDevSystemEnabled { int section = -1; bool enabled = true; };
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -289,7 +294,8 @@ using Command = std::variant<
     CmdSaveSimulationAs,
     CmdLoadSimulation,
     CmdExportAgent,
-    CmdImportAgent
+    CmdImportAgent,
+    CmdSetDevSystemEnabled
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

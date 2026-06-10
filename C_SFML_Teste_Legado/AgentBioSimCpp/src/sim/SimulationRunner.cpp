@@ -198,6 +198,12 @@ void SimulationRunner::runOneStep(const double dt)
     // Phase 27: SimStep wraps the whole step so overhead = SimStep - sum(sections).
     core::ScopedTimer stepTimer(profiler_, core::ProfileSection::SimStep);
 
+    // Phase 30: dev cost-isolation toggles. A disabled system is skipped whole
+    // (no timer sample, no work) so the developer window shows the live delta.
+    const auto devOn = [this](const core::ProfileSection s) {
+        return devSystemEnabled_[static_cast<int>(s)];
+    };
+
     const auto perceptionConfig = perception::PerceptionSystem::fromRegistry(parameters_, "bacteria");
     const simulation::ObstacleStore* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
     // Phase 26: only request debug rays when an agent is targeted by the viewer.
@@ -209,6 +215,7 @@ void SimulationRunner::runOneStep(const double dt)
         debugRequest.out = &visionDebug_;
     }
     perception::PerceptionResult perceptionResult;
+    if (devOn(core::ProfileSection::Perception))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Perception);
         perceptionResult = perceptionSystem_.computeInputs(
@@ -219,18 +226,24 @@ void SimulationRunner::runOneStep(const double dt)
     const systems::NeuralSystemConfig neuralConfig = systems::NeuralSystem::fromRegistry(
         parameters_, movementConfig, perceptionResult.inputSize);
     std::vector<systems::MovementControl> neuralControls;
+    bool haveControls = false;
+    if (devOn(core::ProfileSection::Neural))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Neural);
         neuralControls = neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
+        haveControls = true;
     }
+    if (devOn(core::ProfileSection::Movement))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Movement);
-        static_cast<void>(movementSystem_.apply(agents_, world_, dt, movementConfig, &neuralControls,
+        static_cast<void>(movementSystem_.apply(agents_, world_, dt, movementConfig,
+                                                  haveControls ? &neuralControls : nullptr,
                                                   obstaclePtr));
     }
 
     systems::CollisionConfig collisionConfig = systems::CollisionSystem::fromRegistry(parameters_);
     collisionConfig.dt = dt;
+    if (devOn(core::ProfileSection::Collision))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Collision);
         static_cast<void>(collisionSystem_.apply(agents_, foods_, world_, &spatialHash_, obstaclePtr,
@@ -238,11 +251,13 @@ void SimulationRunner::runOneStep(const double dt)
     }
 
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
+    if (devOn(core::ProfileSection::Energy))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Energy);
         static_cast<void>(energySystem_.apply(agents_, dt, energyConfig));
     }
 
+    if (devOn(core::ProfileSection::SpatialHash))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
         rebuildSpatial();
@@ -255,6 +270,7 @@ void SimulationRunner::runOneStep(const double dt)
     std::size_t predationEvents = 0;
     double foodEnergyGained = 0.0;
     double predationEnergyGained = 0.0;
+    if (devOn(core::ProfileSection::Interaction))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Interaction);
         const auto interStats =
@@ -267,6 +283,7 @@ void SimulationRunner::runOneStep(const double dt)
     stats_.foodEaten += foodsConsumed;
 
     const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
+    if (devOn(core::ProfileSection::Food))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Food);
         static_cast<void>(foodSystem_.replenishToTarget(foods_, world_, foodCfg, obstaclePtr));
@@ -276,6 +293,7 @@ void SimulationRunner::runOneStep(const double dt)
     const systems::ReproductionConfig reproductionConfig =
         systems::ReproductionSystem::fromRegistry(parameters_, "bacteria", neuralConfig.brainConfig);
     std::size_t birthsThisStep = 0;
+    if (devOn(core::ProfileSection::Reproduction))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Reproduction);
         const auto reproStats = reproductionSystem_.apply(
@@ -287,6 +305,7 @@ void SimulationRunner::runOneStep(const double dt)
 
     const systems::DeathConfig deathConfig = systems::DeathSystem::fromRegistry(parameters_);
     std::size_t deathsThisStep = 0;
+    if (devOn(core::ProfileSection::Death))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Death);
         const auto deathStats = deathSystem_.apply(agents_, deathConfig);
@@ -294,6 +313,7 @@ void SimulationRunner::runOneStep(const double dt)
     }
     stats_.deaths += deathsThisStep;
 
+    if (devOn(core::ProfileSection::SpatialHash))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
         rebuildSpatial();
@@ -323,7 +343,10 @@ void SimulationRunner::step(const double dt)
     // (cheap), before the paused check, so the Render/Ui scopes App adds keep
     // working — and the profiler enabled flag is set before runOneStep builds
     // its scopes.
-    profiler_.setEnabled(config::parameterBool(parameters_, "profiler_enabled", false));
+    // Phase 30: the developer window forces the profiler on while open, without
+    // touching the user's profiler_enabled preference.
+    profiler_.setEnabled(profilerForced_ ||
+                         config::parameterBool(parameters_, "profiler_enabled", false));
     metrics_.setEnabled(config::parameterBool(parameters_, "metrics_enabled", false));
     metrics_.configure(
         static_cast<std::size_t>(std::max(1, config::parameterInt(parameters_, "metrics_max_samples", 600))),
@@ -614,6 +637,28 @@ void SimulationRunner::restore(const SimulationSnapshot& s)
     neuralSystem_.clearTraceTarget();
 }
 
+void SimulationRunner::setDevSystemEnabled(const int section, const bool enabled) noexcept
+{
+    if (section >= 0 && section < kDevToggleCount)
+    {
+        devSystemEnabled_[section] = enabled;
+    }
+}
+
+bool SimulationRunner::devSystemEnabled(const int section) const noexcept
+{
+    return section >= 0 && section < kDevToggleCount ? devSystemEnabled_[section] : true;
+}
+
+bool SimulationRunner::anyDevToggleOff() const noexcept
+{
+    for (const bool b : devSystemEnabled_)
+    {
+        if (!b) return true;
+    }
+    return false;
+}
+
 void SimulationRunner::setNeuralViewerTarget(const simulation::EntityId id)
 {
     // Only target a live agent; otherwise clear so the viewer captures nothing.
@@ -858,6 +903,12 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
             simpleRender_ = !simpleRender_; return true;
         }
         else if constexpr (std::is_same_v<T, core::CmdToggleVisionDebug>) { return true; /* UI flag */ }
+        // Phase 30: developer-window cost-isolation toggle (-1 = restore all).
+        else if constexpr (std::is_same_v<T, core::CmdSetDevSystemEnabled>) {
+            if (c.section < 0) { resetDevToggles(); }
+            else { setDevSystemEnabled(c.section, c.enabled); }
+            return true;
+        }
         // Phase 22.1 hotfix: new commands. NewSimulation is just an alias for
         // reset; the rest are UI-only (panel toggles, camera reset, quit) and
         // are handled by AppController in drainCommandsAndApply().

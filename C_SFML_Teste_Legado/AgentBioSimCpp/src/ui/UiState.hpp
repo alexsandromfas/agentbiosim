@@ -91,6 +91,10 @@ struct UiState
     // Phase 27: metrics/profiler window toggle.
     bool showMetricsWindow = false;
 
+    // Phase 30: developer (performance) window toggle. While open, App forces
+    // the engine profiler on (without touching the user's profiler_enabled).
+    bool showDevWindow = false;
+
     // Phase 23: preferences window state. Owned by UiState so the main loop
     // and the InputRouter can both inspect/react to it (e.g. InputRouter
     // skips canvas tools while preferences is open and captures the click).

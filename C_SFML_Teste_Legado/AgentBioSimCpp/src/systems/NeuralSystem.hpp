@@ -10,6 +10,7 @@
 #include "neural/NeuralView.hpp"
 #include "neural/NeuralMutationConfig.hpp"
 
+#include <array>
 #include <utility>
 #include "simulation/AgentStore.hpp"
 #include "simulation/World.hpp"
@@ -115,6 +116,12 @@ public:
     // Phase 28: single-agent export/import (does not clear the other brains).
     [[nodiscard]] bool captureBrain(std::uint64_t agentId, neural::BrainSnapshot& out) const;
     void loadBrain(std::uint64_t agentId, const neural::BrainSnapshot& snapshot);
+
+    // Phase 30: developer-window counters. Both are O(brains) — call only when
+    // the window is open. `brainTypeCounts` is indexed by neural::BrainType;
+    // `approxBrainBytes` estimates memory as parameterCount * sizeof(double).
+    [[nodiscard]] std::array<std::size_t, 8> brainTypeCounts() const;
+    [[nodiscard]] std::size_t approxBrainBytes() const;
 
 private:
     // Phase 14: BrainSlot holds a BrainVariant (no heap allocation per brain).
