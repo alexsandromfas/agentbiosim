@@ -61,6 +61,13 @@ public:
     void setSpeciesIdAt(std::size_t index, SpeciesId speciesId);
     void setColorAt(std::size_t index, ColorRgb color);
 
+    // Phase 28: persistence. `nextId()` is the next id to allocate; `restore`
+    // replaces all live agents from a save (ids preserved exactly), so agent ->
+    // genome/species references and the per-id brain map stay valid.
+    [[nodiscard]] std::uint64_t nextId() const noexcept { return nextId_; }
+    void restore(const std::vector<EntityId>& ids, const std::vector<AgentSpawn>& spawns,
+                 std::uint64_t nextId);
+
 private:
     void removeAtIndex(std::size_t index);
 

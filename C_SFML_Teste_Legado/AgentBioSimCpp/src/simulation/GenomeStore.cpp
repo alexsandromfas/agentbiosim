@@ -26,6 +26,17 @@ GenomeHandle GenomeStore::cloneFrom(const GenomeId parentId)
     return createGenome(std::move(child));
 }
 
+void GenomeStore::restore(std::vector<GenomeRecord> records, const GenomeId nextId)
+{
+    records_ = std::move(records);
+    indexById_.clear();
+    for (std::size_t i = 0; i < records_.size(); ++i)
+    {
+        indexById_[records_[i].id] = i;
+    }
+    nextId_ = nextId;
+}
+
 void GenomeStore::clear()
 {
     records_.clear();

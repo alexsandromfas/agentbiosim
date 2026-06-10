@@ -179,6 +179,17 @@ struct CmdCancelEditSpeciesName {};
 struct CmdSetSpeciesLabel  { std::uint32_t speciesId = 0; std::string label; };
 struct CmdSetSpeciesColor  { std::uint32_t speciesId = 0; int r = 0; int g = 0; int b = 0; };
 
+// Phase 28: save/load. App-level handlers (open a file dialog + do file I/O);
+// the engine treats them as no-ops. Save uses the current path (prompting once
+// if none); Save As always prompts; Load prompts to open a .agentbiosim.
+struct CmdSaveSimulation {};
+struct CmdSaveSimulationAs {};
+struct CmdLoadSimulation {};
+// Phase 28: single-organism export/import (Agente menu). Export saves the
+// selected agent to a .organism file; import spawns one from a file.
+struct CmdExportAgent {};
+struct CmdImportAgent {};
+
 using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
@@ -273,7 +284,12 @@ using Command = std::variant<
     CmdCommitEditSpeciesName,
     CmdCancelEditSpeciesName,
     CmdSetSpeciesLabel,
-    CmdSetSpeciesColor
+    CmdSetSpeciesColor,
+    CmdSaveSimulation,
+    CmdSaveSimulationAs,
+    CmdLoadSimulation,
+    CmdExportAgent,
+    CmdImportAgent
 >;
 
 // Phase 22: simple queue. Commands are produced by InputRouter / UI and

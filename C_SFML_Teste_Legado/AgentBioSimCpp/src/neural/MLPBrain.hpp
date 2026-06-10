@@ -43,6 +43,8 @@ public:
     [[nodiscard]] const std::vector<std::vector<double>>& biases() const noexcept { return biases_; }
     bool setLayerForTesting(std::size_t layer, std::vector<double> weights, std::vector<double> biases);
 
+    friend struct BrainSerializer;  // Phase 28: persistence access.
+
 private:
     void initialize(std::mt19937_64& rng);
     [[nodiscard]] static std::vector<double> normalizedInput(const std::vector<double>& input, std::size_t expectedSize);

@@ -56,6 +56,26 @@ void SpeciesStore::clear()
     nextId_ = 1;
 }
 
+void SpeciesStore::restore(std::vector<SpeciesRecord> records, const SpeciesId nextId)
+{
+    records_ = std::move(records);
+    indexById_.clear();
+    aliasIndex_.clear();
+    for (std::size_t i = 0; i < records_.size(); ++i)
+    {
+        const SpeciesRecord& r = records_[i];
+        indexById_[r.id] = i;
+        if (!r.name.empty()) aliasIndex_[normalize(r.name)] = r.id;
+        if (!r.label.empty()) aliasIndex_[normalize(r.label)] = r.id;
+        if (!r.parameterPrefix.empty()) aliasIndex_[normalize(r.parameterPrefix)] = r.id;
+        for (const auto& alias : r.legacyAliases)
+        {
+            aliasIndex_[normalize(alias)] = r.id;
+        }
+    }
+    nextId_ = nextId;
+}
+
 std::size_t SpeciesStore::size() const noexcept
 {
     return records_.size();

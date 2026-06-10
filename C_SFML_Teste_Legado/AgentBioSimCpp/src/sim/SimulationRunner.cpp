@@ -475,6 +475,145 @@ void SimulationRunner::deleteAgents(const std::vector<simulation::EntityId>& ids
     }
 }
 
+SimulationSnapshot SimulationRunner::snapshot() const
+{
+    SimulationSnapshot s;
+    s.seed = seed_;
+    s.stepsExecuted = stats_.stepsExecuted;
+    s.timeScale = timeScale_;
+    s.paused = paused_;
+    s.foodEaten = stats_.foodEaten;
+    s.deaths = stats_.deaths;
+    s.births = stats_.births;
+    s.world = world_.config();
+
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        s.agentIds.push_back(agents_.idAt(i));
+        simulation::AgentSpawn a;
+        a.position = agents_.positionAt(i);
+        a.velocity = agents_.velocityAt(i);
+        a.angle = agents_.angleAt(i);
+        a.angularVelocity = agents_.angularVelocityAt(i);
+        a.radius = agents_.radiusAt(i);
+        a.energy = agents_.energyAt(i);
+        a.age = agents_.ageAt(i);
+        a.reproductionCooldown = agents_.reproductionCooldownAt(i);
+        a.color = agents_.colorAt(i);
+        a.speciesId = agents_.speciesIdAt(i);
+        a.genomeId = agents_.genomeIdAt(i);
+        a.typeCode = agents_.typeCodeAt(i);
+        a.bodyShape = agents_.bodyShapeAt(i);
+        s.agents.push_back(a);
+    }
+    s.nextAgentId = agents_.nextId();
+    s.brains = neuralSystem_.captureBrains();
+
+    for (std::size_t i = 0; i < foods_.size(); ++i)
+    {
+        s.foodIds.push_back(foods_.idAt(i));
+        simulation::FoodSpawn f;
+        f.position = foods_.positionAt(i);
+        f.radius = foods_.radiusAt(i);
+        f.energy = foods_.energyAt(i);
+        f.initialEnergy = foods_.initialEnergyAt(i);
+        f.color = foods_.colorAt(i);
+        f.kind = foods_.kindAt(i);
+        f.clusterId = foods_.clusterIdAt(i);
+        s.foods.push_back(f);
+        s.foodVelocities.push_back(foods_.velocityAt(i));
+    }
+    s.nextFoodId = foods_.nextId();
+    s.nextClusterId = foods_.nextClusterId();
+
+    for (std::size_t i = 0; i < obstacles_.size(); ++i)
+    {
+        s.obstacleIds.push_back(obstacles_.idAt(i));
+        simulation::ObstacleSpawn o;
+        o.position = obstacles_.positionAt(i);
+        o.radius = obstacles_.radiusAt(i);
+        o.brushRadius = obstacles_.brushRadiusAt(i);
+        o.color = obstacles_.colorAt(i);
+        s.obstacles.push_back(o);
+    }
+    s.nextObstacleId = obstacles_.nextId();
+
+    s.species = species_.records();
+    s.nextSpeciesId = species_.nextId();
+    s.genomes = genomes_.records();
+    s.nextGenomeId = genomes_.nextId();
+    return s;
+}
+
+bool SimulationRunner::exportAgent(const simulation::EntityId id, AgentExport& out) const
+{
+    const auto idx = agents_.indexOf(id);
+    if (!idx.has_value()) return false;
+    const auto* genome = genomes_.find(agents_.genomeIdAt(*idx));
+    if (genome == nullptr) return false;
+    if (!neuralSystem_.captureBrain(id.value, out.brain)) return false;
+    out.genome = *genome;
+    out.radius = agents_.radiusAt(*idx);
+    out.color = agents_.colorAt(*idx);
+    return true;
+}
+
+simulation::EntityId SimulationRunner::importAgent(const AgentExport& data,
+                                                   const simulation::Vec2 worldPos)
+{
+    // Re-home the genome to a species that exists here (fall back to bacteria).
+    simulation::GenomeRecord record = data.genome;
+    simulation::SpeciesId speciesId = record.speciesId;
+    if (species_.find(speciesId) == nullptr)
+    {
+        speciesId = species_.idByName("bacteria");
+        record.speciesId = speciesId;
+    }
+    const simulation::GenomeHandle handle = genomes_.createGenome(record);
+
+    simulation::AgentSpawn spawn;
+    spawn.position = world_.clampPosition(worldPos, data.radius);
+    spawn.radius = data.radius;
+    spawn.energy = data.genome.initialEnergy;
+    spawn.color = data.color;
+    spawn.speciesId = speciesId;
+    spawn.genomeId = handle.id;
+    spawn.typeCode = data.genome.typeCode;
+    spawn.bodyShape = data.genome.bodyShape;
+    const simulation::EntityId agentId = agents_.createAgent(spawn);
+
+    neuralSystem_.loadBrain(agentId.value, data.brain);
+    rebuildSpatial();
+    return agentId;
+}
+
+void SimulationRunner::restore(const SimulationSnapshot& s)
+{
+    world_.configure(s.world);
+    agents_.restore(s.agentIds, s.agents, s.nextAgentId);
+    foods_.restore(s.foodIds, s.foods, s.foodVelocities, s.nextFoodId, s.nextClusterId);
+    obstacles_.restore(s.obstacleIds, s.obstacles, s.nextObstacleId);
+    species_.restore(s.species, s.nextSpeciesId);
+    genomes_.restore(s.genomes, s.nextGenomeId);
+    neuralSystem_.restoreBrains(s.brains);
+
+    seed_ = s.seed;
+    timeScale_ = s.timeScale;
+    paused_ = s.paused;
+    stats_.stepsExecuted = s.stepsExecuted;
+    stats_.foodEaten = s.foodEaten;
+    stats_.deaths = s.deaths;
+    stats_.births = s.births;
+
+    // Reseed the food RNG to a known point (simple mode does not restore RNG
+    // generator state) and rebuild spatial structures for the loaded world.
+    foodSystem_.reseed(seed_);
+    rebuildSpatial();
+    visionDebug_.clear();
+    visionDebugTargetId_ = 0;
+    neuralSystem_.clearTraceTarget();
+}
+
 void SimulationRunner::setNeuralViewerTarget(const simulation::EntityId id)
 {
     // Only target a live agent; otherwise clear so the viewer captures nothing.

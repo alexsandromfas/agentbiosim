@@ -78,6 +78,10 @@ public:
     // Find species by canonical name and return id (or kInvalidSpeciesId).
     [[nodiscard]] SpeciesId idByName(const std::string& name) const;
 
+    // Phase 28: persistence.
+    [[nodiscard]] SpeciesId nextId() const noexcept { return nextId_; }
+    void restore(std::vector<SpeciesRecord> records, SpeciesId nextId);
+
 private:
     [[nodiscard]] static std::string normalize(std::string value);
 

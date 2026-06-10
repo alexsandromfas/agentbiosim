@@ -21,6 +21,7 @@
 #include "systems/Phase25Diagnostics.hpp"
 #include "systems/Phase26Diagnostics.hpp"
 #include "systems/Phase27Diagnostics.hpp"
+#include "systems/Phase28Diagnostics.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
 #include "systems/Phase7Diagnostics.hpp"
@@ -82,6 +83,8 @@ int main(const int argc, char* argv[])
         bool runPhase26Benchmark = false;
         bool runPhase27Validation = false;
         bool runPhase27Benchmark = false;
+        bool runPhase28Validation = false;
+        bool runPhase28Benchmark = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -379,6 +382,14 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase27-diagnostics")
             {
                 runPhase27Benchmark = true;
+            }
+            else if (argument == "--phase28-selftest")
+            {
+                runPhase28Validation = true;
+            }
+            else if (argument == "--phase28-diagnostics")
+            {
+                runPhase28Benchmark = true;
             }
         }
 
@@ -1267,6 +1278,32 @@ int main(const int argc, char* argv[])
                           << (row.profilerOn ? "true" : "false") << ','
                           << (row.metricsOn ? "true" : "false") << ','
                           << row.stepMilliseconds << '\n';
+            }
+            return 0;
+        }
+
+        if (runPhase28Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase28Validation();
+            std::cout << "Phase28 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 28;
+        }
+
+        if (runPhase28Benchmark)
+        {
+            const auto rows = agentbiosim::systems::runPhase28Diagnostics();
+            std::cout << "Phase28 save/load diagnostics\n";
+            std::cout << "brain_type,agents,save_ms,load_ms,file_bytes\n";
+            std::cout << std::fixed << std::setprecision(4);
+            for (const auto& row : rows)
+            {
+                std::cout << row.brainType << ','
+                          << row.agents << ','
+                          << row.saveMilliseconds << ','
+                          << row.loadMilliseconds << ','
+                          << row.fileBytes << '\n';
             }
             return 0;
         }

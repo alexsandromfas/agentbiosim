@@ -52,6 +52,14 @@ public:
     // Phase 19: allocate a new cluster id (monotonic, deterministic).
     [[nodiscard]] std::uint32_t allocateClusterId();
 
+    // Phase 28: persistence. `restore` replaces all food from a save; velocity
+    // is passed separately because FoodSpawn does not carry it.
+    [[nodiscard]] std::uint64_t nextId() const noexcept { return nextId_; }
+    [[nodiscard]] std::uint32_t nextClusterId() const noexcept { return nextClusterId_; }
+    void restore(const std::vector<EntityId>& ids, const std::vector<FoodSpawn>& spawns,
+                 const std::vector<Vec2>& velocities, std::uint64_t nextId,
+                 std::uint32_t nextClusterId);
+
 private:
     void removeAtIndex(std::size_t index);
 

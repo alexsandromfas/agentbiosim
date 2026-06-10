@@ -5,6 +5,7 @@
 #include "neural/ActivationTrace.hpp"
 #include "neural/BrainConfig.hpp"
 #include "neural/NeuralView.hpp"
+#include "sim/SimulationSnapshot.hpp"
 #include "perception/PerceptionSystem.hpp"
 #include "perception/VisionDebug.hpp"
 #include "systems/MetricsSystem.hpp"
@@ -66,6 +67,18 @@ public:
     // Reset: rebuilds the initial spawn (same seed) and clears the obstacle
     // store. Does not change registry/world configuration.
     void reset();
+
+    // Phase 28: persistence. `snapshot()` captures the full engine state (stores
+    // + brains + world + counters); `restore()` replaces it. Parameters and
+    // camera are persisted by the App layer alongside this snapshot.
+    [[nodiscard]] SimulationSnapshot snapshot() const;
+    void restore(const SimulationSnapshot& snapshot);
+
+    // Phase 28: single-organism export/import (share a creature between sims).
+    // `exportAgent` gathers an agent's genome + brain + body; `importAgent`
+    // spawns a fresh organism from that data near `worldPos` and returns its id.
+    [[nodiscard]] bool exportAgent(simulation::EntityId id, AgentExport& out) const;
+    simulation::EntityId importAgent(const AgentExport& data, simulation::Vec2 worldPos);
 
     // Apply a high-level command. Returns true if recognised and applied.
     // Phase 25 (Divida 8): commands live in agentbiosim::core, not ui, so the

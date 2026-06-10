@@ -64,6 +64,11 @@ public:
 
     void queryRadius(Vec2 center, double radius, std::vector<std::size_t>& outIndices) const;
 
+    // Phase 28: persistence.
+    [[nodiscard]] ObstacleId nextId() const noexcept { return nextId_; }
+    void restore(const std::vector<ObstacleId>& ids, const std::vector<ObstacleSpawn>& spawns,
+                 ObstacleId nextId);
+
 private:
     std::vector<ObstacleId> ids_;
     std::vector<double> x_;

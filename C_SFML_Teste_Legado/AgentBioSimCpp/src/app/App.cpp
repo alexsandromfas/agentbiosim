@@ -8,6 +8,8 @@
 #include "core/Profiler.hpp"
 #include "core/Version.hpp"
 #include "i18n/Locale.hpp"
+#include "io/FileDialog.hpp"
+#include "io/SaveFile.hpp"
 #include "ui/ImGuiTheme.hpp"
 #include "ui/UiPreferencesPanel.hpp"  // prefs* model free functions (prefsApplyPending, etc.)
 
@@ -22,9 +24,12 @@
 #include <SFML/Window/VideoMode.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
+#include <future>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <variant>
 
@@ -273,6 +278,182 @@ void App::fitCameraToWorld()
     }
 }
 
+void App::saveSimulation(const bool forcePrompt)
+{
+    std::string path = currentSavePath_;
+    if (forcePrompt || path.empty())
+    {
+        const std::string suggested = path.empty() ? std::string("simulacao.agentbiosim") : path;
+        path = io::saveSimulationDialog(suggested);
+        if (path.empty()) return;  // user cancelled the dialog
+    }
+
+    io::SaveBundle bundle;
+    bundle.snapshot = runner_.snapshot();
+    for (const auto& def : parameters_.definitions())
+    {
+        bundle.params.emplace_back(def.name, def.defaultValue);
+    }
+    const sf::Vector2f cc = camera_.center();
+    bundle.camera.valid = true;
+    bundle.camera.centerX = cc.x;
+    bundle.camera.centerY = cc.y;
+    bundle.camera.zoom = camera_.zoom();
+
+    std::string error;
+    if (io::saveToFile(path, bundle, error))
+    {
+        currentSavePath_ = path;
+        std::cout << "Simulacao salva: " << path << '\n';
+    }
+    else
+    {
+        std::cerr << "Falha ao salvar: " << error << '\n';
+    }
+}
+
+void App::loadSimulation()
+{
+    const std::string path = io::openSimulationDialog();
+    if (path.empty()) return;  // user cancelled the dialog
+
+    const io::LoadResult result = io::loadFromFile(path);
+    if (!result.ok)
+    {
+        std::cerr << "Falha ao abrir: " << result.error << '\n';
+        return;
+    }
+
+    // Apply the saved parameters first (so the engine reads the same config),
+    // then replace the engine state, then re-derive runtime/render config.
+    for (const auto& p : result.bundle.params)
+    {
+        static_cast<void>(parameters_.setValue(p.first, p.second));
+    }
+    runner_.restore(result.bundle.snapshot);
+    configureFromParameters();
+    configureRenderOptions();
+
+    if (result.bundle.camera.valid)
+    {
+        camera_.setCenter({static_cast<float>(result.bundle.camera.centerX),
+                            static_cast<float>(result.bundle.camera.centerY)});
+        camera_.setZoom(static_cast<float>(result.bundle.camera.zoom));
+    }
+    else
+    {
+        fitCameraToWorld();
+    }
+
+    // The previous selection / viewer target no longer apply.
+    uiState_.selection.clear();
+    runner_.clearNeuralViewerTarget();
+    runner_.clearVisionDebugTarget();
+    currentSavePath_ = path;
+    std::cout << "Simulacao carregada: " << path << '\n';
+}
+
+void App::exportSelectedAgent()
+{
+    simulation::EntityId selected{};
+    for (const auto id : uiState_.selection.ids())
+    {
+        if (runner_.agents().contains(id)) { selected = id; break; }
+    }
+    if (!selected.isValid())
+    {
+        std::cerr << "Nenhum organismo selecionado para exportar.\n";
+        return;
+    }
+    sim::AgentExport data;
+    if (!runner_.exportAgent(selected, data))
+    {
+        std::cerr << "Falha ao capturar o organismo selecionado.\n";
+        return;
+    }
+    const std::string path = io::saveOrganismDialog("organismo.organism");
+    if (path.empty()) return;  // cancelled
+
+    std::string error;
+    if (io::saveAgentToFile(path, data, error))
+    {
+        std::cout << "Organismo exportado: " << path << '\n';
+    }
+    else
+    {
+        std::cerr << "Falha ao exportar: " << error << '\n';
+    }
+}
+
+void App::importAgentFromFile()
+{
+    const std::string path = io::openOrganismDialog();
+    if (path.empty()) return;  // cancelled
+
+    const io::AgentLoadResult result = io::loadAgentFromFile(path);
+    if (!result.ok)
+    {
+        std::cerr << "Falha ao importar: " << result.error << '\n';
+        return;
+    }
+    const sf::Vector2f center = camera_.center();
+    const simulation::EntityId id =
+        runner_.importAgent(result.agent, {static_cast<double>(center.x),
+                                            static_cast<double>(center.y)});
+    if (id.isValid())
+    {
+        uiState_.selection.clear();
+        static_cast<void>(uiState_.selection.add(id));
+        std::cout << "Organismo importado: " << path << '\n';
+    }
+}
+
+void App::maybeAutosave(const double realDeltaSeconds)
+{
+    const bool enabled = config::parameterBool(parameters_, "auto_export_substrate", true);
+    if (!enabled)
+    {
+        autosaveTimerSeconds_ = 0.0;
+        return;
+    }
+    const double intervalMinutes =
+        config::parameterDouble(parameters_, "auto_export_interval_minutes", 30.0);
+    if (intervalMinutes <= 0.0) return;
+
+    autosaveTimerSeconds_ += std::max(0.0, realDeltaSeconds);
+    if (autosaveTimerSeconds_ < intervalMinutes * 60.0) return;
+    autosaveTimerSeconds_ = 0.0;
+
+    // Skip this tick if the previous autosave is still being written (never block
+    // the UI thread waiting on disk).
+    if (autosaveFuture_.valid() &&
+        autosaveFuture_.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+    {
+        return;
+    }
+
+    // Capture a self-contained copy on the main thread (fast — memory only), then
+    // serialize + write on a background thread (the slow part) so the simulation
+    // does not freeze.
+    auto bundle = std::make_shared<io::SaveBundle>();
+    bundle->snapshot = runner_.snapshot();
+    for (const auto& def : parameters_.definitions())
+    {
+        bundle->params.emplace_back(def.name, def.defaultValue);
+    }
+    const sf::Vector2f cc = camera_.center();
+    bundle->camera.valid = true;
+    bundle->camera.centerX = cc.x;
+    bundle->camera.centerY = cc.y;
+    bundle->camera.zoom = camera_.zoom();
+
+    const std::string path = core::executableDir() + "autosave.agentbiosim";
+    autosaveFuture_ = std::async(std::launch::async, [bundle, path]() {
+        std::string error;
+        static_cast<void>(io::saveToFile(path, *bundle, error));
+    });
+}
+
 void App::drainCommandsAndApply()
 {
     auto commands = commandQueue_.drain();
@@ -290,6 +471,26 @@ void App::drainCommandsAndApply()
                 // Phase 22.1: distinct from Fit — explicitly recentre on the
                 // world centre at the default zoom that fits everything.
                 fitCameraToWorld();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSaveSimulation>)
+            {
+                saveSimulation(/*forcePrompt=*/false);
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSaveSimulationAs>)
+            {
+                saveSimulation(/*forcePrompt=*/true);
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdLoadSimulation>)
+            {
+                loadSimulation();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdExportAgent>)
+            {
+                exportSelectedAgent();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdImportAgent>)
+            {
+                importAgentFromFile();
             }
             else if constexpr (std::is_same_v<T, ui::CmdSetCameraCenter>)
             {
@@ -883,6 +1084,9 @@ void App::update()
         runner_.step(timestep_.fixedDeltaSeconds());
         ++simulatedSteps_;
     }
+
+    // Phase 28: periodic autosave (wall-clock; writes on a background thread).
+    maybeAutosave(realDeltaSeconds);
 
     // Phase 27: heartbeat (no-op unless logging is enabled). Interval from the
     // existing diagnostic_heartbeat_minutes knob.

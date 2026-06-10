@@ -32,6 +32,38 @@ EntityId AgentStore::createAgent(const AgentSpawn& spawn)
     return id;
 }
 
+void AgentStore::restore(const std::vector<EntityId>& ids, const std::vector<AgentSpawn>& spawns,
+                         const std::uint64_t nextId)
+{
+    clear();
+    const std::size_t count = std::min(ids.size(), spawns.size());
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const EntityId id = ids[i];
+        const AgentSpawn& s = spawns[i];
+        const std::size_t index = ids_.size();
+        ids_.push_back(id);
+        x_.push_back(s.position.x);
+        y_.push_back(s.position.y);
+        vx_.push_back(s.velocity.x);
+        vy_.push_back(s.velocity.y);
+        angle_.push_back(s.angle);
+        angularVelocity_.push_back(s.angularVelocity);
+        radius_.push_back(s.radius);
+        energy_.push_back(s.energy);
+        age_.push_back(s.age);
+        reproductionCooldown_.push_back(s.reproductionCooldown);
+        color_.push_back(s.color);
+        speciesId_.push_back(s.speciesId);
+        genomeId_.push_back(s.genomeId);
+        typeCode_.push_back(s.typeCode);
+        bodyShape_.push_back(s.bodyShape);
+        alive_.push_back(1U);
+        indexById_.emplace(id.value, index);
+    }
+    nextId_ = nextId;
+}
+
 bool AgentStore::removeAgent(const EntityId id)
 {
     const std::optional<std::size_t> index = indexOf(id);

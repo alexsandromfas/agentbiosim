@@ -62,6 +62,10 @@ public:
 
     [[nodiscard]] const std::vector<GenomeRecord>& records() const noexcept;
 
+    // Phase 28: persistence.
+    [[nodiscard]] GenomeId nextId() const noexcept { return nextId_; }
+    void restore(std::vector<GenomeRecord> records, GenomeId nextId);
+
 private:
     std::vector<GenomeRecord> records_;
     std::unordered_map<GenomeId, std::size_t> indexById_;

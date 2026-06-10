@@ -56,6 +56,8 @@ public:
     [[nodiscard]] double recurrentScale() const noexcept { return recurrentScale_; }
     [[nodiscard]] bool resetStateOnCopy() const noexcept { return resetStateOnCopy_; }
 
+    friend struct BrainSerializer;  // Phase 28: persistence access.
+
 private:
     void initialize(std::mt19937_64& rng);
     std::vector<double> forwardImpl(const std::vector<double>& input,

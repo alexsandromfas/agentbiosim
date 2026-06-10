@@ -97,6 +97,8 @@ public:
     bool mutate(const NeuralMutationConfig& mutCfg, std::mt19937_64& rng);
     void resetState() noexcept;
 
+    friend struct BrainSerializer;  // Phase 28: persistence access.
+
 private:
     void initGraph(std::mt19937_64& rng);
     bool addConnection(std::int32_t src, std::int32_t dst, double weight, bool enabled, bool recurrent);

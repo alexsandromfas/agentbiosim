@@ -4,10 +4,13 @@
 #include "neural/ActivationTrace.hpp"
 #include "neural/BrainConfig.hpp"
 #include "neural/BrainExecutor.hpp"
+#include "neural/BrainSerializer.hpp"
 #include "neural/BrainVariant.hpp"
 #include "neural/MLPBrain.hpp"
 #include "neural/NeuralView.hpp"
 #include "neural/NeuralMutationConfig.hpp"
+
+#include <utility>
 #include "simulation/AgentStore.hpp"
 #include "simulation/World.hpp"
 #include "systems/MovementSystem.hpp"
@@ -103,6 +106,15 @@ public:
     [[nodiscard]] const neural::ActivationTrace& lastTrace() const noexcept { return lastTrace_; }
     [[nodiscard]] bool hasLastView() const noexcept { return lastViewValid_; }
     [[nodiscard]] const neural::NeuralView& lastView() const noexcept { return lastView_; }
+
+    // Phase 28: persistence. Capture every agent's brain as a snapshot (keyed by
+    // agent id) and restore them on load (rebuilding via BrainSerializer). The
+    // ids must match the restored AgentStore ids so each brain maps to its agent.
+    [[nodiscard]] std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>> captureBrains() const;
+    void restoreBrains(const std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>>& brains);
+    // Phase 28: single-agent export/import (does not clear the other brains).
+    [[nodiscard]] bool captureBrain(std::uint64_t agentId, neural::BrainSnapshot& out) const;
+    void loadBrain(std::uint64_t agentId, const neural::BrainSnapshot& snapshot);
 
 private:
     // Phase 14: BrainSlot holds a BrainVariant (no heap allocation per brain).

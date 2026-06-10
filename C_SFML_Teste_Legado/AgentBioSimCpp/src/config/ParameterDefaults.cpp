@@ -377,8 +377,8 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addBool(registry, "debug_tracebacks", false, "debug", "Enable verbose debug tracebacks.", {}, {"debug"});
     addDouble(registry, "diagnostic_heartbeat_minutes", 1.0, "debug", "Diagnostic heartbeat interval in minutes.", 0.0, std::nullopt, {}, {"debug"});
     addBool(registry, "save_recovery_on_close", true, "save", "Save recovery snapshot on close.", {}, {"runtime", "save"});
-    addBool(registry, "auto_export_substrate", false, "save.autosave", "Autosave enabled; legacy internal name.", {"autosave_enabled"}, {"runtime", "save"});
-    addDouble(registry, "auto_export_interval_minutes", 10.0, "save.autosave", "Autosave interval in minutes.", 0.0, std::nullopt, {"autosave_interval_minutes"}, {"runtime", "save"});
+    addBool(registry, "auto_export_substrate", true, "save.autosave", "Autosave enabled; legacy internal name.", {"autosave_enabled"}, {"runtime", "save"});
+    addDouble(registry, "auto_export_interval_minutes", 30.0, "save.autosave", "Autosave interval in minutes.", 0.0, std::nullopt, {"autosave_interval_minutes"}, {"runtime", "save"});
     addBool(registry, "export_substrate_include_brain_activations", false, "save.export", "Include brain activations in exports.", {}, {"runtime", "save", "neural"});
     addBool(registry, "export_substrate_pretty_json", false, "save.export", "Write human-readable JSON.", {}, {"runtime", "save"});
     addBool(registry, "debug_reproduction_color", false, "debug", "Debug reproduction with color changes.", {}, {"debug"});

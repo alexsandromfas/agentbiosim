@@ -66,12 +66,16 @@ add_executable(AgentBioSimCpp
     src/core/Logger.cpp
     src/core/Profiler.cpp
     src/i18n/Locale.cpp
+    src/io/Json.cpp
+    src/io/SaveFile.cpp
+    src/io/FileDialog.cpp
     src/neural/BrainFactory.cpp
     src/neural/GatedMLPBrain.cpp
     src/neural/MLPBrain.cpp
     src/neural/ModulatedMLPBrain.cpp
     src/neural/NEATGraphBrain.cpp
     src/neural/NeuralView.cpp
+    src/neural/BrainSerializer.cpp
     src/neural/Phase9Diagnostics.cpp
     src/neural/Phase14Diagnostics.cpp
     src/neural/Phase15Diagnostics.cpp
@@ -111,6 +115,7 @@ add_executable(AgentBioSimCpp
     src/systems/Phase25Diagnostics.cpp
     src/systems/Phase26Diagnostics.cpp
     src/systems/Phase27Diagnostics.cpp
+    src/systems/Phase28Diagnostics.cpp
     src/systems/MetricsSystem.cpp
     src/ui/InputRouter.cpp
     src/ui/UiPanel.cpp
@@ -142,6 +147,11 @@ target_link_libraries(AgentBioSimCpp
         "${SFML_ROOT}/lib/sfml-window.lib"
         "${SFML_ROOT}/lib/sfml-system.lib"
 )
+
+if(WIN32)
+    # Phase 28: native Save/Open dialogs (GetSaveFileNameA / GetOpenFileNameA).
+    target_link_libraries(AgentBioSimCpp PRIVATE comdlg32)
+endif()
 
 if(MSVC)
     target_compile_options(AgentBioSimCpp PRIVATE /W4 /permissive-)

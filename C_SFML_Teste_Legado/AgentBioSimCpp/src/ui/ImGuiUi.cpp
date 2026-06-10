@@ -866,12 +866,12 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
         {
             if (ImGui::MenuItem(tr("Novo", "New"))) queue.push(core::CmdNewSimulation{});
             ImGui::Separator();
-            ImGui::MenuItem(tr("Abrir Simulacao", "Open Simulation"), nullptr, false, false);
-            ImGui::MenuItem(tr("Salvar Simulacao", "Save Simulation"), nullptr, false, false);
-            ImGui::MenuItem(tr("Salvar Como...", "Save As..."), nullptr, false, false);
-            ImGui::Separator();
-            ImGui::MenuItem(tr("Exportar substrato (Fase 28)", "Export substrate (Phase 28)"), nullptr, false, false);
-            ImGui::MenuItem(tr("Importar substrato (Fase 28)", "Import substrate (Phase 28)"), nullptr, false, false);
+            if (ImGui::MenuItem(tr("Abrir Simulacao...", "Open Simulation...")))
+                queue.push(core::CmdLoadSimulation{});
+            if (ImGui::MenuItem(tr("Salvar Simulacao", "Save Simulation")))
+                queue.push(core::CmdSaveSimulation{});
+            if (ImGui::MenuItem(tr("Salvar Como...", "Save As...")))
+                queue.push(core::CmdSaveSimulationAs{});
             ImGui::Separator();
             if (ImGui::MenuItem(tr("Sair", "Quit"))) queue.push(core::CmdQuitApp{});
             ImGui::EndMenu();
@@ -924,8 +924,12 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                 ImGui::TextDisabled("%s", tr("(selecione um agente)", "(select an agent)"));
             }
             ImGui::Separator();
-            ImGui::MenuItem(tr("Exportar agente (Fase 28)", "Export agent (Phase 28)"), nullptr, false, false);
-            ImGui::MenuItem(tr("Carregar agente (Fase 28)", "Load agent (Phase 28)"), nullptr, false, false);
+            ImGui::BeginDisabled(!hasSelection);
+            if (ImGui::MenuItem(tr("Exportar organismo selecionado...", "Export selected organism...")))
+                queue.push(core::CmdExportAgent{});
+            ImGui::EndDisabled();
+            if (ImGui::MenuItem(tr("Importar organismo...", "Import organism...")))
+                queue.push(core::CmdImportAgent{});
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu(tr("Ajuda", "Help")))

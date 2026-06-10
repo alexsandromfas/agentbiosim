@@ -42,6 +42,8 @@ public:
     [[nodiscard]] const std::vector<std::vector<double>>& weights() const noexcept { return weights_; }
     [[nodiscard]] const std::vector<std::vector<double>>& biases() const noexcept { return biases_; }
 
+    friend struct BrainSerializer;  // Phase 28: persistence access.
+
 private:
     void initialize(std::mt19937_64& rng);
     void clampGates();

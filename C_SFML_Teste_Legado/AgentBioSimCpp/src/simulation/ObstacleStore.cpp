@@ -18,6 +18,25 @@ ObstacleId ObstacleStore::add(const ObstacleSpawn& spawn)
     return id;
 }
 
+void ObstacleStore::restore(const std::vector<ObstacleId>& ids,
+                            const std::vector<ObstacleSpawn>& spawns, const ObstacleId nextId)
+{
+    clear();
+    const std::size_t count = std::min(ids.size(), spawns.size());
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const ObstacleSpawn& s = spawns[i];
+        ids_.push_back(ids[i]);
+        x_.push_back(s.position.x);
+        y_.push_back(s.position.y);
+        radius_.push_back(std::max(0.1, s.radius));
+        brushRadius_.push_back(std::max(0.1, s.brushRadius));
+        color_.push_back(s.color);
+        alive_.push_back(1U);
+    }
+    nextId_ = nextId;
+}
+
 bool ObstacleStore::remove(const ObstacleId id)
 {
     for (std::size_t i = 0; i < ids_.size(); ++i)

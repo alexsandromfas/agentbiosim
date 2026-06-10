@@ -1,5 +1,7 @@
 #include "simulation/FoodStore.hpp"
 
+#include <algorithm>
+
 namespace agentbiosim::simulation
 {
 EntityId FoodStore::createFood(const FoodSpawn& spawn)
@@ -22,6 +24,35 @@ EntityId FoodStore::createFood(const FoodSpawn& spawn)
     indexById_.emplace(id.value, index);
 
     return id;
+}
+
+void FoodStore::restore(const std::vector<EntityId>& ids, const std::vector<FoodSpawn>& spawns,
+                        const std::vector<Vec2>& velocities, const std::uint64_t nextId,
+                        const std::uint32_t nextClusterId)
+{
+    clear();
+    const std::size_t count = std::min(ids.size(), spawns.size());
+    for (std::size_t i = 0; i < count; ++i)
+    {
+        const EntityId id = ids[i];
+        const FoodSpawn& s = spawns[i];
+        const std::size_t index = ids_.size();
+        ids_.push_back(id);
+        x_.push_back(s.position.x);
+        y_.push_back(s.position.y);
+        vx_.push_back(i < velocities.size() ? velocities[i].x : 0.0);
+        vy_.push_back(i < velocities.size() ? velocities[i].y : 0.0);
+        radius_.push_back(s.radius);
+        energy_.push_back(s.energy);
+        initialEnergy_.push_back(s.initialEnergy);
+        color_.push_back(s.color);
+        kind_.push_back(s.kind);
+        clusterId_.push_back(s.clusterId);
+        alive_.push_back(1U);
+        indexById_.emplace(id.value, index);
+    }
+    nextId_ = nextId;
+    nextClusterId_ = nextClusterId;
 }
 
 bool FoodStore::removeFood(const EntityId id)

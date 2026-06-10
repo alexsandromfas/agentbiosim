@@ -194,6 +194,48 @@ void NeuralSystem::removeBrainFor(const std::uint64_t agentId) noexcept
     brainsByAgentId_.erase(agentId);
 }
 
+std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>> NeuralSystem::captureBrains() const
+{
+    std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>> out;
+    out.reserve(brainsByAgentId_.size());
+    for (const auto& entry : brainsByAgentId_)
+    {
+        out.emplace_back(entry.first, neural::BrainSerializer::capture(entry.second.brain));
+    }
+    return out;
+}
+
+void NeuralSystem::restoreBrains(
+    const std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>>& brains)
+{
+    brainsByAgentId_.clear();
+    for (const auto& entry : brains)
+    {
+        BrainSlot slot;
+        slot.brain = neural::BrainSerializer::build(entry.second);
+        slot.signature = neural::BrainSerializer::signatureOf(entry.second);
+        brainsByAgentId_[entry.first] = std::move(slot);
+    }
+    // The selected-agent view (Phase 26) is stale after a load.
+    lastViewValid_ = false;
+}
+
+bool NeuralSystem::captureBrain(const std::uint64_t agentId, neural::BrainSnapshot& out) const
+{
+    const auto it = brainsByAgentId_.find(agentId);
+    if (it == brainsByAgentId_.end()) return false;
+    out = neural::BrainSerializer::capture(it->second.brain);
+    return true;
+}
+
+void NeuralSystem::loadBrain(const std::uint64_t agentId, const neural::BrainSnapshot& snapshot)
+{
+    BrainSlot slot;
+    slot.brain = neural::BrainSerializer::build(snapshot);
+    slot.signature = neural::BrainSerializer::signatureOf(snapshot);
+    brainsByAgentId_[agentId] = std::move(slot);
+}
+
 void NeuralSystem::clear()
 {
     brainsByAgentId_.clear();

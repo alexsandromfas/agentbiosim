@@ -18,6 +18,8 @@
 #include <SFML/System/Vector2.hpp>
 
 #include <cstdint>
+#include <future>
+#include <string>
 #include <vector>
 
 namespace agentbiosim
@@ -44,6 +46,18 @@ private:
     void updateFpsTitle();
     void drainCommandsAndApply();
 
+    // Phase 28: save/load. `saveSimulation` prompts only when no path is given;
+    // `loadSimulation` applies parameters + engine snapshot + camera from a file.
+    void saveSimulation(bool forcePrompt);
+    void loadSimulation();
+    // Phase 28: periodic autosave. Captures the snapshot on the main thread (a
+    // self-contained copy) and writes the file on a background thread so the
+    // simulation never freezes. Controlled by the registry (enabled + interval).
+    void maybeAutosave(double realDeltaSeconds);
+    // Phase 28: single-organism export/import (.organism file).
+    void exportSelectedAgent();
+    void importAgentFromFile();
+
     config::ParameterRegistry parameters_;
     sim::SimulationRunner runner_;
     simulation::FixedTimestep timestep_;
@@ -69,5 +83,12 @@ private:
     float lastFps_ = 0.0F;
     unsigned long long simulatedSteps_ = 0;
     unsigned int lastStepsThisFrame_ = 0;
+
+    // Phase 28: last saved/loaded file path ("Salvar" reuses it; empty = prompt).
+    std::string currentSavePath_;
+
+    // Phase 28: autosave wall-clock timer + the in-flight background write.
+    double autosaveTimerSeconds_ = 0.0;
+    std::future<void> autosaveFuture_;
 };
 } // namespace agentbiosim
