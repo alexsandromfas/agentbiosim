@@ -194,6 +194,27 @@ void NeuralSystem::removeBrainFor(const std::uint64_t agentId) noexcept
     brainsByAgentId_.erase(agentId);
 }
 
+std::size_t NeuralSystem::resetBrainsBySeed(const simulation::AgentStore& agents,
+                                            const simulation::SpeciesId speciesId,
+                                            const std::uint64_t seed)
+{
+    std::size_t resetCount = 0;
+    for (std::size_t index = 0; index < agents.size(); ++index)
+    {
+        if (agents.speciesIdAt(index) != speciesId) continue;
+        const std::uint64_t agentId = agents.idAt(index).value;
+        const auto it = brainsByAgentId_.find(agentId);
+        if (it == brainsByAgentId_.end()) continue;
+        const neural::BrainConfig cfg =
+            std::visit([](const auto& b) { return b.config(); }, it->second.brain);
+        std::mt19937_64 rng(seed + agentId * 0x9E3779B97F4A7C15ULL);
+        neural::BrainCreationResult created = neural::BrainFactory::createBrain(cfg, rng);
+        it->second.brain = std::move(created.brain);
+        ++resetCount;
+    }
+    return resetCount;
+}
+
 std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>> NeuralSystem::captureBrains() const
 {
     std::vector<std::pair<std::uint64_t, neural::BrainSnapshot>> out;

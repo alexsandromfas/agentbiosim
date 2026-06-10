@@ -223,7 +223,9 @@ void InputRouter::handleEvent(const sf::Event& ev,
         case sf::Keyboard::X:       queue.push(CmdSetCanvasTool{CanvasTool::EraseObstacle}); break;
         case sf::Keyboard::L:       queue.push(CmdSetCanvasTool{CanvasTool::LassoSelect}); break;
         case sf::Keyboard::Q:       queue.push(CmdSetCanvasTool{CanvasTool::RectangleSelect}); break;
-        case sf::Keyboard::W:       queue.push(CmdPanCameraScreen{0.0, -40.0}); break;
+        // Phase 31: camera pan is arrows-only. W used to pan while A/S/D were
+        // tool shortcuts, which made the help text ("WASD") a lie — letters are
+        // tools, arrows are camera.
         case sf::Keyboard::Up:      queue.push(CmdPanCameraScreen{0.0, -40.0}); break;
         case sf::Keyboard::Down:    queue.push(CmdPanCameraScreen{0.0, 40.0}); break;
         case sf::Keyboard::Left:    queue.push(CmdPanCameraScreen{-40.0, 0.0}); break;

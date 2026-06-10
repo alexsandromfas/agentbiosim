@@ -87,6 +87,14 @@ public:
                                  const neural::BrainConfig& brainConfig,
                                  std::uint64_t seed);
 
+    // Phase 31: like resetForSpecies, but each brain is rebuilt from ITS OWN
+    // slot config (correct input/output sizes guaranteed) with a caller-supplied
+    // seed, so the new nets genuinely differ from the birth nets. Deterministic
+    // for a given seed. Returns the number of brains recreated.
+    std::size_t resetBrainsBySeed(const simulation::AgentStore& agents,
+                                   simulation::SpeciesId speciesId,
+                                   std::uint64_t seed);
+
     void removeBrainFor(std::uint64_t agentId) noexcept;
 
     void clear();

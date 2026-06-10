@@ -134,6 +134,11 @@ public:
     bool setSpeciesLabel(simulation::SpeciesId speciesId, const std::string& label);
     bool removeSpeciesSafe(simulation::SpeciesId speciesId);
     [[nodiscard]] std::size_t countAgentsOfSpecies(simulation::SpeciesId speciesId) const;
+    // Phase 31: "Resetar rede neural" for one species. Rebuilds each agent's
+    // brain from its own slot config (correct architecture) with a step-varying
+    // seed, so the nets are genuinely new — not the deterministic birth nets.
+    // Returns the number of brains recreated.
+    std::size_t resetNeuralForSpecies(simulation::SpeciesId speciesId);
     // Mutable species access so the UI can read records for the Labels list.
     [[nodiscard]] simulation::SpeciesStore& speciesMutable() noexcept { return species_; }
 

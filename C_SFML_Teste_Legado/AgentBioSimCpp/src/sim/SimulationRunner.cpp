@@ -637,6 +637,16 @@ void SimulationRunner::restore(const SimulationSnapshot& s)
     neuralSystem_.clearTraceTarget();
 }
 
+std::size_t SimulationRunner::resetNeuralForSpecies(const simulation::SpeciesId speciesId)
+{
+    // Seed varies with the simulation step so a reset mid-run yields genuinely
+    // NEW nets (not the deterministic birth nets), while still being
+    // reproducible at the same point of the same run.
+    const std::uint64_t seed =
+        seed_ ^ ((stats_.stepsExecuted + 1ULL) * 0xD1B54A32D192ED03ULL);
+    return neuralSystem_.resetBrainsBySeed(agents_, speciesId, seed);
+}
+
 void SimulationRunner::setDevSystemEnabled(const int section, const bool enabled) noexcept
 {
     if (section >= 0 && section < kDevToggleCount)
@@ -961,7 +971,12 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
         else if constexpr (std::is_same_v<T, core::CmdMoveOperationalWindow>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdApplyGenomeToSelected>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdApplyGenomeToSpecies>) { return true; }
-        else if constexpr (std::is_same_v<T, core::CmdResetNeuralForSpecies>) { return true; }
+        // Phase 31: now functional — drops the species' brains; fresh ones are
+        // recreated deterministically on the next step (see resetNeuralForSpecies).
+        else if constexpr (std::is_same_v<T, core::CmdResetNeuralForSpecies>) {
+            static_cast<void>(resetNeuralForSpecies(static_cast<simulation::SpeciesId>(c.speciesId)));
+            return true;
+        }
         else if constexpr (std::is_same_v<T, core::CmdSelectAllOfSpecies>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdAssignSelectedToSpecies>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdCreateSpeciesFromSelected>) { return true; }

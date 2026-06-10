@@ -550,7 +550,15 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdToggleHelpPanel>)
             {
-                uiState_.showHelp = !uiState_.showHelp;
+                // Phase 31 fix: the H shortcut must drive the LIVE ImGui help
+                // window (prefs.helpWindowOpen), not the dead SFML-era showHelp.
+                uiState_.preferences.helpWindowOpen = !uiState_.preferences.helpWindowOpen;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdToggleVisionDebug>)
+            {
+                // Phase 31 fix: V / menu "Debug de visao" toggles the selected-
+                // agent vision overlay (same backend as the inspector checkbox).
+                uiState_.selectedVisionOverlay = !uiState_.selectedVisionOverlay;
             }
             else if constexpr (std::is_same_v<T, ui::CmdTogglePreferencesPanel>)
             {
@@ -971,10 +979,8 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdResetNeuralForSpecies>)
             {
-                // Phase 24.2: per-species neural reset needs GenomeStore/brain
-                // lifetime APIs — deferred to Fase 25. The Labels button is
-                // rendered DISABLED, so this arm should not be reached, but we
-                // keep it as an explicit no-op (never a fake success).
+                // Phase 31: handled by the engine (SimulationRunner::applyCommand
+                // calls resetNeuralForSpecies). Nothing to do at the App layer.
                 static_cast<void>(c);
             }
             // Phase 24.2: left dock state.

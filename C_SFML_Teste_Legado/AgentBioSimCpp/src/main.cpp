@@ -23,6 +23,7 @@
 #include "systems/Phase27Diagnostics.hpp"
 #include "systems/Phase28Diagnostics.hpp"
 #include "systems/Phase30Diagnostics.hpp"
+#include "systems/Phase31Diagnostics.hpp"
 #include "bench/Benchmark.hpp"
 #include "systems/Phase13Diagnostics.hpp"
 #include "simulation/SpatialHash.hpp"
@@ -91,6 +92,7 @@ int main(const int argc, char* argv[])
         bool runPhase29Benchmark = false;
         bool runPhase30Validation = false;
         bool runPhase30Benchmark = false;
+        bool runPhase31Validation = false;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -412,6 +414,10 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase30-diagnostics")
             {
                 runPhase30Benchmark = true;
+            }
+            else if (argument == "--phase31-selftest")
+            {
+                runPhase31Validation = true;
             }
         }
 
@@ -1328,6 +1334,15 @@ int main(const int argc, char* argv[])
                           << row.fileBytes << '\n';
             }
             return 0;
+        }
+
+        if (runPhase31Validation)
+        {
+            const auto summary = agentbiosim::systems::runPhase31Validation();
+            std::cout << "Phase31 validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 31;
         }
 
         if (runPhase30Validation)

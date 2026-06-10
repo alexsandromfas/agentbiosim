@@ -348,9 +348,14 @@ void drawLabelsTab(const config::ParameterRegistry& reg, const sim::SimulationRu
         ImGui::SameLine();
         if (ImGui::Button(tr("Remover selecao", "Remove selection"))) queue.push(core::CmdRemoveSelectedFromSpecies{sid});
 
-        ImGui::BeginDisabled(true);
-        ImGui::Button(tr("Resetar rede (Fase 26)", "Reset network (Phase 26)"));
-        ImGui::EndDisabled();
+        // Phase 31: per-species neural reset is live (drops the species' brains;
+        // fresh ones are recreated deterministically on the next step).
+        if (ImGui::Button(tr("Resetar rede", "Reset network")))
+        {
+            queue.push(core::CmdResetNeuralForSpecies{sid});
+        }
+        ImGui::SetItemTooltip("%s", tr("Substitui os cerebros desta especie por redes novas aleatorias.",
+                                       "Replaces this species' brains with fresh random networks."));
         ImGui::SameLine();
         if (ImGui::Button(tr("Excluir", "Delete"))) queue.push(core::CmdRemoveSpecies{sid});
 
@@ -1235,9 +1240,13 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
             ImGui::BulletText("%s", tr("B: Pincel    X: Apagar   M: Mover   D: Excluir", "B: Brush    X: Erase   M: Move   D: Delete"));
             ImGui::Separator();
             ImGui::TextUnformatted(tr("Camera", "Camera"));
-            ImGui::BulletText("%s", tr("WASD / setas: mover camera", "WASD / arrows: move camera"));
+            ImGui::BulletText("%s", tr("Setas: mover camera", "Arrows: move camera"));
             ImGui::BulletText("%s", tr("Scroll: zoom no cursor", "Scroll: zoom at cursor"));
             ImGui::BulletText("%s", tr("Botao direito: arrastar (pan)", "Right button: drag (pan)"));
+            ImGui::Separator();
+            ImGui::TextUnformatted(tr("Selecao", "Selection"));
+            ImGui::BulletText("%s", tr("Shift/Ctrl + clique: somar a selecao",
+                                       "Shift/Ctrl + click: add to selection"));
         }
         ImGui::End();
         if (!open) queue.push(core::CmdCloseHelpWindow{});
