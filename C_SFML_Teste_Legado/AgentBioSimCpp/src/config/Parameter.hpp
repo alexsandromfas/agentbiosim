@@ -50,6 +50,10 @@ constexpr unsigned int RebuildPerception  = 0x0004U; // PerceptionSystem reconfi
 constexpr unsigned int RebuildBrains      = 0x0008U; // new brains for new agents
 constexpr unsigned int RefreshRenderer    = 0x0010U; // App::configureRenderOptions
 constexpr unsigned int PendingFuturePhase = 0x0020U; // backend not yet implemented
+// Microfase 31.1: world geometry applies LIVE — the runner reconfigures the
+// world and pushes agents/food back inside the new bounds, without resetting
+// the simulation (SimulationRunner::applyWorldConfigLive).
+constexpr unsigned int ReshapeWorld       = 0x0040U;
 }
 
 struct ParameterDefinition

@@ -634,6 +634,12 @@ void App::drainCommandsAndApply()
                 {
                     configureRenderOptions();
                 }
+                // Microfase 31.1: world geometry reshapes LIVE — no reset, no
+                // camera refit; organisms are pushed back inside the bounds.
+                if (flags & config::ApplyFlag::ReshapeWorld)
+                {
+                    runner_.applyWorldConfigLive();
+                }
                 if (flags & config::ApplyFlag::RequiresReset)
                 {
                     runner_.reset();
@@ -833,6 +839,10 @@ void App::drainCommandsAndApply()
                     {
                         configureRenderOptions();
                     }
+                    if (flags & config::ApplyFlag::ReshapeWorld)
+                    {
+                        runner_.applyWorldConfigLive();  // Microfase 31.1: live, no reset
+                    }
                     if (flags & config::ApplyFlag::RequiresReset)
                     {
                         runner_.reset();
@@ -897,9 +907,7 @@ void App::drainCommandsAndApply()
                 else if (c.which == 2) { uiState_.preferences.populacaoX = c.x; uiState_.preferences.populacaoY = c.y; }
                 else if (c.which == 3) { uiState_.preferences.substratoX = c.x; uiState_.preferences.substratoY = c.y; }
             }
-            else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSpecies> ||
-                                 std::is_same_v<T, ui::CmdApplyPopulation> ||
-                                 std::is_same_v<T, ui::CmdApplyEnvironment>)
+            else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSpecies>)
             {
                 // Phase 24: bake pending edits into registry + reset so new
                 // agents read the new defaults. Existing agents are recreated
@@ -909,11 +917,19 @@ void App::drainCommandsAndApply()
                 if (flags & config::ApplyFlag::RefreshRenderer) configureRenderOptions();
                 configureFromParameters();
                 runner_.reset();
-                // Phase 24.1 fix: DO NOT auto-fit the camera here. The user's
-                // intent on "Aplicar ambiente" is to grow/shrink the substrate
-                // while keeping the visual size of organisms / food the same.
-                // Auto-fit would rezoom and change the apparent size of every
-                // entity. The user can press F manually to fit the world.
+                // Phase 24.1 fix: DO NOT auto-fit the camera here.
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdApplyPopulation> ||
+                                 std::is_same_v<T, ui::CmdApplyEnvironment>)
+            {
+                // Microfase 31.1: substrate/food/population changes do NOT
+                // restart the simulation. Bake the pending edits; the runner's
+                // CmdApplyEnvironment arm reshapes the world live (agents/food
+                // pushed back inside) and food knobs are read every step anyway.
+                const unsigned int flags = ui::prefsApplyPending(parameters_,
+                    uiState_.preferences);
+                if (flags & config::ApplyFlag::RefreshRenderer) configureRenderOptions();
+                configureFromParameters();
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSelected>)
             {

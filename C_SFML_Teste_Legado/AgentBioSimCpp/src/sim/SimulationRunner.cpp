@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <random>
+#include <unordered_map>
 
 namespace agentbiosim::sim
 {
@@ -296,9 +297,11 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Reproduction))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Reproduction);
+        // Microfase 31.1: pass the species store so the population cap is
+        // enforced PER LABEL (each label honors its own maxPopulation).
         const auto reproStats = reproductionSystem_.apply(
             agents_, genomes_, neuralSystem_, world_,
-            neuralConfig.brainConfig, reproductionConfig, dt);
+            neuralConfig.brainConfig, reproductionConfig, dt, &species_);
         birthsThisStep = reproStats.birthsThisStep;
     }
     stats_.births += birthsThisStep;
@@ -312,6 +315,11 @@ void SimulationRunner::runOneStep(const double dt)
         deathsThisStep = deathStats.deaths;
     }
     stats_.deaths += deathsThisStep;
+
+    // Microfase 31.1: per-label population floor (respects each species'
+    // minPopulation when the rescue knob is on). Runs before the final spatial
+    // rebuild so respawned agents enter the hash this step.
+    applyPopulationRescue();
 
     if (devOn(core::ProfileSection::SpatialHash))
     {
@@ -388,6 +396,111 @@ void SimulationRunner::reset()
     stepOnce_ = false;
     spawnInitial();
     rebuildSpatial();
+}
+
+void SimulationRunner::applyWorldConfigLive()
+{
+    using config::parameterDouble;
+    using config::parameterString;
+    const std::string shape = parameterString(parameters_, "substrate_shape", "rectangular");
+    simulation::WorldConfig wcfg;
+    wcfg.width = parameterDouble(parameters_, "world_w", 1000.0);
+    wcfg.height = parameterDouble(parameters_, "world_h", 700.0);
+    wcfg.radius = parameterDouble(parameters_, "substrate_radius", 400.0);
+    wcfg.center = {wcfg.width * 0.5, wcfg.height * 0.5};
+    wcfg.shape = shape == "circular" ? simulation::WorldShape::Circular
+                                      : simulation::WorldShape::Rectangular;
+    world_.configure(wcfg);
+
+    // Push every organism and food particle back inside the new bounds (a
+    // shrink must not strand entities outside the substrate). clampPosition
+    // honors both shapes (rectangular and circular).
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        const auto pos = agents_.positionAt(i);
+        const auto clamped = world_.clampPosition(pos, agents_.radiusAt(i));
+        if (clamped.x != pos.x || clamped.y != pos.y)
+        {
+            agents_.setPositionAt(i, clamped);
+        }
+    }
+    for (std::size_t i = 0; i < foods_.size(); ++i)
+    {
+        const auto pos = foods_.positionAt(i);
+        const auto clamped = world_.clampPosition(pos, foods_.radiusAt(i));
+        if (clamped.x != pos.x || clamped.y != pos.y)
+        {
+            foods_.setPositionAt(i, clamped);
+        }
+    }
+    rebuildSpatial();
+}
+
+void SimulationRunner::applyPopulationRescue()
+{
+    if (!config::parameterBool(parameters_, "population_min_rescue_enabled", true))
+    {
+        return;
+    }
+
+    // Count agents per species in one pass.
+    std::unordered_map<simulation::SpeciesId, std::size_t> counts;
+    counts.reserve(species_.records().size() * 2U);
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (agents_.aliveAt(i)) ++counts[agents_.speciesIdAt(i)];
+    }
+
+    const auto* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
+    // Deterministic for the same step of the same run.
+    std::mt19937 rng(static_cast<std::uint32_t>(
+        seed_ ^ (stats_.stepsExecuted * 2654435761ULL) ^ 0x5BD1E995ULL));
+    std::uniform_real_distribution<double> angleDist(0.0, 2.0 * kPi);
+
+    for (const auto& rec : species_.records())
+    {
+        if (!rec.enabled || rec.minPopulation <= 0) continue;
+        const std::size_t have = counts.count(rec.id) ? counts[rec.id] : 0U;
+        if (have >= static_cast<std::size_t>(rec.minPopulation)) continue;
+
+        // Spawn defaults come from the species' default genome (works for user
+        // labels with no registry prefix); registry bacteria values are the
+        // last-resort fallback.
+        const auto* genome = genomes_.find(rec.defaultGenomeId);
+        const double radius = std::max(0.1, genome != nullptr
+            ? genome->bodySize
+            : config::parameterDouble(parameters_, "bacteria_body_size", 9.0));
+        const double energy = std::max(0.0, genome != nullptr
+            ? genome->initialEnergy
+            : config::parameterDouble(parameters_, "bacteria_initial_energy", 100.0));
+
+        const std::size_t missing = static_cast<std::size_t>(rec.minPopulation) - have;
+        for (std::size_t n = 0; n < missing; ++n)
+        {
+            simulation::Vec2 pos = world_.clampPosition(world_.center(), radius);
+            for (int attempt = 0; attempt < 16; ++attempt)
+            {
+                const auto candidate = world_.clampPosition(
+                    randomPointInsideWorld(world_, radius, rng), radius);
+                if (obstaclePtr == nullptr || !obstaclePtr->overlapsCircle(candidate, radius))
+                {
+                    pos = candidate;
+                    break;
+                }
+            }
+            simulation::AgentSpawn s;
+            s.position = pos;
+            s.angle = angleDist(rng);
+            s.radius = radius;
+            s.energy = energy;
+            s.color = rec.color;
+            s.speciesId = rec.id;
+            s.genomeId = rec.defaultGenomeId;
+            s.typeCode = rec.typeCode;
+            s.bodyShape = rec.bodyShape;
+            static_cast<void>(agents_.createAgent(s));
+        }
+    }
 }
 
 simulation::EntityId SimulationRunner::pickAgentAt(const simulation::Vec2 worldPoint,
@@ -981,7 +1094,12 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
         else if constexpr (std::is_same_v<T, core::CmdAssignSelectedToSpecies>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdCreateSpeciesFromSelected>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdApplyPopulation>) { return true; }
-        else if constexpr (std::is_same_v<T, core::CmdApplyEnvironment>) { return true; }
+        // Microfase 31.1: "Aplicar ambiente" reconfigures the world LIVE (no
+        // reset); agents/food are pushed back inside the new bounds.
+        else if constexpr (std::is_same_v<T, core::CmdApplyEnvironment>) {
+            applyWorldConfigLive();
+            return true;
+        }
         else if constexpr (std::is_same_v<T, core::CmdClearAllFood>)
         {
             static_cast<void>(foodSystem_.clearAll(foods_)); return true;

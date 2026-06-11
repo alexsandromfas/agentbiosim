@@ -254,6 +254,108 @@ Phase31ValidationSummary runPhase31Validation()
               "fluxo: aplicar populacao aceito");
     }
 
+    // ---------------- E. Microfase 31.1: mundo/comida vivos + min/max por label
+    {
+        config::ParameterRegistry reg2 = config::createDefaultParameterRegistry();
+        static_cast<void>(reg2.setValue("auto_export_substrate", false));
+        sim::SimulationRunner r(reg2);
+        r.initialize();
+        for (int i = 0; i < 3; ++i) r.step(1.0 / 30.0);
+
+        // 1. Encolher o substrato AO VIVO: sem reset, organismos empurrados pra dentro.
+        const std::size_t agentsBefore = r.agents().size();
+        const auto stepsBefore = r.stats().stepsExecuted;
+        const auto keepId = r.agents().idAt(0);
+        static_cast<void>(reg2.setValue("world_w", 400.0));
+        static_cast<void>(reg2.setValue("world_h", 300.0));
+        r.applyWorldConfigLive();
+        check(r.agents().size() == agentsBefore && r.stats().stepsExecuted == stepsBefore &&
+                  r.agents().contains(keepId),
+              "31.1: encolher mundo NAO reseta (agentes/passos/ids preservados)");
+        bool allInside = true;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            const auto p = r.agents().positionAt(i);
+            if (p.x < 0.0 || p.x > 400.0 || p.y < 0.0 || p.y > 300.0) { allInside = false; break; }
+        }
+        for (std::size_t i = 0; i < r.foods().size() && allInside; ++i)
+        {
+            const auto p = r.foods().positionAt(i);
+            if (p.x < 0.0 || p.x > 400.0 || p.y < 0.0 || p.y > 300.0) { allInside = false; break; }
+        }
+        check(allInside, "31.1: agentes e comida empurrados pra dentro do mundo menor");
+        r.step(1.0 / 30.0);
+        check(true, "31.1: simulacao segue apos reshape");
+
+        // 2. CmdApplyEnvironment tambem reconfigura ao vivo (sem reset).
+        static_cast<void>(reg2.setValue("world_w", 600.0));
+        const auto steps2 = r.stats().stepsExecuted;
+        check(r.applyCommand(core::Command{core::CmdApplyEnvironment{}}) &&
+                  r.stats().stepsExecuted == steps2 && r.agents().contains(keepId),
+              "31.1: Aplicar ambiente nao reseta");
+
+        // 3. Comida ao vivo: subir o alvo repoe sem reset. A interacao (comer) e
+        //    pausada via dev-toggle para a contagem nao ser mascarada pelos ~150
+        //    agentes comendo mais rapido que o teto de reposicao por passo.
+        const int targetBefore = static_cast<int>(r.foods().size());
+        static_cast<void>(reg2.setValue("food_target", targetBefore + 40));
+        static_cast<void>(r.applyCommand(core::Command{core::CmdSetDevSystemEnabled{
+            static_cast<int>(core::ProfileSection::Interaction), false}}));
+        for (int i = 0; i < 3; ++i) r.step(1.0 / 30.0);
+        static_cast<void>(r.applyCommand(core::Command{core::CmdSetDevSystemEnabled{-1, true}}));
+        check(static_cast<int>(r.foods().size()) > targetBefore && r.agents().contains(keepId),
+              "31.1: mudar quantidade de comida aplica ao vivo (sem reset)");
+
+        // 4. Todo organismo pertence a uma label valida.
+        bool allLabeled = true;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            if (!r.species().contains(r.agents().speciesIdAt(i))) { allLabeled = false; break; }
+        }
+        check(allLabeled, "31.1: todo organismo pertence a uma label existente");
+
+        // 5. Maximo POR LABEL no nascimento: com max = contagem atual e split
+        //    facilitado, a label nao cresce.
+        const auto bacteriaId = r.species().idByName("bacteria");
+        const std::size_t capCount = r.countAgentsOfSpecies(bacteriaId);
+        static_cast<void>(r.speciesMutable().setMaxPopulation(
+            bacteriaId, static_cast<int>(capCount)));
+        static_cast<void>(reg2.setValue("bacteria_split_energy", 1.0));
+        for (int i = 0; i < 4; ++i) r.step(1.0 / 30.0);
+        check(r.countAgentsOfSpecies(bacteriaId) <= capCount,
+              "31.1: maximo da label respeitado no nascimento (" +
+                  std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " <= " +
+                  std::to_string(capCount) + ")");
+
+        // 6. Resgate de MINIMO por label: abaixo do minimo, repoe ate ele.
+        static_cast<void>(r.speciesMutable().setMaxPopulation(bacteriaId, 0));
+        static_cast<void>(r.speciesMutable().setMinPopulation(bacteriaId, 30));
+        std::vector<simulation::EntityId> toDelete;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            if (r.agents().speciesIdAt(i) == bacteriaId && toDelete.size() + 5 <
+                r.countAgentsOfSpecies(bacteriaId))
+            {
+                toDelete.push_back(r.agents().idAt(i));
+            }
+        }
+        r.deleteAgents(toDelete);
+        check(r.countAgentsOfSpecies(bacteriaId) < 30, "31.1: populacao reduzida p/ teste");
+        r.step(1.0 / 30.0);
+        check(r.countAgentsOfSpecies(bacteriaId) >= 30,
+              "31.1: resgate repoe ate o minimo da label (" +
+                  std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " >= 30)");
+        // Repostos pertencem a label e estao dentro do mundo.
+        bool rescuedOk = true;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            if (!r.species().contains(r.agents().speciesIdAt(i))) { rescuedOk = false; break; }
+            const auto p = r.agents().positionAt(i);
+            if (p.x < 0.0 || p.x > 600.0 || p.y < 0.0 || p.y > 300.0) { rescuedOk = false; break; }
+        }
+        check(rescuedOk, "31.1: resgatados com label valida e dentro do mundo");
+    }
+
     summary.details = log.str();
     return summary;
 }

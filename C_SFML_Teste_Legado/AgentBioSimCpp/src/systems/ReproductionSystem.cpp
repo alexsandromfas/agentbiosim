@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 #include <vector>
 
 namespace agentbiosim::systems
@@ -90,7 +91,8 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
                                              const simulation::World& world,
                                              neural::BrainConfig brainSignatureConfig,
                                              const ReproductionConfig& config,
-                                             const double dt)
+                                             const double dt,
+                                             const simulation::SpeciesStore* species)
 {
     lastStats_ = {};
     if (!rngInitialized_)
@@ -153,15 +155,20 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
     }
     lastStats_.agentsEligible = parents.size();
 
+    // Microfase 31.1: per-label counts for the per-species cap. One pass; each
+    // birth below increments its label so the cap holds within the same step.
+    std::unordered_map<simulation::SpeciesId, std::size_t> countBySpecies;
+    if (species != nullptr)
+    {
+        countBySpecies.reserve(species->records().size() * 2U);
+        for (std::size_t i = 0; i < agents.size(); ++i)
+        {
+            if (agents.aliveAt(i)) ++countBySpecies[agents.speciesIdAt(i)];
+        }
+    }
+
     for (const simulation::EntityId parentId : parents)
     {
-        if (config.maxPopulation > 0 &&
-            agents.size() >= static_cast<std::size_t>(config.maxPopulation))
-        {
-            ++lastStats_.blockedByPopulation;
-            continue;
-        }
-
         const auto parentIndexOpt = agents.indexOf(parentId);
         if (!parentIndexOpt.has_value())
         {
@@ -170,6 +177,33 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         const std::size_t parentIndex = *parentIndexOpt;
         if (!agents.aliveAt(parentIndex))
         {
+            continue;
+        }
+
+        // Population cap. With a species store: PER LABEL (the child belongs to
+        // the parent's label; block once that label hits its maxPopulation).
+        // Without one (legacy callers/tests): old global total check.
+        const simulation::SpeciesId childSpecies = agents.speciesIdAt(parentIndex);
+        if (species != nullptr)
+        {
+            const auto* rec = species->find(childSpecies);
+            if (rec != nullptr && rec->maxPopulation > 0 &&
+                countBySpecies[childSpecies] >= static_cast<std::size_t>(rec->maxPopulation))
+            {
+                ++lastStats_.blockedByPopulation;
+                continue;
+            }
+            if (rec == nullptr && config.maxPopulation > 0 &&
+                agents.size() >= static_cast<std::size_t>(config.maxPopulation))
+            {
+                ++lastStats_.blockedByPopulation;
+                continue;
+            }
+        }
+        else if (config.maxPopulation > 0 &&
+                 agents.size() >= static_cast<std::size_t>(config.maxPopulation))
+        {
+            ++lastStats_.blockedByPopulation;
             continue;
         }
 
@@ -207,6 +241,7 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         spawn.bodyShape = agents.bodyShapeAt(parentIndex);
 
         const simulation::EntityId childId = agents.createAgent(spawn);
+        if (species != nullptr) ++countBySpecies[spawn.speciesId];
 
         // Phase 15: build NeuralMutationConfig honoring brain-config overrides for
         // gate / shortcut / recurrent mutation rates and strengths. -1 in the brain config

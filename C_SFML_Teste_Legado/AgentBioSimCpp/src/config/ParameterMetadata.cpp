@@ -14,14 +14,20 @@ namespace
 struct FlagEntry { const char* name; unsigned int flags; };
 
 // Phase 23: parameters whose effects require a world rebuild via reset().
-// Changing world size or spawn topology mid-simulation requires reset.
+// Microfase 31.1: world geometry no longer resets — it reshapes LIVE (agents
+// and food are pushed back inside the new bounds). Only seed/timing remain.
 const std::vector<FlagEntry> kRequireResetParams{
-    {"world_w",                ApplyFlag::RequiresReset},
-    {"world_h",                ApplyFlag::RequiresReset},
-    {"substrate_radius",       ApplyFlag::RequiresReset},
-    {"substrate_shape",        ApplyFlag::RequiresReset},
     {"random_seed",            ApplyFlag::RequiresReset},
     {"physics_steps_per_second", ApplyFlag::RequiresReset},
+};
+
+// Microfase 31.1: world geometry applies live via
+// SimulationRunner::applyWorldConfigLive (no reset; organisms preserved).
+const std::vector<FlagEntry> kReshapeWorldParams{
+    {"world_w",          ApplyFlag::Immediate | ApplyFlag::ReshapeWorld},
+    {"world_h",          ApplyFlag::Immediate | ApplyFlag::ReshapeWorld},
+    {"substrate_radius", ApplyFlag::Immediate | ApplyFlag::ReshapeWorld},
+    {"substrate_shape",  ApplyFlag::Immediate | ApplyFlag::ReshapeWorld},
 };
 
 // Phase 23: parameters that need PerceptionSystem reconfig. The current
@@ -101,6 +107,7 @@ void applyFlagsFromTable(ParameterRegistry& registry, const std::vector<FlagEntr
 void applyPhase23ApplyFlags(ParameterRegistry& registry)
 {
     applyFlagsFromTable(registry, kRequireResetParams);
+    applyFlagsFromTable(registry, kReshapeWorldParams);
     applyFlagsFromTable(registry, kRebuildPerceptionParams);
     applyFlagsFromTable(registry, kRebuildBrainsParams);
     applyFlagsFromTable(registry, kRefreshRendererParams);

@@ -119,4 +119,32 @@ Modificados: `src/app/App.cpp` (fix H + fix V), `src/ui/InputRouter.cpp` (W remo
 `src/systems/NeuralSystem.{hpp,cpp}` (`resetBrainsBySeed`), `src/sim/SimulationRunner.{hpp,cpp}`
 (`resetNeuralForSpecies` + comando funcional), `src/main.cpp`, `CMakeLists.txt`.
 
+## Microfase 31.1 — substrato/comida ao vivo + min/max por label (2026-06-10)
+
+A pedido do usuario, tres mudancas de comportamento (selftest da fase ampliado para 69 checks):
+
+1. **Mudar substrato/comida NAO reinicia a simulacao.** `world_w`/`world_h`/`substrate_radius`/
+   `substrate_shape` sairam de `RequiresReset` para o novo `ApplyFlag::ReshapeWorld`:
+   `SimulationRunner::applyWorldConfigLive()` reconfigura o mundo ao vivo e **empurra agentes e
+   comida de volta para dentro** dos novos limites (clamp nas duas formas). O botao "Aplicar
+   ambiente" e o Apply das preferencias usam esse caminho (sem reset, sem refit de camera). Os
+   parametros de comida ja eram lidos a cada passo — o reset vinha apenas do botao, removido.
+   "Aplicar populacao" tambem nao reseta mais. "Aplicar a especie" (Editor Genetico) MANTEM o
+   reset (semantica explicita de re-bake).
+2. **Maximo POR LABEL no nascimento.** Antes a reproducao comparava o TOTAL global de agentes com
+   `bacteria_max_limit` (bug). Agora `ReproductionSystem::apply` recebe a `SpeciesStore` e bloqueia
+   o nascimento quando a label do pai atinge seu `maxPopulation` (0 = sem limite). O caminho legado
+   (sem store) preserva o comportamento antigo para os selftests das Fases 13/18.
+3. **Resgate de MINIMO por label** (`SimulationRunner::applyPopulationRescue`, por passo, ligado a
+   `population_min_rescue_enabled`): toda label habilitada abaixo do seu `minPopulation` e reposta
+   ate ele, com defaults do genoma da propria label (funciona para labels criadas pelo usuario) e
+   posicoes deterministas por passo. Todo organismo pertence a uma label valida em todos os
+   caminhos (spawn manual, reproducao, import, remocao de label ⇒ label padrao "bacteria").
+   Nota documentada: reduzir o max abaixo da contagem atual NAO mata organismos existentes — o
+   limite vale para nascimentos.
+
+Tambem: check de identidade do top-system no `--phase30-selftest` endurecido contra empate de
+timing (aceita top-2 do benchmark) — eliminava um flake raro sob carga. Duas rodadas completas das
+regressoes 7-31 sem falhas.
+
 Nao avancar para a Fase 32 sem autorizacao explicita do usuario.

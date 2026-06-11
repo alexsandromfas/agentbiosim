@@ -69,6 +69,11 @@ public:
     // store. Does not change registry/world configuration.
     void reset();
 
+    // Microfase 31.1: apply the world geometry from the registry LIVE — no
+    // reset. When the substrate shrinks, agents and food are pushed back inside
+    // the new bounds (clamped); the spatial hash is rebuilt for the new grid.
+    void applyWorldConfigLive();
+
     // Phase 28: persistence. `snapshot()` captures the full engine state (stores
     // + brains + world + counters); `restore()` replaces it. Parameters and
     // camera are persisted by the App layer alongside this snapshot.
@@ -197,6 +202,9 @@ private:
     void spawnInitial();
     void rebuildSpatial();
     void runOneStep(double dt);
+    // Microfase 31.1: per-label population floor. When the rescue knob is on,
+    // every enabled species below its minPopulation gets respawned up to it.
+    void applyPopulationRescue();
 
     const config::ParameterRegistry& parameters_;
 

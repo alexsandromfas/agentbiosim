@@ -4,6 +4,7 @@
 #include "neural/BrainConfig.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/GenomeStore.hpp"
+#include "simulation/SpeciesStore.hpp"
 #include "simulation/World.hpp"
 #include "systems/NeuralSystem.hpp"
 
@@ -56,13 +57,19 @@ public:
     // Previously a const reference could dangle when `genomes.cloneFrom()` reallocated
     // the GenomeStore record vector mid-apply if the caller had captured a ref into
     // the same store. Copy is ~200 bytes and removes the latent UB.
+    //
+    // Microfase 31.1: when `species` is provided, the population CAP is enforced
+    // PER LABEL — a child whose species record has maxPopulation > 0 is blocked
+    // once that label reaches its max. Without a store (legacy tests) the old
+    // global check (total agents vs config.maxPopulation) is kept.
     [[nodiscard]] ReproductionStats apply(simulation::AgentStore& agents,
                                            simulation::GenomeStore& genomes,
                                            NeuralSystem& neuralSystem,
                                            const simulation::World& world,
                                            neural::BrainConfig brainSignatureConfig,
                                            const ReproductionConfig& config,
-                                           double dt);
+                                           double dt,
+                                           const simulation::SpeciesStore* species = nullptr);
 
     [[nodiscard]] const ReproductionStats& lastStats() const noexcept;
     [[nodiscard]] std::uint64_t totalBirths() const noexcept;
