@@ -42,6 +42,12 @@ config::ParameterRegistry registryFor(const ChecksumScenario& sc)
     static_cast<void>(reg.setValue("retina_vision_mode", std::string(sc.visionMode)));
     static_cast<void>(reg.setValue("auto_export_substrate", false));
     static_cast<void>(reg.setValue("metrics_enabled", true));
+    // Microfase 32.2: the scenarios spawn MORE agents than the new default
+    // per-label cap (32.1: max_limit=150), which would block every birth and
+    // silently drop reproduction/mutation coverage from the golden digest.
+    // Uncap so the digest keeps exercising births — this also keeps the digest
+    // byte-identical to the historical Phase 32 golden artifact.
+    static_cast<void>(reg.setValue("bacteria_max_limit", 0));
     return reg;
 }
 

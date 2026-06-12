@@ -61,11 +61,16 @@ ReproductionConfig ReproductionSystem::fromRegistry(const config::ParameterRegis
     const double globalMinAge = config::parameterDouble(parameters,
         "reproduction_min_age", 0.0);
     config.reproductionMinAge = std::max(0.0, std::max(speciesMinAge, globalMinAge));
+    // Microfase 32.2: the live runner honors each parent's genome; the global
+    // registry knobs stay as floors so a per-label genome cannot undercut them.
+    config.honorGenome = true;
+    config.globalMinAgeFloor = std::max(0.0, globalMinAge);
     const double speciesCooldown = config::parameterDouble(parameters,
         speciesPrefix + "_reproduction_cooldown", 0.0);
     const double globalCooldown = config::parameterDouble(parameters,
         "reproduction_cooldown", 0.0);
     config.reproductionCooldown = std::max(0.0, std::max(speciesCooldown, globalCooldown));
+    config.globalCooldownFloor = std::max(0.0, globalCooldown);
     config.mutationRate = std::clamp(brainConfig.mutationRate, 0.0, 1.0);
     config.mutationStrength = std::max(0.0, brainConfig.mutationStrength);
     config.initialEnergy = std::max(0.0,
@@ -136,12 +141,25 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         {
             continue;
         }
-        if (agents.energyAt(i) < config.splitEnergy)
+        // Microfase 32.2: with honorGenome the parent's OWN genome sets its
+        // split threshold and minimum age (global registry min age = floor).
+        // Fallback to the config values when the agent has no genome record.
+        double effSplitEnergy = config.splitEnergy;
+        double effMinAge = config.reproductionMinAge;
+        if (config.honorGenome)
+        {
+            if (const auto* g = genomes.find(agents.genomeIdAt(i)))
+            {
+                effSplitEnergy = std::max(0.0, g->splitEnergy);
+                effMinAge = std::max(g->reproductionMinAge, config.globalMinAgeFloor);
+            }
+        }
+        if (agents.energyAt(i) < effSplitEnergy)
         {
             ++lastStats_.blockedByEnergy;
             continue;
         }
-        if (agents.ageAt(i) < config.reproductionMinAge)
+        if (agents.ageAt(i) < effMinAge)
         {
             ++lastStats_.blockedByAge;
             continue;
@@ -207,12 +225,31 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
             continue;
         }
 
+        // Microfase 32.2: per-parent reproduction genetics. Copy the scalars
+        // BEFORE cloneFrom — the clone can realloc the genome record vector and
+        // dangle any GenomeRecord pointer (same hazard as Debt 7).
+        double effCooldown = config.reproductionCooldown;
+        double childBodySize = config.bodySize;
+        double effMutationRate = config.mutationRate;
+        double effMutationStrength = config.mutationStrength;
+        if (config.honorGenome)
+        {
+            const simulation::GenomeId gid = agents.genomeIdAt(parentIndex);
+            if (const auto* pg = genomes.find(gid))
+            {
+                effCooldown = std::max(pg->reproductionCooldown, config.globalCooldownFloor);
+                childBodySize = pg->bodySize;
+                effMutationRate = std::clamp(pg->mutationRate, 0.0, 1.0);
+                effMutationStrength = std::max(0.0, pg->mutationStrength);
+            }
+        }
+
         // Halve the parent's energy and give the same to the child.
         const double parentEnergyBefore = agents.energyAt(parentIndex);
         const double childEnergy = parentEnergyBefore * 0.5;
         const double parentEnergyAfter = parentEnergyBefore - childEnergy;
         agents.setEnergyAt(parentIndex, parentEnergyAfter);
-        agents.setReproductionCooldownAt(parentIndex, config.reproductionCooldown);
+        agents.setReproductionCooldownAt(parentIndex, effCooldown);
 
         // Genome inheritance (clone parent's genome record).
         const simulation::GenomeId parentGenomeId = agents.genomeIdAt(parentIndex);
@@ -226,14 +263,14 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         simulation::AgentSpawn spawn;
         const simulation::Vec2 parentPos = agents.positionAt(parentIndex);
         const double parentRadius = agents.radiusAt(parentIndex);
-        const double childRadius = std::max(0.1, config.bodySize > 0.0 ? config.bodySize : parentRadius);
+        const double childRadius = std::max(0.1, childBodySize > 0.0 ? childBodySize : parentRadius);
         spawn.position = findChildPosition(world, parentPos, parentRadius, childRadius,
                                             config.spawnRadiusOffset, rng_);
         spawn.angle = std::uniform_real_distribution<double>(-kPi, kPi)(rng_);
         spawn.radius = childRadius;
         spawn.energy = childEnergy;
         spawn.age = 0.0;
-        spawn.reproductionCooldown = config.reproductionCooldown;
+        spawn.reproductionCooldown = effCooldown;
         spawn.color = agents.colorAt(parentIndex);
         spawn.speciesId = agents.speciesIdAt(parentIndex);
         spawn.genomeId = childGenomeHandle.id;
@@ -247,8 +284,8 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         // gate / shortcut / recurrent mutation rates and strengths. -1 in the brain config
         // means "fallback to base" (preserves Python semantics).
         neural::NeuralMutationConfig mutCfg;
-        mutCfg.baseRate = config.mutationRate;
-        mutCfg.baseStrength = config.mutationStrength;
+        mutCfg.baseRate = effMutationRate;
+        mutCfg.baseStrength = effMutationStrength;
         mutCfg.gateRate = brainSignatureConfig.future.gateMutationRate;
         mutCfg.gateStrength = brainSignatureConfig.future.gateMutationStrength;
         mutCfg.shortcutRate = brainSignatureConfig.future.shortcutMutationRate;
@@ -257,7 +294,7 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         mutCfg.recurrentStrength = brainSignatureConfig.future.rnnMutationStrength;
         const bool inherited = neuralSystem.inheritBrain(
             childId.value, parentId.value, brainSignatureConfig, mutCfg, rng_);
-        if (inherited && config.mutationRate > 0.0 && config.mutationStrength > 0.0)
+        if (inherited && effMutationRate > 0.0 && effMutationStrength > 0.0)
         {
             ++lastStats_.mutationsApplied;
         }

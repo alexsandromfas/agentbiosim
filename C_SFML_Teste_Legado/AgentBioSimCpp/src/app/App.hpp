@@ -57,6 +57,10 @@ private:
     // Phase 28: single-organism export/import (.organism file).
     void exportSelectedAgent();
     void importAgentFromFile();
+    // Microfase 32.2: target label for "Aplicar a especie" — the label of the
+    // first selected living organism, or the default bacteria label when the
+    // selection is empty.
+    [[nodiscard]] simulation::SpeciesId speciesOfSelectionOrDefault() const;
 
     config::ParameterRegistry parameters_;
     sim::SimulationRunner runner_;

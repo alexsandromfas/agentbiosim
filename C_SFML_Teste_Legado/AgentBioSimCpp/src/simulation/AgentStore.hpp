@@ -60,6 +60,10 @@ public:
     // Phase 24.2: species reassignment + recolor for the Labels tab.
     void setSpeciesIdAt(std::size_t index, SpeciesId speciesId);
     void setColorAt(std::size_t index, ColorRgb color);
+    // Microfase 32.2: live genome apply refreshes the body of living agents
+    // (mirrors Python's in-place agent.r / body_shape update on "Aplicar").
+    void setRadiusAt(std::size_t index, double radius);
+    void setBodyShapeAt(std::size_t index, BodyShapeCode bodyShape);
 
     // Phase 28: persistence. `nextId()` is the next id to allocate; `restore`
     // replaces all live agents from a save (ids preserved exactly), so agent ->

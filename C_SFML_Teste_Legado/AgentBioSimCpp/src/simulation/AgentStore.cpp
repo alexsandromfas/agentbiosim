@@ -328,6 +328,18 @@ void AgentStore::setColorAt(const std::size_t index, const ColorRgb color)
     color_.at(index) = color;
 }
 
+// Microfase 32.2: body refresh on live genome apply. Callers must rebuild the
+// spatial hash afterwards (the cell mapping depends on the radius).
+void AgentStore::setRadiusAt(const std::size_t index, const double radius)
+{
+    radius_.at(index) = std::max(0.1, radius);
+}
+
+void AgentStore::setBodyShapeAt(const std::size_t index, const BodyShapeCode bodyShape)
+{
+    bodyShape_.at(index) = bodyShape;
+}
+
 void AgentStore::removeAtIndex(const std::size_t index)
 {
     const std::size_t last = ids_.size() - 1U;

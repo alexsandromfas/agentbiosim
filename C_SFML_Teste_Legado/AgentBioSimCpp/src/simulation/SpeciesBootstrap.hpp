@@ -58,4 +58,13 @@ DefaultSpeciesBootstrap bootstrapDefaultSpecies(SpeciesStore& species,
                                                 const config::ParameterRegistry& registry,
                                                 std::size_t inputSize,
                                                 std::size_t outputSize);
+
+// Microfase 32.2: overwrite the genome's editor-managed scalars (body, mutation,
+// reproduction thresholds, energies, diet) from the registry params under
+// `prefix`. Identity fields (id/parent/generation/speciesId/typeCode/prefix),
+// color and brainConfig are NOT touched — the caller owns those. Shared by
+// bootstrapSpecies and the live "Aplicar" path of the genetic editor.
+void overwriteGenomeScalarsFromRegistry(GenomeRecord& genome,
+                                        const config::ParameterRegistry& registry,
+                                        const std::string& prefix);
 } // namespace agentbiosim::simulation

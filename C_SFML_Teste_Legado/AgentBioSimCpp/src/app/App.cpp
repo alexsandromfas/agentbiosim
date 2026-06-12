@@ -408,6 +408,21 @@ void App::importAgentFromFile()
     }
 }
 
+simulation::SpeciesId App::speciesOfSelectionOrDefault() const
+{
+    const auto& agents = runner_.agents();
+    for (const auto id : uiState_.selection.ids())
+    {
+        const auto idx = agents.indexOf(id);
+        if (idx.has_value() && agents.aliveAt(*idx))
+        {
+            return agents.speciesIdAt(*idx);
+        }
+    }
+    const auto* bacteria = runner_.species().findByName("bacteria");
+    return bacteria != nullptr ? bacteria->id : simulation::kInvalidSpeciesId;
+}
+
 void App::maybeAutosave(const double realDeltaSeconds)
 {
     const bool enabled = config::parameterBool(parameters_, "auto_export_substrate", true);
@@ -909,15 +924,19 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSpecies>)
             {
-                // Phase 24: bake pending edits into registry + reset so new
-                // agents read the new defaults. Existing agents are recreated
-                // from the species defaults during spawnInitial().
+                // Microfase 32.2: LIVE apply — the Phase 24 placeholder did a
+                // full reset here, which respawned only the registry species and
+                // silently wiped every user-created label's members. Now the
+                // editor template is applied in place to the TARGET label: the
+                // label of the first selected organism, or the default bacteria
+                // label when nothing is selected. Nothing is deleted; the
+                // simulation does not restart.
                 const unsigned int flags = ui::prefsApplyPending(parameters_,
                     uiState_.preferences);
                 if (flags & config::ApplyFlag::RefreshRenderer) configureRenderOptions();
                 configureFromParameters();
-                runner_.reset();
-                // Phase 24.1 fix: DO NOT auto-fit the camera here.
+                static_cast<void>(runner_.applyEditorGenomeToSpecies(
+                    speciesOfSelectionOrDefault()));
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyPopulation> ||
                                  std::is_same_v<T, ui::CmdApplyEnvironment>)
@@ -933,14 +952,18 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdApplyGenomeToSelected>)
             {
-                // Phase 24: bake pending edits into registry, then delete the
-                // selected agents so the runner respawns them with the new
-                // defaults on the next rescue tick. Full per-agent genome
-                // mutation lives in Fase 25 (painel de agente selecionado).
-                static_cast<void>(ui::prefsApplyPending(parameters_,
-                    uiState_.preferences));
-                runner_.deleteAgents(uiState_.selection.ids());
-                uiState_.selection.clear();
+                // Microfase 32.2: LIVE apply to the selected organisms only —
+                // the Phase 24 placeholder DELETED them (hoping the rescue would
+                // respawn defaults), which destroyed freshly created labels.
+                // Each organism keeps its label, position, energy and brain;
+                // only its genome scalars take the editor values. Selection is
+                // preserved so the user can keep iterating.
+                const unsigned int flags = ui::prefsApplyPending(parameters_,
+                    uiState_.preferences);
+                if (flags & config::ApplyFlag::RefreshRenderer) configureRenderOptions();
+                configureFromParameters();
+                static_cast<void>(runner_.applyEditorGenomeToAgents(
+                    uiState_.selection.ids()));
             }
             else if constexpr (std::is_same_v<T, ui::CmdClearAllFood>)
             {

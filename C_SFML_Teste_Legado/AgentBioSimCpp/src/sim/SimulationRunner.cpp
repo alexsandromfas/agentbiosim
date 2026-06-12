@@ -812,16 +812,21 @@ void SimulationRunner::assignSelectedToSpecies(const std::vector<simulation::Ent
     const auto* rec = species_.find(speciesId);
     if (rec == nullptr) return;
     const simulation::ColorRgb color = rec->color;
-    const simulation::GenomeId genome = rec->defaultGenomeId;
     for (const auto id : ids)
     {
         const auto idx = agents_.indexOf(id);
         if (!idx.has_value()) continue;
         agents_.setSpeciesIdAt(*idx, speciesId);
         agents_.setColorAt(*idx, color);
-        if (genome != simulation::kInvalidGenomeId)
+        // Microfase 32.2: the agent KEEPS its personal genome when moved between
+        // labels (Python parity: a label is a population group, not a gene wipe).
+        // Pre-32.2 this overwrote genomeId with the label template, silently
+        // discarding the organism's evolved genetics. Agents without a genome
+        // record still get the label template as a safety net.
+        if (genomes_.find(agents_.genomeIdAt(*idx)) == nullptr &&
+            rec->defaultGenomeId != simulation::kInvalidGenomeId)
         {
-            agents_.setGenomeIdAt(*idx, genome);
+            agents_.setGenomeIdAt(*idx, rec->defaultGenomeId);
         }
     }
 }
@@ -838,9 +843,8 @@ void SimulationRunner::removeSelectedFromSpecies(const std::vector<simulation::E
 simulation::SpeciesId SimulationRunner::createSpeciesFromSelected(
     const std::string& label, const std::vector<simulation::EntityId>& ids)
 {
-    // The new species shares the bacteria template (prefix/genome/type/body),
-    // matching Python where all labels share one genome template and only differ
-    // by color + population limits. The color cycles through the label palette.
+    // The new species starts from the bacteria template (prefix/type/body) and
+    // cycles the label palette for its color.
     const auto* base = species_.findByName("bacteria");
     simulation::SpeciesRecord rec;
     if (base != nullptr) rec = *base;
@@ -855,9 +859,183 @@ simulation::SpeciesId SimulationRunner::createSpeciesFromSelected(
     rec.minPopulation = 5;
     rec.maxPopulation = 150;
     rec.color = kLabelPalette[species_.size() % kLabelPalette.size()];
+
+    // Microfase 32.2: the label gets its OWN template genome record (pre-32.2 it
+    // shared the bacteria record, so editing one label's genetics would edit the
+    // other). Seed it from the first selected living agent so the label captures
+    // the genetics of the group it was created from; fallback = bacteria template.
+    simulation::GenomeId sourceGenome =
+        base != nullptr ? base->defaultGenomeId : simulation::kInvalidGenomeId;
+    for (const auto id : ids)
+    {
+        const auto idx = agents_.indexOf(id);
+        if (!idx.has_value() || !agents_.aliveAt(*idx)) continue;
+        const auto gid = agents_.genomeIdAt(*idx);
+        if (genomes_.find(gid) != nullptr)
+        {
+            sourceGenome = gid;
+            break;
+        }
+    }
+    rec.defaultGenomeId = simulation::kInvalidGenomeId;
+
     const simulation::SpeciesId id = species_.registerSpecies(rec);
+    const simulation::GenomeHandle clone = genomes_.cloneFrom(sourceGenome);
+    if (clone.isValid())
+    {
+        if (auto* g = genomes_.find(clone.id))
+        {
+            g->speciesId = id;
+            g->color = rec.color;
+        }
+        species_.setDefaultGenome(id, clone.id);
+        if (const auto* g = genomes_.find(clone.id))
+        {
+            species_.setDietSnapshot(id, g->diet);
+        }
+    }
     assignSelectedToSpecies(ids, id);
     return id;
+}
+
+std::size_t SimulationRunner::applyEditorGenomeToSpecies(const simulation::SpeciesId speciesId)
+{
+    if (species_.find(speciesId) == nullptr) return 0;
+
+    // Default genome ids of OTHER species are shared templates — never
+    // overwrite those records in place (old saves / pre-32.2 labels pointed at
+    // the bacteria record).
+    const auto isForeignDefault = [&](const simulation::GenomeId gid) {
+        for (const auto& other : species_.records())
+        {
+            if (other.id != speciesId && other.defaultGenomeId == gid) return true;
+        }
+        return false;
+    };
+
+    const auto overwriteFromEditor = [&](simulation::GenomeRecord& g) {
+        simulation::overwriteGenomeScalarsFromRegistry(g, parameters_, "bacteria");
+        // Keep the record's brain dimensions; refresh type/topology knobs. The
+        // RUNTIME architecture is still the global NeuralSystem config — a
+        // structural change there is picked up by syncBrains on the next step.
+        g.brainConfig = neural::BrainFactory::configFromRegistry(
+            parameters_, "bacteria", g.brainConfig.inputSize, g.brainConfig.outputSize);
+        g.speciesId = speciesId;
+    };
+
+    // 1) The label's own template record (clone-on-write when shared/missing):
+    //    rescue spawns and "atribuir sem genoma" use it from now on.
+    simulation::GenomeId defaultId = species_.find(speciesId)->defaultGenomeId;
+    if (genomes_.find(defaultId) == nullptr || isForeignDefault(defaultId))
+    {
+        const simulation::GenomeHandle h = genomes_.find(defaultId) != nullptr
+            ? genomes_.cloneFrom(defaultId)
+            : genomes_.createGenome(simulation::GenomeRecord{});
+        if (!h.isValid()) return 0;
+        defaultId = h.id;
+        species_.setDefaultGenome(speciesId, defaultId);
+    }
+    if (auto* def = genomes_.find(defaultId))
+    {
+        overwriteFromEditor(*def);
+        species_.setDietSnapshot(speciesId, def->diet);
+    }
+
+    const auto* def = genomes_.find(defaultId);
+    const double bodySize = def != nullptr ? def->bodySize : 9.0;
+    const auto bodyShape = def != nullptr ? def->bodyShape : simulation::BodyShapeCode::Ellipse;
+    const double energyCap = def != nullptr ? def->energyCap : 400.0;
+
+    // 2) Every living member: overwrite its personal genome in place (clone
+    //    first when it sits on another label's template), refresh the body and
+    //    clamp energy to the new cap. Position, age, brain weights survive —
+    //    NOTHING is deleted and the world does NOT reset.
+    std::size_t applied = 0;
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (!agents_.aliveAt(i) || agents_.speciesIdAt(i) != speciesId) continue;
+        simulation::GenomeId gid = agents_.genomeIdAt(i);
+        if (gid != defaultId)
+        {
+            if (genomes_.find(gid) == nullptr)
+            {
+                agents_.setGenomeIdAt(i, defaultId);  // template already updated
+            }
+            else
+            {
+                if (isForeignDefault(gid))
+                {
+                    const simulation::GenomeHandle h = genomes_.cloneFrom(gid);
+                    if (!h.isValid()) continue;
+                    agents_.setGenomeIdAt(i, h.id);
+                    gid = h.id;
+                }
+                if (auto* g = genomes_.find(gid))
+                {
+                    overwriteFromEditor(*g);
+                }
+            }
+        }
+        agents_.setRadiusAt(i, bodySize);
+        agents_.setBodyShapeAt(i, bodyShape);
+        if (agents_.energyAt(i) > energyCap)
+        {
+            agents_.setEnergyAt(i, energyCap);
+        }
+        ++applied;
+    }
+    if (applied > 0) rebuildSpatial();
+    return applied;
+}
+
+std::size_t SimulationRunner::applyEditorGenomeToAgents(
+    const std::vector<simulation::EntityId>& ids)
+{
+    // Any species' default genome id is a shared template: copy-on-write so the
+    // template (and the other agents reading it) is never edited from here.
+    const auto isAnyDefault = [&](const simulation::GenomeId gid) {
+        for (const auto& rec : species_.records())
+        {
+            if (rec.defaultGenomeId == gid) return true;
+        }
+        return false;
+    };
+
+    std::size_t applied = 0;
+    for (const auto id : ids)
+    {
+        const auto idxOpt = agents_.indexOf(id);
+        if (!idxOpt.has_value()) continue;
+        const std::size_t i = *idxOpt;
+        if (!agents_.aliveAt(i)) continue;
+
+        simulation::GenomeId gid = agents_.genomeIdAt(i);
+        if (genomes_.find(gid) == nullptr || isAnyDefault(gid))
+        {
+            const simulation::GenomeHandle h = genomes_.find(gid) != nullptr
+                ? genomes_.cloneFrom(gid)
+                : genomes_.createGenome(simulation::GenomeRecord{});
+            if (!h.isValid()) continue;
+            gid = h.id;
+            agents_.setGenomeIdAt(i, gid);
+        }
+        auto* g = genomes_.find(gid);
+        if (g == nullptr) continue;
+        simulation::overwriteGenomeScalarsFromRegistry(*g, parameters_, "bacteria");
+        g->brainConfig = neural::BrainFactory::configFromRegistry(
+            parameters_, "bacteria", g->brainConfig.inputSize, g->brainConfig.outputSize);
+        g->speciesId = agents_.speciesIdAt(i);  // keeps the agent's label
+
+        agents_.setRadiusAt(i, g->bodySize);
+        agents_.setBodyShapeAt(i, g->bodyShape);
+        if (agents_.energyAt(i) > g->energyCap)
+        {
+            agents_.setEnergyAt(i, g->energyCap);
+        }
+        ++applied;
+    }
+    if (applied > 0) rebuildSpatial();
+    return applied;
 }
 
 bool SimulationRunner::setSpeciesColorAndRecolor(const simulation::SpeciesId speciesId,

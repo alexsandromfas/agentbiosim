@@ -1121,9 +1121,44 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                     }
                     ImGui::EndChild();
                     ImGui::Separator();
+                    // Microfase 32.2: live apply targets the label of the first
+                    // selected organism (fallback: the default bacteria label).
+                    // Show the target so the user always knows who receives it.
+                    const simulation::SpeciesRecord* applyTarget = nullptr;
+                    {
+                        const auto& ag = runner.agents();
+                        for (const auto selId : state.selection.ids())
+                        {
+                            const auto idx = ag.indexOf(selId);
+                            if (idx.has_value() && ag.aliveAt(*idx))
+                            {
+                                applyTarget = runner.species().find(ag.speciesIdAt(*idx));
+                                break;
+                            }
+                        }
+                        if (applyTarget == nullptr)
+                        {
+                            applyTarget = runner.species().findByName("bacteria");
+                        }
+                    }
+                    ImGui::TextDisabled(tr("Label alvo: %s", "Target label: %s"),
+                                        applyTarget != nullptr ? applyTarget->label.c_str()
+                                                               : "-");
                     if (ImGui::Button(tr("Aplicar a especie", "Apply to species"))) queue.push(core::CmdApplyGenomeToSpecies{});
+                    ImGui::SetItemTooltip("%s", tr(
+                        "Aplica os valores do editor AO VIVO a todos os organismos vivos da "
+                        "label alvo e ao genoma-template dela (novos resgates ja nascem assim). "
+                        "Nada e deletado e a simulacao NAO reinicia. Cerebros sao preservados.",
+                        "Applies the editor values LIVE to every living organism of the target "
+                        "label and to its template genome (future rescues inherit it). Nothing "
+                        "is deleted and the simulation does NOT restart. Brains are preserved."));
                     ImGui::SameLine();
                     if (ImGui::Button(tr("Aplicar selecionados", "Apply to selected"))) queue.push(core::CmdApplyGenomeToSelected{});
+                    ImGui::SetItemTooltip("%s", tr(
+                        "Aplica os valores do editor AO VIVO apenas aos organismos selecionados, "
+                        "mantendo a label, posicao, energia e cerebro de cada um.",
+                        "Applies the editor values LIVE to the selected organisms only, keeping "
+                        "each one's label, position, energy and brain."));
                     ImGui::SameLine();
                     if (ImGui::Button(tr("Reverter", "Revert"))) queue.push(core::CmdRevertPreferences{});
                     ImGui::SameLine();

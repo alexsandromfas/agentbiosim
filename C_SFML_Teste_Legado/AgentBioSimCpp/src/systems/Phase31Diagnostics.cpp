@@ -4,6 +4,7 @@
 #include "config/ParameterMetadata.hpp"
 #include "config/ParameterRegistry.hpp"
 #include "core/Command.hpp"
+#include "core/Profiler.hpp"
 #include "io/SaveFile.hpp"
 #include "render/Camera2D.hpp"
 #include "sim/SimulationRunner.hpp"
@@ -402,6 +403,146 @@ Phase31ValidationSummary runPhase31Validation()
         const auto* newRec = r.species().find(newId);
         check(newRec != nullptr && newRec->minPopulation == 5 && newRec->maxPopulation == 150,
               "32.1: label criada nasce com min=5 / max=150");
+    }
+
+    // ------------- G. Microfase 32.2: editor de genoma aplica AO VIVO ---------
+    // Reproduz o fluxo reportado pelo usuario: criar label a partir de
+    // selecionados, mudar a dieta no editor e aplicar — pre-32.2 isso resetava
+    // o mundo (Aplicar a especie) ou DELETAVA os selecionados (Aplicar
+    // selecionados), apagando a label recem-criada.
+    {
+        config::ParameterRegistry reg4 = config::createDefaultParameterRegistry();
+        static_cast<void>(reg4.setValue("auto_export_substrate", false));
+        sim::SimulationRunner r(reg4);
+        r.initialize();
+        r.step(1.0 / 30.0);  // materializa os cerebros (syncBrains)
+
+        const auto bacteriaId = r.species().idByName("bacteria");
+        const auto bacteriaGenome = r.species().find(bacteriaId)->defaultGenomeId;
+
+        // G1: a label criada tem genoma-template PROPRIO (pre-32.2 compartilhava
+        // o registro da bacteria, entao editar uma editava a outra).
+        std::vector<simulation::EntityId> sel;
+        for (std::size_t i = 0; i < r.agents().size() && sel.size() < 10U; ++i)
+        {
+            sel.push_back(r.agents().idAt(i));
+        }
+        const auto labelId = r.createSpeciesFromSelected("label_322", sel);
+        const auto* labelRec = r.species().find(labelId);
+        check(labelRec != nullptr &&
+                  labelRec->defaultGenomeId != simulation::kInvalidGenomeId &&
+                  labelRec->defaultGenomeId != bacteriaGenome,
+              "32.2: label criada tem genoma-template proprio");
+
+        // G2: atribuir um organismo a uma label preserva o genoma pessoal dele.
+        const auto movedId = r.agents().idAt(20);
+        const auto movedIdx0 = r.agents().indexOf(movedId);
+        const auto genomeBefore = r.agents().genomeIdAt(*movedIdx0);
+        r.assignSelectedToSpecies({movedId}, labelId);
+        const auto movedIdx = r.agents().indexOf(movedId);
+        check(movedIdx.has_value() &&
+                  r.agents().speciesIdAt(*movedIdx) == labelId &&
+                  r.agents().genomeIdAt(*movedIdx) == genomeBefore,
+              "32.2: atribuir a label nao apaga o genoma do organismo");
+
+        // G3: "Aplicar a especie" AO VIVO — dieta passa a comer organismos;
+        // ninguem e deletado, a simulacao nao reseta, o template da bacteria
+        // (registro compartilhado pelos iniciais) fica intacto.
+        const auto stepsBefore = r.stats().stepsExecuted;
+        const std::size_t agentsBefore = r.agents().size();
+        const std::size_t labelBefore = r.countAgentsOfSpecies(labelId);
+        sim::AgentExport mindBefore;
+        check(r.exportAgent(movedId, mindBefore), "32.2: exportar mente antes do aplicar");
+        static_cast<void>(reg4.setValue("bacteria_diet_agents", true));
+        const std::size_t applied = r.applyEditorGenomeToSpecies(labelId);
+        check(applied == labelBefore && r.agents().size() == agentsBefore &&
+                  r.countAgentsOfSpecies(labelId) == labelBefore,
+              "32.2: aplicar a especie nao deleta ninguem (" +
+                  std::to_string(applied) + " de " + std::to_string(labelBefore) + ")");
+        check(r.stats().stepsExecuted == stepsBefore,
+              "32.2: aplicar a especie nao reseta a simulacao");
+        bool membersCarnivorous = true;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            if (!r.agents().aliveAt(i) || r.agents().speciesIdAt(i) != labelId) continue;
+            const auto* g = r.genomes().find(r.agents().genomeIdAt(i));
+            if (g == nullptr || !g->diet.eatAgents) membersCarnivorous = false;
+        }
+        check(membersCarnivorous, "32.2: todos os membros da label receberam a dieta nova");
+        const auto* bacteriaTemplate = r.genomes().find(bacteriaGenome);
+        check(bacteriaTemplate != nullptr && !bacteriaTemplate->diet.eatAgents,
+              "32.2: template da bacteria NAO foi afetado pelo aplicar na label");
+        check(r.species().find(labelId)->dietSnapshot.eatAgents,
+              "32.2: dietSnapshot da label atualizado");
+
+        // G4: o cerebro (pesos evoluidos) sobrevive ao aplicar.
+        sim::AgentExport mindAfter;
+        check(r.exportAgent(movedId, mindAfter) &&
+                  std::abs(brainChecksum(mindAfter.brain) - brainChecksum(mindBefore.brain)) < 1e-9,
+              "32.2: cerebro preservado no aplicar (checksum identico)");
+
+        // G5: a reproducao honra o genoma POR LABEL — split barato aplicado so
+        // na label faz so a label reproduzir (bacteria continua split=150).
+        static_cast<void>(reg4.setValue("bacteria_split_energy", 1.0));
+        static_cast<void>(r.applyEditorGenomeToSpecies(labelId));
+        const std::size_t labelPre = r.countAgentsOfSpecies(labelId);
+        const std::size_t bacteriaPre = r.countAgentsOfSpecies(bacteriaId);
+        for (int s = 0; s <= static_cast<int>(core::ProfileSection::SpatialHash); ++s)
+        {
+            const auto sec = static_cast<core::ProfileSection>(s);
+            const bool keep = sec == core::ProfileSection::Reproduction ||
+                              sec == core::ProfileSection::SpatialHash;
+            r.setDevSystemEnabled(s, keep);
+        }
+        r.step(1.0 / 30.0);
+        const std::size_t labelPost = r.countAgentsOfSpecies(labelId);
+        const std::size_t bacteriaPost = r.countAgentsOfSpecies(bacteriaId);
+        for (int s = 0; s <= static_cast<int>(core::ProfileSection::SpatialHash); ++s)
+        {
+            r.setDevSystemEnabled(s, true);
+        }
+        check(labelPost > labelPre,
+              "32.2: label com split barato reproduz (" + std::to_string(labelPre) +
+                  " -> " + std::to_string(labelPost) + ")");
+        check(bacteriaPost == bacteriaPre,
+              "32.2: bacteria (split=150) nao reproduz junto (" +
+                  std::to_string(bacteriaPre) + " -> " + std::to_string(bacteriaPost) + ")");
+
+        // G6: "Aplicar selecionados" muda SO os selecionados, sem tocar o
+        // template nem os demais (copy-on-write do registro compartilhado).
+        static_cast<void>(reg4.setValue("bacteria_split_energy", 150.0));
+        static_cast<void>(reg4.setValue("bacteria_diet_agents", false));
+        static_cast<void>(reg4.setValue("bacteria_body_size", 12.0));
+        std::vector<simulation::EntityId> trio;
+        for (std::size_t i = 0; i < r.agents().size() && trio.size() < 3U; ++i)
+        {
+            if (r.agents().aliveAt(i) && r.agents().speciesIdAt(i) == bacteriaId)
+            {
+                trio.push_back(r.agents().idAt(i));
+            }
+        }
+        const std::size_t agentsBeforeSel = r.agents().size();
+        const std::size_t appliedSel = r.applyEditorGenomeToAgents(trio);
+        check(appliedSel == trio.size() && r.agents().size() == agentsBeforeSel,
+              "32.2: aplicar selecionados nao deleta ninguem");
+        bool trioOk = true;
+        for (const auto id : trio)
+        {
+            const auto idx = r.agents().indexOf(id);
+            const auto* g = idx.has_value()
+                ? r.genomes().find(r.agents().genomeIdAt(*idx)) : nullptr;
+            if (!idx.has_value() || g == nullptr || g->bodySize != 12.0 ||
+                r.agents().radiusAt(*idx) != 12.0 ||
+                r.agents().genomeIdAt(*idx) == bacteriaGenome ||
+                r.agents().speciesIdAt(*idx) != bacteriaId)
+            {
+                trioOk = false;
+            }
+        }
+        check(trioOk, "32.2: selecionados ganharam genoma proprio com corpo novo (label mantida)");
+        const auto* templateAfterSel = r.genomes().find(bacteriaGenome);
+        check(templateAfterSel != nullptr && templateAfterSel->bodySize == 9.0,
+              "32.2: template da bacteria intacto apos aplicar selecionados");
     }
 
     summary.details = log.str();

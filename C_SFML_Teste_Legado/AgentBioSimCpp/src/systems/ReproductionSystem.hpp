@@ -32,6 +32,17 @@ struct ReproductionConfig
     double spawnRadiusOffset = 1.0;  // How far the child spawns from the parent (in radii).
     std::uint64_t seed = 20260528ULL;
     std::string speciesPrefix = "bacteria";
+
+    // Microfase 32.2: when true, each parent's OWN genome record drives its
+    // reproduction genetics (splitEnergy, min age, cooldown, child body size,
+    // mutation rate/strength) — this is what makes per-label genetic differences
+    // real. The config values above remain the fallback for agents without a
+    // genome record. Default false so legacy/manual-config callers (selftests
+    // 13/14/15/16) keep their exact semantics; fromRegistry() (the live runner
+    // path) enables it. Global registry minimums still apply as floors.
+    bool honorGenome = false;
+    double globalMinAgeFloor = 0.0;      // registry "reproduction_min_age"
+    double globalCooldownFloor = 0.0;    // registry "reproduction_cooldown"
 };
 
 struct ReproductionStats

@@ -144,6 +144,17 @@ public:
     // seed, so the nets are genuinely new — not the deterministic birth nets.
     // Returns the number of brains recreated.
     std::size_t resetNeuralForSpecies(simulation::SpeciesId speciesId);
+    // Microfase 32.2: LIVE genetic-editor apply — no reset, no deletion.
+    // `applyEditorGenomeToSpecies` overwrites the label's template genome AND the
+    // personal genome of every living member with the editor values (registry
+    // "bacteria_*" template), refreshing body size/shape and clamping energy to
+    // the new cap in place; rescue spawns inherit the template from then on.
+    // `applyEditorGenomeToAgents` does the same for the given agents only; each
+    // keeps its own label. Brain weights survive (a structural change in the
+    // global brain config is handled by NeuralSystem::syncBrains next step).
+    // Both return the number of living agents updated.
+    std::size_t applyEditorGenomeToSpecies(simulation::SpeciesId speciesId);
+    std::size_t applyEditorGenomeToAgents(const std::vector<simulation::EntityId>& ids);
     // Mutable species access so the UI can read records for the Labels list.
     [[nodiscard]] simulation::SpeciesStore& speciesMutable() noexcept { return species_; }
 
