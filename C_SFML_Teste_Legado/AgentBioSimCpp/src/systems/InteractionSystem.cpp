@@ -29,7 +29,15 @@ DietInteractionConfig InteractionSystem::dietConfigFromRegistry(const config::Pa
 {
     DietInteractionConfig config;
     config.useSpatial = parameterBool(parameters, "use_spatial", config.useSpatial);
-    config.predationEnabled = parameterBool(parameters, "predators_enabled", config.predationEnabled);
+    // Microfase 32.3: predation is driven PER-AGENT by each genome's diet
+    // (eatAgents) — NOT by the legacy `predators_enabled` flag, which only
+    // controls whether the built-in Predator *species* is spawned at init
+    // (see SpeciesBootstrap). Gating predation on that flag silently broke the
+    // per-label diet: a user label set to "comer organismos" never hunted
+    // because predators_enabled defaults to false. Predation stays available;
+    // an agent only predates when ITS genome has eatAgents=true, so a fresh sim
+    // with the default bacteria diet (eatAgents=false) behaves exactly as before.
+    config.predationEnabled = true;
     config.defaultEnergyCap = parameterDouble(parameters, "bacteria_energy_cap", config.defaultEnergyCap);
     config.biteSeconds = std::max(1.0e-6,
         parameterDouble(parameters, "food_bite_seconds", config.biteSeconds));

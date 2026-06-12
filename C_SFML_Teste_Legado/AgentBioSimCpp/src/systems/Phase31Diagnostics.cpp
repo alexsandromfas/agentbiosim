@@ -1,11 +1,16 @@
 #include "systems/Phase31Diagnostics.hpp"
 
 #include "config/ParameterDefaults.hpp"
+#include "config/ParameterHelpers.hpp"
 #include "config/ParameterMetadata.hpp"
 #include "config/ParameterRegistry.hpp"
 #include "core/Command.hpp"
 #include "core/Profiler.hpp"
 #include "io/SaveFile.hpp"
+#include "simulation/AgentStore.hpp"
+#include "simulation/FoodStore.hpp"
+#include "simulation/GenomeStore.hpp"
+#include "systems/InteractionSystem.hpp"
 #include "render/Camera2D.hpp"
 #include "sim/SimulationRunner.hpp"
 #include "ui/InputRouter.hpp"
@@ -543,6 +548,78 @@ Phase31ValidationSummary runPhase31Validation()
         const auto* templateAfterSel = r.genomes().find(bacteriaGenome);
         check(templateAfterSel != nullptr && templateAfterSel->bodySize == 9.0,
               "32.2: template da bacteria intacto apos aplicar selecionados");
+    }
+
+    // ------------- H. Microfase 32.3: predacao dirigida pela dieta ------------
+    // Bug reportado: mudar a dieta de uma label para "comer organismos" nao
+    // fazia ela predar. Causa: a predacao tinha um gate global vindo do flag
+    // legado predators_enabled (default false), que so deveria controlar o
+    // SPAWN da especie predadora legada — nao a predacao por dieta.
+    {
+        // H1 (unidade): com predators_enabled=false, o config do registry ainda
+        // deixa a predacao DISPONIVEL (a dieta de cada agente decide).
+        config::ParameterRegistry regP = config::createDefaultParameterRegistry();
+        check(!config::parameterBool(regP, "predators_enabled", true),
+              "32.3: predators_enabled e false por padrao");
+        const DietInteractionConfig dcfg0 =
+            InteractionSystem::dietConfigFromRegistry(regP);
+        check(dcfg0.predationEnabled,
+              "32.3: predacao disponivel apesar de predators_enabled=false");
+
+        // H2 (ponta-a-ponta): um predador (genoma com eatAgents) encostado numa
+        // presa de OUTRA label preda num passo, pelo caminho real do registry.
+        simulation::GenomeStore genomes;
+        simulation::GenomeRecord predatorGenome;
+        predatorGenome.diet.eatFood = false;
+        predatorGenome.diet.eatAgents = true;       // dieta = comer organismos
+        predatorGenome.diet.eatSameSpecies = false;
+        predatorGenome.diet.agentEfficiency = 0.7;
+        predatorGenome.energyCap = 400.0;
+        const auto predGid = genomes.createGenome(predatorGenome);
+        simulation::GenomeRecord preyGenome;
+        preyGenome.diet.eatFood = true;
+        preyGenome.diet.eatAgents = false;
+        const auto preyGid = genomes.createGenome(preyGenome);
+
+        simulation::AgentStore agents;
+        simulation::AgentSpawn pred;
+        pred.position = {100.0, 100.0};
+        pred.radius = 10.0;
+        pred.energy = 100.0;
+        pred.speciesId = 1;                          // label do predador
+        pred.genomeId = predGid.id;
+        const auto predId = agents.createAgent(pred);
+        simulation::AgentSpawn prey;
+        prey.position = {108.0, 100.0};              // encostado (dist 8 < r+r 20)
+        prey.radius = 10.0;
+        prey.energy = 60.0;
+        prey.speciesId = 2;                          // outra label
+        prey.genomeId = preyGid.id;
+        const auto preyId = agents.createAgent(prey);
+
+        simulation::FoodStore foods;
+        DietInteractionConfig dcfg = InteractionSystem::dietConfigFromRegistry(regP);
+        dcfg.useSpatial = false;                     // caminho O(n^2), sem hash
+        InteractionSystem sys;
+        const double predEnergyBefore = agents.energyAt(*agents.indexOf(predId));
+        const auto pstats = sys.applyWithDiet(agents, foods, genomes, nullptr, dcfg);
+        check(pstats.predationEvents == 1, "32.3: predador comeu 1 presa num passo");
+        check(!agents.contains(preyId), "32.3: presa removida apos predacao");
+        const auto predIdxAfter = agents.indexOf(predId);
+        check(predIdxAfter.has_value() &&
+                  agents.energyAt(*predIdxAfter) > predEnergyBefore,
+              "32.3: predador ganhou energia da presa");
+
+        // H3: mesma label NAO se preda (eatSameSpecies=false) — guarda contra
+        // o predador comer os proprios.
+        simulation::AgentStore sameLabel;
+        simulation::AgentSpawn a1 = pred; a1.position = {200.0, 200.0};
+        simulation::AgentSpawn a2 = pred; a2.position = {208.0, 200.0};
+        const auto sid1 = sameLabel.createAgent(a1);
+        static_cast<void>(sameLabel.createAgent(a2));
+        const auto sameStats = sys.applyWithDiet(sameLabel, foods, genomes, nullptr, dcfg);
+        check(sameStats.predationEvents == 0 && sameLabel.contains(sid1),
+              "32.3: membros da mesma label nao se predam");
     }
 
     summary.details = log.str();
