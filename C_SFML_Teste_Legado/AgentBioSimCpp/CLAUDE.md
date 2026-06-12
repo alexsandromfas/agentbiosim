@@ -105,8 +105,18 @@ de codigo.
   funcoes de MODELO (`prefsParametersForTab*`, `prefsApplyPending`, `editorParameters()`,
   `substratoParameters()`) para um arquivo proprio (ex.: `ui/PreferencesModel.*`), e remover os
   shims `ui/Command.hpp` / `ui/CanvasTool.hpp` migrando os testes para `core::`.
-- **Proxima fase (apos autorizacao):** Fase 32 — Otimizacao Data-Oriented e Escala
-  (ver `PHASE_32.md`; alvo #1 = percepcao ~49% do passo, depois neural ~34%).
+- **Fase 32 (Otimizacao) concluida** (ver `PHASE_32_OPTIMIZATION_SCALE_STATUS.md`): multithreading
+  deterministico (percepcao + forward neural; escritas disjuntas por agente, sem RNG, contadores
+  atomicos; knob `use_parallel_systems`) + Divida 5 resolvida (buffers thread_local, syncBrains sem
+  set, query espacial const com QueryScratch). **~3x de speedup** (1000 ag: 444 passos/s; 2000:
+  207/s; 5000: 43/s) com estado BIT-IDENTICO (golden via `--phase32-checksum`). REGRA da fase:
+  qualquer otimizacao futura deve manter a ordem de FP por agente (sem SIMD em reducoes, sem
+  threading com escrita cruzada) ou refazer a prova de regressao-zero.
+- **Microfase 31.1**: substrato/comida mudam ao vivo (sem reset; `ApplyFlag::ReshapeWorld` +
+  `applyWorldConfigLive` empurra agentes/comida pra dentro); min/max POR LABEL (max no nascimento
+  via SpeciesStore na reproducao; resgate de minimo por passo em `applyPopulationRescue`).
+- **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
+  C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 
@@ -131,7 +141,7 @@ Selftests headless (rodar TODOS como regressao; devem dar PASS):
 ```
 build/Release/AgentBioSimCpp.exe --phase7-selftest
 ... ate ...
-build/Release/AgentBioSimCpp.exe --phase31-selftest
+build/Release/AgentBioSimCpp.exe --phase32-selftest
 ```
 Diagnostics extras: `--phase26-diagnostics` (viewer neural), `--phase27-diagnostics`
 (metricas/profiler), `--phase28-diagnostics` (save/load), `--phase29-bench` (suite de benchmark +
