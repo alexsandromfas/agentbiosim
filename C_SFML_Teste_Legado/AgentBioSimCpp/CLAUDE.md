@@ -115,6 +115,19 @@ de codigo.
 - **Microfase 31.1**: substrato/comida mudam ao vivo (sem reset; `ApplyFlag::ReshapeWorld` +
   `applyWorldConfigLive` empurra agentes/comida pra dentro); min/max POR LABEL (max no nascimento
   via SpeciesStore na reproducao; resgate de minimo por passo em `applyPopulationRescue`).
+- **Microfase 32.1**: defaults reais de populacao — bacteria min=5/max=150 (predator min=5);
+  labels criadas nascem com 5/150 explicitos. Phase17 selftest atualizado para os novos defaults.
+- **Microfase 32.2 (editor de genoma AO VIVO)**: "Aplicar a especie" NAO reseta mais (aplicava
+  `runner_.reset()` e apagava labels criadas) e "Aplicar selecionados" NAO deleta mais — agora
+  `SimulationRunner::applyEditorGenomeToSpecies/ToAgents` sobrescrevem genomas em-lugar (corpo
+  atualizado, energia clampada, CEREBRO preservado); alvo do "Aplicar a especie" = label do 1º
+  selecionado (rodape "Label alvo" no editor). Labels criadas tem genoma-template PROPRIO (clonado
+  do 1º selecionado); atribuir a label preserva o genoma pessoal; reproducao honra o genoma do pai
+  (`ReproductionConfig.honorGenome`, so no caminho fromRegistry; testes legados intactos).
+  Templates default = copy-on-write. Golden 32 re-validado byte-identico (cenarios do checksum
+  destravam o cap p/ manter cobertura de nascimentos). `--phase31-selftest` = 87 checks.
+  LIMITES: visao/custos de energia continuam globais; arquitetura neural global (mudar
+  hidden_layers/tipo recria os cerebros de todos — confirmacao = pendencia 25.2).
 - **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
   C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 

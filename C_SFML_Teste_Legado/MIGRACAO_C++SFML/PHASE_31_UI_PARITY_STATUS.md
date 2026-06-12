@@ -147,4 +147,69 @@ Tambem: check de identidade do top-system no `--phase30-selftest` endurecido con
 timing (aceita top-2 do benchmark) — eliminava um flake raro sob carga. Duas rodadas completas das
 regressoes 7-31 sem falhas.
 
-Nao avancar para a Fase 32 sem autorizacao explicita do usuario.
+## Microfase 32.1 — defaults reais de min/max por label (2026-06-12)
+
+Bug reportado: organismos "estouravam" o maximo de 150 da label padrao. Diagnostico: o maximo
+PADRAO era 0 (= sem limite por design); o "150" visivel era a populacao INICIAL. O cap por label
+da 31.1 funcionava, mas nunca engatava out of the box. Correcao: `bacteria` nasce com
+`min_limit=5` / `max_limit=150` (predator `min=5`/`max=100`), e toda label criada pelo usuario
+nasce com min=5/max=150 explicitos (editaveis no card). Selftest da fase: 73 checks (bloco F).
+
+## Microfase 32.2 — editor de genoma aplica AO VIVO (2026-06-12)
+
+Bug reportado: criar uma label a partir de selecionados, mudar a dieta no Editor Genetico e clicar
+em aplicar APAGAVA todos os organismos da label — impossivel criar labels com diferencas geneticas.
+A auditoria do fluxo achou CINCO problemas (os dois botoes + tres latentes):
+
+1. **"Aplicar a especie" fazia `runner_.reset()`** (placeholder da Fase 24): o respawn so recria
+   as especies do registry (bacteria/predator), entao membros e registros de labels criadas
+   sumiam. Agora: aplicacao AO VIVO via `SimulationRunner::applyEditorGenomeToSpecies(alvo)` —
+   sobrescreve o genoma-template da label E o genoma pessoal de cada membro vivo com os valores do
+   editor (helper compartilhado `simulation::overwriteGenomeScalarsFromRegistry`, o mesmo do
+   bootstrap), atualiza corpo (raio/forma via novos `AgentStore::setRadiusAt/setBodyShapeAt`),
+   clampa energia ao novo cap e atualiza `dietSnapshot`. Posicao, idade, energia e CEREBRO
+   sobrevivem (checksum de pesos identico no selftest). **Alvo = label do primeiro organismo
+   selecionado** (sem selecao: label padrao bacteria) — o rodape do editor mostra "Label alvo: X"
+   e os botoes ganharam tooltips.
+2. **"Aplicar selecionados" DELETAVA os selecionados** (esperando o resgate respawnar): agora
+   `applyEditorGenomeToAgents(ids)` aplica em-lugar so neles, mantendo a label de cada um;
+   selecao preservada.
+3. **Label criada compartilhava o REGISTRO de genoma da bacteria** (`rec = *base` copiava
+   `defaultGenomeId`): editar a genetica de uma editava a outra. Agora a label clona um
+   genoma-template PROPRIO, semeado do primeiro selecionado vivo (a label captura a genetica do
+   grupo; fallback = template da bacteria).
+4. **Atribuir organismos a uma label APAGAVA a genetica deles** (`assignSelectedToSpecies`
+   sobrescrevia o genomeId pessoal com o template da label). Agora so muda species+cor (paridade
+   Python: label e grupo populacional, nao wipe genetico); template usado apenas como rede de
+   seguranca se o organismo nao tiver genoma.
+5. **Reproducao ignorava o genoma do pai** (config global "bacteria_*" para todos): diferencas
+   geneticas por label em split/min-age/cooldown/tamanho do filho/mutacao nao tinham efeito.
+   Agora `ReproductionConfig.honorGenome` (ligado no `fromRegistry`, isto e, no runner real) le o
+   genoma de cada pai com os knobs globais do registry como pisos; escalares copiados ANTES do
+   `cloneFrom` (mesmo perigo de dangling da Divida 7). Default `false` preserva exatamente os
+   selftests legados (13/14/15/16) que montam config manual.
+
+Protecoes de integridade: registros default de QUALQUER especie sao tratados como templates
+compartilhados — copy-on-write antes de qualquer escrita vinda de um membro (cobre saves antigos
+em que membros de labels apontavam para o template da bacteria).
+
+**Prova de regressao-zero (metodologia da Fase 32):** o digest `--phase32-checksum` divergiu do
+artefato historico — isolado em duas rodadas: (a) honorGenome OFF + cap destravado reproduz o
+golden pre-32 BYTE A BYTE; (b) honorGenome ON vs OFF com nascimentos fluindo = IDENTICO (o caminho
+novo e neutro quando genoma == registry, que e o invariante pos-reset). A divergencia era 100% o
+cap da 32.1 (count 300 > max 150 bloqueava todo nascimento nos cenarios) — os cenarios do checksum
+agora setam `bacteria_max_limit=0` para manter a cobertura de reproducao/mutacao no golden, que
+voltou a ser byte-identico ao artefato historico, em Debug E Release.
+
+Limitacoes documentadas (futuras fases): visao e custos de energia continuam GLOBAIS (lidos do
+registry por passo; o GenomeRecord nem tem esses campos) — diferencas por label valem para dieta,
+corpo, reproducao e mutacao. A arquitetura do cerebro tambem e global (assinatura unica no
+NeuralSystem): mudar `hidden_layers`/tipo de rede e aplicar recria os cerebros de TODOS os agentes
+no passo seguinte (a mensagem de confirmacao e a pendencia da microfase 25.2).
+
+Selftest da fase: **87 checks** (bloco G com 14 novos, incluindo o fluxo exato reportado: label
+criada + dieta carnivora aplicada SO nela, ninguem deletado, sem reset, template da bacteria
+intacto, cerebro preservado, e label com split barato reproduzindo enquanto a bacteria nao).
+Regressoes 7-32 completas PASS em Debug e Release.
+
+Nao avancar para a Fase 33 sem autorizacao explicita do usuario.
