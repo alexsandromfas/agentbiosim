@@ -849,6 +849,11 @@ simulation::SpeciesId SimulationRunner::createSpeciesFromSelected(
     rec.label = label;
     rec.legacyAliases.clear();
     rec.initialCount = 0;
+    // Microfase 32.1: every user-created label starts with explicit population
+    // limits — min 5 (rescue floor) and max 150 — instead of inheriting whatever
+    // the bacteria card happens to hold. Both editable on the Labels card.
+    rec.minPopulation = 5;
+    rec.maxPopulation = 150;
     rec.color = kLabelPalette[species_.size() % kLabelPalette.size()];
     const simulation::SpeciesId id = species_.registerSpecies(rec);
     assignSelectedToSpecies(ids, id);

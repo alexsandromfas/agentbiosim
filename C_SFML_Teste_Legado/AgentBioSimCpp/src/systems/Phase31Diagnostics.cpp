@@ -356,6 +356,54 @@ Phase31ValidationSummary runPhase31Validation()
         check(rescuedOk, "31.1: resgatados com label valida e dentro do mundo");
     }
 
+    // ------------- F. Microfase 32.1: defaults de min/max por label -----------
+    {
+        config::ParameterRegistry reg3 = config::createDefaultParameterRegistry();
+        static_cast<void>(reg3.setValue("auto_export_substrate", false));
+        // Pressao de reproducao: split barato + comida abundante.
+        static_cast<void>(reg3.setValue("bacteria_split_energy", 1.0));
+        static_cast<void>(reg3.setValue("food_target", 400));
+        sim::SimulationRunner r(reg3);
+        r.initialize();
+
+        const auto bacteriaId = r.species().idByName("bacteria");
+        const auto* rec = r.species().find(bacteriaId);
+        check(rec != nullptr && rec->minPopulation == 5 && rec->maxPopulation == 150,
+              "32.1: label padrao nasce com min=5 / max=150");
+
+        bool capHeld = true;
+        for (int i = 0; i < 120 && capHeld; ++i)
+        {
+            r.step(1.0 / 30.0);
+            if (r.countAgentsOfSpecies(bacteriaId) > 150) capHeld = false;
+        }
+        check(capHeld, "32.1: maximo padrao (150) segura sob pressao de reproducao (" +
+                           std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " <= 150)");
+
+        // Resgate padrao: derrubar para 2 -> volta para >= 5 num passo.
+        std::vector<simulation::EntityId> doomed;
+        for (std::size_t i = 0; i < r.agents().size(); ++i)
+        {
+            if (doomed.size() + 2 < r.countAgentsOfSpecies(bacteriaId) &&
+                r.agents().speciesIdAt(i) == bacteriaId)
+            {
+                doomed.push_back(r.agents().idAt(i));
+            }
+        }
+        r.deleteAgents(doomed);
+        r.step(1.0 / 30.0);
+        check(r.countAgentsOfSpecies(bacteriaId) >= 5,
+              "32.1: minimo padrao (5) resgatado (" +
+                  std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " >= 5)");
+
+        // Labels criadas pelo usuario tambem nascem com 5/150.
+        std::vector<simulation::EntityId> one{r.agents().idAt(0)};
+        const auto newId = r.createSpeciesFromSelected("label_321", one);
+        const auto* newRec = r.species().find(newId);
+        check(newRec != nullptr && newRec->minPopulation == 5 && newRec->maxPopulation == 150,
+              "32.1: label criada nasce com min=5 / max=150");
+    }
+
     summary.details = log.str();
     return summary;
 }

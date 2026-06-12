@@ -153,12 +153,12 @@ Phase17ValidationSummary runPhase17Validation()
     // 6. initialCount preservado.
     addCheck(summary, "bacteria initialCount preserved",
              bacteria != nullptr && bacteria->initialCount == 150);
-    // 7. minPopulation preservado.
+    // 7. minPopulation preservado (microfase 32.1: default 5 = piso de resgate).
     addCheck(summary, "bacteria minPopulation preserved",
-             bacteria != nullptr && bacteria->minPopulation == 0);
-    // 8. maxPopulation preservado.
+             bacteria != nullptr && bacteria->minPopulation == 5);
+    // 8. maxPopulation preservado (microfase 32.1: default 150).
     addCheck(summary, "bacteria maxPopulation preserved",
-             bacteria != nullptr && bacteria->maxPopulation == 0);
+             bacteria != nullptr && bacteria->maxPopulation == 150);
     // 9. showGraph preservado.
     addCheck(summary, "species showGraph preserved",
              bacteria != nullptr && bacteria->showGraph == true);
@@ -316,9 +316,11 @@ Phase17ValidationSummary runPhase17Validation()
         addCheck(summary, "maxPopulation prevents exceeding limit",
                  agents3.size() <= 4U && rs_stats.blockedByPopulation >= 0U);
     }
-    // 37. maxPopulation=0 sem limite (legado bacteria).
-    addCheck(summary, "maxPopulation=0 means no limit",
-             bacteria != nullptr && bacteria->maxPopulation == 0);
+    // 37. Microfase 32.1: o default da bacteria agora e 150 (a semantica
+    // "0 = sem limite" continua valida no codigo do cap, que so engata com
+    // maxPopulation > 0 — coberta pelo teste 36 acima e pelo selftest da 31).
+    addCheck(summary, "maxPopulation default flows registry -> record (150)",
+             bacteria != nullptr && bacteria->maxPopulation == 150);
     // 38. minPopulation armazenado.
     addCheck(summary, "minPopulation stored for rescue",
              bacteria != nullptr);

@@ -331,10 +331,13 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addBool(registry, "food_trim_excess_enabled", true, "food", "Trim excess food above target.", {}, {"runtime", "food"});
     addInt(registry, "food_trim_max_per_step", 5, "food", "Maximum food particles trimmed per step.", 0.0, std::nullopt, {}, {"runtime", "food"});
 
+    // Microfase 32.1: population limits now have real defaults — min 5 (rescue
+    // floor) and max 150 for the default label (0 previously meant "no limit",
+    // so the per-label cap from 31.1 never engaged out of the box).
     registerSpeciesParameters(registry,
-                              {"bacteria", "Bacteria", 150, 6.0, 12.0, 0, 0, 0.5, 8.0, 400.0, 9.0, 4, 20, 20, 20, 20, 0, true, false, true, false, {220, 220, 220}});
+                              {"bacteria", "Bacteria", 150, 6.0, 12.0, 5, 150, 0.5, 8.0, 400.0, 9.0, 4, 20, 20, 20, 20, 0, true, false, true, false, {220, 220, 220}});
     registerSpeciesParameters(registry,
-                              {"predator", "Predator", 0, 10.0, 18.0, 0, 100, 1.0, 15.0, 600.0, 14.0, 2, 16, 8, 0, 0, 0, true, true, false, true, {80, 120, 220}});
+                              {"predator", "Predator", 0, 10.0, 18.0, 5, 100, 1.0, 15.0, 600.0, 14.0, 2, 16, 8, 0, 0, 0, true, true, false, true, {80, 120, 220}});
     addBool(registry, "predators_enabled", false, "species.predator", "Enable legacy predators.", {"predator_enabled"}, {"runtime", "species.predator"});
 
     addDouble(registry, "agents_inertia", 1.0, "physics", "Global agent inertia.", 0.0, std::nullopt, {}, {"runtime", "physics"});
