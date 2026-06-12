@@ -5,9 +5,11 @@
 #include "perception/PerceptionResult.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <execution>
+#include <numeric>
 #include <random>
-#include <unordered_set>
 
 namespace agentbiosim::systems
 {
@@ -39,6 +41,7 @@ NeuralSystemConfig NeuralSystem::fromRegistry(const config::ParameterRegistry& p
     config.energyNormalizer = std::max(1.0e-9, parameterDouble(parameters, "bacteria_energy_cap", 400.0));
     const int seed = parameterInt(parameters, "random_seed", -1);
     config.seed = seed >= 0 ? static_cast<std::uint64_t>(seed) : 20260527ULL;
+    config.parallelEnabled = config::parameterBool(parameters, "use_parallel_systems", true);
     return config;
 }
 
@@ -68,16 +71,23 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
     bool capturedTrace = false;
 
     std::vector<MovementControl> controls(agents.size());
-    for (std::size_t index = 0; index < agents.size(); ++index)
-    {
+    std::atomic<std::size_t> processed{0};
+
+    // Phase 32: the per-agent forward is embarrassingly parallel — each agent
+    // reads world/perception state (const), mutates only ITS OWN brain slot
+    // (RNN/NEAT recurrent state) and writes its own controls[index] slot. There
+    // is no RNG and no shared accumulation with order-dependent floating point,
+    // so the results are bit-identical to the serial loop for any thread count.
+    // `input` is a thread_local buffer (Divida 5: zero allocation after warmup).
+    const auto forwardOne = [&](const std::size_t index) {
         const auto id = agents.idAt(index);
-        auto it = brainsByAgentId_.find(id.value);
+        const auto it = brainsByAgentId_.find(id.value);
         if (it == brainsByAgentId_.end())
         {
-            continue;
+            return;
         }
 
-        std::vector<double> input;
+        thread_local std::vector<double> input;
         if (usePerception)
         {
             const double* data = perception->inputForAgent(index);
@@ -85,7 +95,7 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
         }
         else
         {
-            input = syntheticInputForAgent(agents, world, config, index);
+            syntheticInputForAgent(agents, world, config, index, input);
         }
 
         std::vector<double> output;
@@ -93,7 +103,8 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
         {
             // Trace-capturing forward for the single selected agent. This is the
             // real forward (it still advances RNN/NEAT recurrent state); we just
-            // also record the activations and rebuild the read-only view.
+            // also record the activations and rebuild the read-only view. Only
+            // this one agent's thread touches the trace members.
             neural::ActivationTrace trace;
             output = executor_.forward(it->second.brain, input, &trace);
             lastView_ = neural::buildNeuralView(it->second.brain, trace, &input);
@@ -119,8 +130,29 @@ std::vector<MovementControl> NeuralSystem::produceMovementControls(
             control.turn = output[1];
         }
         controls[index] = control;
-        ++lastStats_.agentsProcessed;
+        processed.fetch_add(1, std::memory_order_relaxed);
+    };
+
+    constexpr std::size_t kParallelThreshold = 128;
+    if (config.parallelEnabled && agents.size() >= kParallelThreshold)
+    {
+        if (parallelIndices_.size() != agents.size())
+        {
+            parallelIndices_.resize(agents.size());
+            std::iota(parallelIndices_.begin(), parallelIndices_.end(), std::size_t{0});
+        }
+        std::for_each(std::execution::par, parallelIndices_.begin(), parallelIndices_.end(),
+                      forwardOne);
     }
+    else
+    {
+        for (std::size_t index = 0; index < agents.size(); ++index)
+        {
+            forwardOne(index);
+        }
+    }
+    lastStats_.agentsProcessed = processed.load(std::memory_order_relaxed);
+
     // Phase 26: a target that did not match any live agent this step (e.g. it
     // just died) leaves no fresh view — mark it stale so the UI hides it safely.
     if (traceTargetId_ != 0 && !capturedTrace)
@@ -304,13 +336,10 @@ std::size_t NeuralSystem::brainCount() const noexcept
 void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const NeuralSystemConfig& config)
 {
     const std::string signature = config.brainConfig.architectureSignature();
-    std::unordered_set<std::uint64_t> liveIds;
-    liveIds.reserve(agents.size());
 
     for (std::size_t index = 0; index < agents.size(); ++index)
     {
         const std::uint64_t id = agents.idAt(index).value;
-        liveIds.insert(id);
         auto it = brainsByAgentId_.find(id);
         if (it != brainsByAgentId_.end() && it->second.signature == signature)
         {
@@ -330,9 +359,11 @@ void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const Neural
         }
     }
 
+    // Phase 32 (Divida 5): no per-step unordered_set — the AgentStore already
+    // has an O(1) id index, so dead brains are pruned via agents.contains.
     for (auto it = brainsByAgentId_.begin(); it != brainsByAgentId_.end();)
     {
-        if (liveIds.find(it->first) == liveIds.end())
+        if (!agents.contains(simulation::EntityId{it->first}))
         {
             it = brainsByAgentId_.erase(it);
         }
@@ -343,15 +374,16 @@ void NeuralSystem::syncBrains(const simulation::AgentStore& agents, const Neural
     }
 }
 
-std::vector<double> NeuralSystem::syntheticInputForAgent(const simulation::AgentStore& agents,
-                                                        const simulation::World& world,
-                                                        const NeuralSystemConfig& config,
-                                                        const std::size_t agentIndex) const
+void NeuralSystem::syntheticInputForAgent(const simulation::AgentStore& agents,
+                                          const simulation::World& world,
+                                          const NeuralSystemConfig& config,
+                                          const std::size_t agentIndex,
+                                          std::vector<double>& input) const
 {
     const simulation::Vec2 position = agents.positionAt(agentIndex);
     const simulation::Vec2 minBounds = world.minBounds();
     const simulation::Vec2 maxBounds = world.maxBounds();
-    std::vector<double> input(config.brainConfig.inputSize, 0.0);
+    input.assign(config.brainConfig.inputSize, 0.0);
     if (!input.empty())
     {
         input[0] = std::clamp(agents.energyAt(agentIndex) / std::max(1.0e-9, config.energyNormalizer), 0.0, 2.0);
@@ -368,6 +400,5 @@ std::vector<double> NeuralSystem::syntheticInputForAgent(const simulation::Agent
     {
         input[3] = normalizedCoordinate(position.y, minBounds.y, maxBounds.y);
     }
-    return input;
 }
 } // namespace agentbiosim::systems

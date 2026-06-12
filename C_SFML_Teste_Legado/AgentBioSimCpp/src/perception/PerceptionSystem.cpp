@@ -5,8 +5,11 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <execution>
 #include <limits>
+#include <numeric>
 
 namespace agentbiosim::perception
 {
@@ -911,6 +914,7 @@ PerceptionConfig PerceptionSystem::fromRegistry(const config::ParameterRegistry&
 {
     PerceptionConfig config;
     config.retina = retinaConfigFromRegistry(registry, speciesPrefix);
+    config.parallelEnabled = config::parameterBool(registry, "use_parallel_systems", true);
     return config;
 }
 
@@ -1007,9 +1011,9 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
         ensureRayCache(retina.retinaCount, halfFovRad);
     }
 
-    std::size_t totalCandidates = 0;
-    std::size_t totalCandidatesAfterLimit = 0;
-    std::size_t totalHits = 0;
+    std::atomic<std::size_t> totalCandidates{0};
+    std::atomic<std::size_t> totalCandidatesAfterLimit{0};
+    std::atomic<std::size_t> totalHits{0};
 
     const std::uint64_t debugTargetId = debugRequest.out != nullptr ? debugRequest.agentId : 0;
 
@@ -1021,16 +1025,25 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
     const bool occlusionEnabledForRays = obstaclesActive &&
         (!retina.seeThroughWalls ||
          (activeMode == VisionMode::Sector && retina.sectorBins.obstaclesBlockVision));
-    std::size_t obstacleCandidateCount = 0;
-    std::size_t occlusionChecksCount = 0;
-    std::size_t occludedCandidatesCount = 0;
+    std::atomic<std::size_t> obstacleCandidateCount{0};
+    std::atomic<std::size_t> occlusionChecksCount{0};
+    std::atomic<std::size_t> occludedCandidatesCount{0};
 
-    for (std::size_t i = 0; i < agents.size(); ++i)
-    {
+    // Phase 32: per-agent perception is independent — const reads of the world,
+    // each agent writes only its own slice of flatInputs, the debug sink belongs
+    // to a single agent, and all shared tallies are integer atomics (order-free).
+    // Every thread carries its own candidate buffer + spatial query scratch
+    // (thread_local persists across steps on pool threads: zero allocation in
+    // steady state). Results are bit-identical to the serial loop.
+    const simulation::SpatialHash* constSpatial = spatial;
+    const auto processAgent = [&](const std::size_t i) {
         if (!agents.aliveAt(i))
         {
-            continue;
+            return;
         }
+
+        thread_local std::vector<VisibleCandidate> candidates;
+        thread_local SceneQueryScratch queryScratch;
 
         const simulation::Vec2 pos = agents.positionAt(i);
         const double agentRadius = agents.radiusAt(i);
@@ -1041,48 +1054,50 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
             pos.x, pos.y, searchRadius,
             retina.seeFood, retina.seeAgents, retina.seePredators, retina.seeAll,
             agentId,
-            spatial, agents, foods,
-            candidateBuffer_);
+            constSpatial, agents, foods,
+            candidates, queryScratch);
 
         // Phase 20: append obstacles as candidates when the retina sees them.
         // Even when seeObstacles=false, obstacles still occlude vision (filtered
         // below). seeAll bypasses retina filters but also adds obstacles.
         if (obstaclesActive && (retina.seeObstacles || retina.seeAll))
         {
-            const std::size_t beforeObstacles = candidateBuffer_.size();
-            appendObstacleCandidates(pos.x, pos.y, searchRadius, *obstacles, candidateBuffer_);
-            obstacleCandidateCount += candidateBuffer_.size() - beforeObstacles;
+            const std::size_t beforeObstacles = candidates.size();
+            appendObstacleCandidates(pos.x, pos.y, searchRadius, *obstacles, candidates);
+            obstacleCandidateCount.fetch_add(candidates.size() - beforeObstacles,
+                                             std::memory_order_relaxed);
         }
 
         // Phase 20: pre-filter occluded candidates so the vision strategies see
-        // a clean buffer. This is cheaper than testing inside each strategy and
-        // keeps the strategies unchanged. Obstacle candidates are kept (an
-        // obstacle never occludes itself).
+        // a clean buffer. Obstacle candidates are kept (an obstacle never
+        // occludes itself).
         if (occlusionEnabledForRays)
         {
-            const std::size_t before = candidateBuffer_.size();
+            std::size_t localChecks = 0;
+            std::size_t localOccluded = 0;
             std::size_t writeIdx = 0;
-            for (std::size_t r = 0; r < candidateBuffer_.size(); ++r)
+            for (std::size_t r = 0; r < candidates.size(); ++r)
             {
-                const auto& cand = candidateBuffer_[r];
+                const auto& cand = candidates[r];
                 if (cand.entityType == simulation::SpatialEntityType::Obstacle)
                 {
-                    candidateBuffer_[writeIdx++] = cand;
+                    candidates[writeIdx++] = cand;
                     continue;
                 }
-                ++occlusionChecksCount;
+                ++localChecks;
                 if (isOccludedByObstacles(pos.x, pos.y, cand.x, cand.y, *obstacles))
                 {
-                    ++occludedCandidatesCount;
+                    ++localOccluded;
                     continue;
                 }
-                candidateBuffer_[writeIdx++] = cand;
+                candidates[writeIdx++] = cand;
             }
-            candidateBuffer_.resize(writeIdx);
-            static_cast<void>(before);
+            candidates.resize(writeIdx);
+            occlusionChecksCount.fetch_add(localChecks, std::memory_order_relaxed);
+            occludedCandidatesCount.fetch_add(localOccluded, std::memory_order_relaxed);
         }
 
-        totalCandidates += candidateBuffer_.size();
+        totalCandidates.fetch_add(candidates.size(), std::memory_order_relaxed);
 
         const bool fillDebug = (debugTargetId != 0 && agentId == debugTargetId);
         VisionDebugData* debugSink = fillDebug ? debugRequest.out : nullptr;
@@ -1098,32 +1113,60 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
             debugSink->rays.reserve(retina.retinaCount * std::max<std::size_t>(1U, retina.eyeCount));
         }
 
+        std::size_t localHits = 0;
+        std::size_t localAfterLimit = 0;
         double* agentOutput = result.flatInputs.data() + i * result.inputSize;
         if (activeMode == VisionMode::Fullbody)
         {
-            fullbodyVisionForAgent(i, agents, candidateBuffer_, retina, channels,
+            fullbodyVisionForAgent(i, agents, candidates, retina, channels,
                                     rayCache_.relCos, rayCache_.relSin,
-                                    agentOutput, totalHits, debugSink);
+                                    agentOutput, localHits, debugSink);
         }
         else if (activeMode == VisionMode::Sector)
         {
-            sectorBinsVisionForAgent(i, agents, candidateBuffer_, retina, channels,
-                                      agentOutput, totalHits, totalCandidatesAfterLimit, debugSink);
+            sectorBinsVisionForAgent(i, agents, candidates, retina, channels,
+                                      agentOutput, localHits, localAfterLimit, debugSink);
         }
         else
         {
-            singleVisionForAgent(i, agents, candidateBuffer_, retina, channels,
-                                  agentOutput, totalHits, debugSink);
+            singleVisionForAgent(i, agents, candidates, retina, channels,
+                                  agentOutput, localHits, debugSink);
+        }
+        totalHits.fetch_add(localHits, std::memory_order_relaxed);
+        if (localAfterLimit != 0)
+        {
+            totalCandidatesAfterLimit.fetch_add(localAfterLimit, std::memory_order_relaxed);
+        }
+    };
+
+    constexpr std::size_t kParallelThreshold = 128;
+    if (config.parallelEnabled && agents.size() >= kParallelThreshold)
+    {
+        if (parallelIndices_.size() != agents.size())
+        {
+            parallelIndices_.resize(agents.size());
+            std::iota(parallelIndices_.begin(), parallelIndices_.end(), std::size_t{0});
+        }
+        std::for_each(std::execution::par, parallelIndices_.begin(), parallelIndices_.end(),
+                      processAgent);
+    }
+    else
+    {
+        for (std::size_t i = 0; i < agents.size(); ++i)
+        {
+            processAgent(i);
         }
     }
 
     lastStats_ = {};
     lastStats_.agentsProcessed = agents.size();
-    lastStats_.totalCandidatesQueried = totalCandidates;
+    const std::size_t totalCandidatesV = totalCandidates.load(std::memory_order_relaxed);
+    const std::size_t totalAfterLimitV = totalCandidatesAfterLimit.load(std::memory_order_relaxed);
+    lastStats_.totalCandidatesQueried = totalCandidatesV;
     lastStats_.totalCandidatesAfterLimit = activeMode == VisionMode::Sector
-        ? totalCandidatesAfterLimit : totalCandidates;
+        ? totalAfterLimitV : totalCandidatesV;
     lastStats_.averageCandidatesPerAgent = agents.size() > 0
-        ? static_cast<double>(totalCandidates) / static_cast<double>(agents.size())
+        ? static_cast<double>(totalCandidatesV) / static_cast<double>(agents.size())
         : 0.0;
     lastStats_.averageCandidatesAfterLimit = agents.size() > 0
         ? static_cast<double>(lastStats_.totalCandidatesAfterLimit) / static_cast<double>(agents.size())

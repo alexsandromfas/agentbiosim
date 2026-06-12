@@ -96,9 +96,19 @@ Arquivos afetados:
 - `src/ui/UiPanel.hpp/.cpp` (novo).
 - `src/ui/Command.hpp`, `src/ui/CanvasTool.hpp`, `src/ui/SelectionState.hpp`, `src/ui/UiState.hpp` (novos).
 
-## Divida 5 — Alocacoes temporarias no NeuralSystem [PARCIALMENTE MITIGADA]
+## Divida 5 — Alocacoes temporarias no NeuralSystem [RESOLVIDA NA FASE 32]
 
-Status: parcialmente mitigada na Fase 14 (variant removeu heap alloc por cerebro). Avaliada na Fase 15 (RNN nao adiciona alocacao significativa). Reavaliada na Fase 16 (NEAT adiciona maps temporarios per-forward). Restante para Fase 30.
+Status: **RESOLVIDA** (Fase 32, 2026-06-10). O `input` por agente/por passo virou buffer
+`thread_local` reutilizado; `syntheticInputForAgent` preenche buffer do chamador; `syncBrains`
+perdeu o `unordered_set` por passo (poda via `agents.contains`, O(1)); a percepcao ganhou
+buffers/scratch `thread_local` e a query espacial deixou de alocar `vector<SpatialItem>` por
+agente. Junto com o multithreading deterministico (percepcao + forward neural), speedup medido de
+~3x em 100–5000 agentes com estado bit-identico (ver `PHASE_32_OPTIMIZATION_SCALE_STATUS.md`).
+Restante (opcional, se a Fase 33 justificar): scratch interno por camada em `MLPBrain::forward` e
+buffers densos do NEAT.
+
+Historico:
+parcialmente mitigada na Fase 14 (variant removeu heap alloc por cerebro). Avaliada na Fase 15 (RNN nao adiciona alocacao significativa). Reavaliada na Fase 16 (NEAT adiciona maps temporarios per-forward).
 
 Avaliacao na Fase 16 (NEAT family):
 - NEAT cria por forward: dois `std::unordered_map<int32_t, double>` (`values`, `incoming`), uma `std::map<double, vector<Node*>>` (hidden_by_layer), uma `std::unordered_map` para `newState` (somente recorrente). Isso e ~4 estruturas dinamicas alocadas por chamada.
@@ -312,11 +322,12 @@ Arquivos afetados:
 
 ## Divida 10 — Performance prometida ainda nao comprovada ponta a ponta em escala
 
-Status parcial (2026-06-10): **surface entregue**. A Fase 27 entregou o profiler por sistema, a
-Fase 29 o benchmark runner formal (baseline: percepcao ~49% + neural ~34% do passo a 1000 agentes)
-e a Fase 30 a Janela do Desenvolvedor (custo por sistema ao vivo, historico, toggles de isolamento
-e cenario embutido). O ataque guiado por dados e a Fase 32; a prova final C++ vs Python fecha a
-divida na Fase 33.
+Status parcial (2026-06-10): **surface entregue + ataque executado**. A Fase 27 entregou o
+profiler por sistema, a Fase 29 o benchmark runner formal (baseline: percepcao ~49% + neural ~34%
+do passo a 1000 agentes), a Fase 30 a Janela do Desenvolvedor, e a **Fase 32 atacou os gargalos**:
+multithreading deterministico de percepcao + forward neural e alocacao-zero no hot loop (Divida 5)
+⇒ **~3x de speedup em 100–5000 agentes com estado bit-identico** (2000 agentes a 207 passos/s,
+5000 a 43 passos/s — interativos). Falta apenas a prova final C++ vs Python (Fase 33) para fechar.
 
 Data de registro: 2026-06-01 (revisao de arquitetura pos-Fase 24).
 

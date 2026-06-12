@@ -253,6 +253,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addInt(registry, "max_physics_steps_per_frame", 8, "simulation.time", "Maximum fixed steps processed per rendered frame.", 1.0, std::nullopt, {}, {"runtime", "physics"});
     addDouble(registry, "max_physics_backlog_seconds", 0.25, "simulation.time", "Maximum accumulated simulation backlog.", 0.0, std::nullopt, {}, {"runtime", "physics"});
     addBool(registry, "use_spatial", true, "performance.spatial", "Enable spatial hash acceleration.", {}, {"runtime", "performance"});
+    // Phase 32: deterministic multithreading of perception + neural forward
+    // (disjoint per-agent writes, no RNG -> bit-identical to serial).
+    addBool(registry, "use_parallel_systems", true, "performance.parallel", "Multithread perception and neural forward (deterministic).", {}, {"runtime", "performance"});
     addString(registry, "substrate_shape", "rectangular", "world.substrate", "Substrate shape: rectangular or circular.", {}, {"runtime", "world"});
     addDouble(registry, "world_w", 1000.0, "world.substrate", "Rectangular substrate width.", 1.0, std::nullopt, {}, {"runtime", "world"});
     addDouble(registry, "world_h", 700.0, "world.substrate", "Rectangular substrate height.", 1.0, std::nullopt, {}, {"runtime", "world"});

@@ -31,6 +31,25 @@ void queryVisibleCandidates(double searchX, double searchY, double searchRadius,
                             const simulation::FoodStore& foods,
                             std::vector<VisibleCandidate>& out);
 
+// Phase 32: thread-safe + allocation-free variant. Takes the spatial hash as
+// CONST and keeps all mutable working memory (spatial item buffer + dedup
+// stamps) in the caller's scratch — one scratch per thread. Produces exactly
+// the same candidates as the variant above.
+struct SceneQueryScratch
+{
+    std::vector<simulation::SpatialItem> items;
+    simulation::SpatialHash::QueryScratch spatial;
+};
+
+void queryVisibleCandidates(double searchX, double searchY, double searchRadius,
+                            bool seeFood, bool seeAgents, bool seePredators, bool seeAll,
+                            std::uint64_t ignoreAgentId,
+                            const simulation::SpatialHash* spatial,
+                            const simulation::AgentStore& agents,
+                            const simulation::FoodStore& foods,
+                            std::vector<VisibleCandidate>& out,
+                            SceneQueryScratch& scratch);
+
 // Phase 20: append obstacles within `searchRadius` of (searchX, searchY) as
 // VisibleCandidates with entityType=Obstacle. The caller controls whether the
 // retina actually sees them via `seeObstacles`. Obstacles default to a neutral

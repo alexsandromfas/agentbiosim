@@ -235,6 +235,56 @@ void SpatialHash::queryRadiusInto(const double x, const double y, const double r
     }
 }
 
+void SpatialHash::queryRadiusInto(const double x, const double y, const double radius,
+                                  std::vector<SpatialItem>& out, QueryScratch& scratch) const
+{
+    out.clear();
+    if (buckets_.empty())
+    {
+        return;
+    }
+
+    const double safeRadius = std::max(0.0, radius);
+    const int minCx = clampedCellX(x - safeRadius);
+    const int maxCx = clampedCellX(x + safeRadius);
+    const int minCy = clampedCellY(y - safeRadius);
+    const int maxCy = clampedCellY(y + safeRadius);
+
+    // Per-scratch stamp dedup, mirroring beginQuery() on the caller's storage.
+    if (scratch.seenStamp.size() < items_.size())
+    {
+        scratch.seenStamp.assign(items_.size(), 0U);
+        scratch.stamp = 0U;
+    }
+    ++scratch.stamp;
+    if (scratch.stamp == 0U)
+    {
+        std::fill(scratch.seenStamp.begin(), scratch.seenStamp.end(), 0U);
+        scratch.stamp = 1U;
+    }
+
+    for (int cy = minCy; cy <= maxCy; ++cy)
+    {
+        for (int cx = minCx; cx <= maxCx; ++cx)
+        {
+            const std::vector<std::size_t>& bucket = buckets_[bucketIndex(cx, cy)];
+            for (const std::size_t itemIndex : bucket)
+            {
+                if (scratch.seenStamp[itemIndex] == scratch.stamp)
+                {
+                    continue;
+                }
+                scratch.seenStamp[itemIndex] = scratch.stamp;
+                const SpatialItem& item = items_[itemIndex];
+                if (itemIntersectsRadius(item, x, y, safeRadius))
+                {
+                    out.push_back(item);
+                }
+            }
+        }
+    }
+}
+
 std::vector<SpatialItem> SpatialHash::queryAabb(const double minX, const double minY, const double maxX, const double maxY)
 {
     std::vector<SpatialItem> out;

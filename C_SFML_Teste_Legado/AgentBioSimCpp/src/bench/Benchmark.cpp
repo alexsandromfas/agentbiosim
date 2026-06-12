@@ -57,13 +57,19 @@ BenchmarkMeta currentMeta()
 std::vector<BenchmarkScenario> defaultScenarios()
 {
     std::vector<BenchmarkScenario> out;
-    const std::pair<int, int> scales[] = {{100, 100}, {300, 150}, {600, 300}, {1000, 500}};
-    for (const auto& [agents, foods] : scales)
+    // Phase 32: scale ladder extended to 2000/5000 (fewer steps/repeats at the
+    // top so the suite stays runnable; per-step stats are what matter).
+    const std::tuple<int, int, int, int> scales[] = {
+        {100, 100, 300, 3}, {300, 150, 300, 3}, {600, 300, 300, 3},
+        {1000, 500, 300, 3}, {2000, 1000, 150, 2}, {5000, 2500, 60, 2}};
+    for (const auto& [agents, foods, steps, repeats] : scales)
     {
         BenchmarkScenario s;
         s.name = "scale_" + std::to_string(agents);
         s.agents = agents;
         s.foods = foods;
+        s.steps = steps;
+        s.repeats = repeats;
         out.push_back(s);
     }
     for (const char* vm : {"single", "raycast", "sector"})

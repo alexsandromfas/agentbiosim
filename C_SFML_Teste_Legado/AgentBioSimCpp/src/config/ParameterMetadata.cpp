@@ -278,6 +278,7 @@ const std::vector<LabelEntry> kFriendlyLabels{
     {"diagnostic_heartbeat_minutes", "Heartbeat de diagnostico (min)", "Diagnostic heartbeat (min)"},
 
     {"use_spatial",                  "Usar spatial hash", "Use spatial hash"},
+    {"use_parallel_systems",         "Usar multithreading (deterministico)", "Use multithreading (deterministic)"},
     {"reuse_spatial_grid",           "Reutilizar grid espacial", "Reuse spatial grid"},
     {"use_batch_forward",            "Forward em lote (batch)", "Batch forward"},
     {"batch_forward_min_size",       "Tamanho minimo do batch", "Min batch size"},

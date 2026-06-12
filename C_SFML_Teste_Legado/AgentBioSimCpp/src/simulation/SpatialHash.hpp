@@ -69,6 +69,18 @@ public:
     [[nodiscard]] std::vector<SpatialItem> queryRadius(double x, double y, double radius);
     void queryRadiusInto(double x, double y, double radius, std::vector<SpatialItem>& out);
 
+    // Phase 32: thread-safe query. The member variants above mutate the shared
+    // dedup stamps (seenStamp_/queryStamp_), so concurrent callers must use this
+    // overload with their OWN scratch (one per thread). Read-only on the hash;
+    // results identical to the member variant.
+    struct QueryScratch
+    {
+        std::vector<std::uint32_t> seenStamp;
+        std::uint32_t stamp = 0;
+    };
+    void queryRadiusInto(double x, double y, double radius, std::vector<SpatialItem>& out,
+                         QueryScratch& scratch) const;
+
     [[nodiscard]] std::vector<SpatialItem> queryAabb(double minX, double minY, double maxX, double maxY);
     void queryAabbInto(double minX, double minY, double maxX, double maxY, std::vector<SpatialItem>& out);
 

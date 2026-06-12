@@ -32,6 +32,9 @@ struct NeuralSystemConfig
     neural::BrainConfig brainConfig;
     double energyNormalizer = 400.0;
     std::uint64_t seed = 20260527U;
+    // Phase 32: per-agent forwards are independent (own brain state, disjoint
+    // output slots, no RNG), so parallel execution is bit-identical to serial.
+    bool parallelEnabled = true;
 };
 
 struct NeuralStats
@@ -141,14 +144,18 @@ private:
     };
 
     void syncBrains(const simulation::AgentStore& agents, const NeuralSystemConfig& config);
-    [[nodiscard]] std::vector<double> syntheticInputForAgent(const simulation::AgentStore& agents,
-                                                            const simulation::World& world,
-                                                            const NeuralSystemConfig& config,
-                                                            std::size_t agentIndex) const;
+    // Phase 32 (Divida 5): fills a caller-provided buffer (no allocation).
+    void syntheticInputForAgent(const simulation::AgentStore& agents,
+                                const simulation::World& world,
+                                const NeuralSystemConfig& config,
+                                std::size_t agentIndex,
+                                std::vector<double>& input) const;
 
     neural::BrainExecutor executor_;
     std::unordered_map<std::uint64_t, BrainSlot> brainsByAgentId_;
     NeuralStats lastStats_{};
+    // Phase 32: reusable [0..N) index range for std::execution::par.
+    std::vector<std::size_t> parallelIndices_;
 
     // Phase 26: trace-on-demand state for the neural viewer.
     std::uint64_t traceTargetId_ = 0;

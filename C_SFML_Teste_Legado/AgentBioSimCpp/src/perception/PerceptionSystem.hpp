@@ -22,6 +22,9 @@ namespace agentbiosim::perception
 struct PerceptionConfig
 {
     RetinaConfig retina;
+    // Phase 32: per-agent perception is independent (const world reads, output
+    // into a disjoint slice, no RNG) — parallel execution is bit-identical.
+    bool parallelEnabled = true;
 };
 
 struct PerceptionStats
@@ -74,6 +77,8 @@ public:
 private:
     PerceptionStats lastStats_{};
     std::vector<VisibleCandidate> candidateBuffer_;
+    // Phase 32: reusable [0..N) index range for std::execution::par.
+    std::vector<std::size_t> parallelIndices_;
 
     struct RayCache
     {
