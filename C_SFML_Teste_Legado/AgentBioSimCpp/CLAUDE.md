@@ -128,6 +128,12 @@ de codigo.
   destravam o cap p/ manter cobertura de nascimentos). `--phase31-selftest` = 87 checks.
   LIMITES: visao/custos de energia continuam globais; arquitetura neural global (mudar
   hidden_layers/tipo recria os cerebros de todos — confirmacao = pendencia 25.2).
+- **Microfase 32.3 (predacao por dieta)**: a predacao tinha gate global no flag legado
+  `predators_enabled` (default false) — labels carnivoras criadas pelo usuario nunca predavam.
+  `dietConfigFromRegistry` agora deixa a predacao sempre disponivel; quem decide e o `eatAgents`
+  do genoma de cada agente (modelo da Fase 18). `predators_enabled` segue controlando apenas o
+  spawn da especie predadora legada. Golden byte-identico (bacteria default nao preda).
+  `--phase31-selftest` = 93 checks (bloco H).
 - **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
   C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 

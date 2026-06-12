@@ -212,4 +212,25 @@ criada + dieta carnivora aplicada SO nela, ninguem deletado, sem reset, template
 intacto, cerebro preservado, e label com split barato reproduzindo enquanto a bacteria nao).
 Regressoes 7-32 completas PASS em Debug e Release.
 
+## Microfase 32.3 — predacao dirigida pela dieta (2026-06-12)
+
+Bug reportado: mudar a dieta de uma label para "comer organismos" (e aplicar com 32.2) nao fazia
+ela predar. Causa: a predacao em `InteractionSystem::applyWithDiet` tinha um **gate global**
+(`DietInteractionConfig.predationEnabled`) preenchido pelo flag legado `predators_enabled` —
+default **false**. Esse flag so deveria controlar o SPAWN da especie predadora legada no
+bootstrap (e continua controlando); usa-lo como gate da predacao por dieta matava silenciosamente
+qualquer label carnivora criada pelo usuario.
+
+Correcao: `dietConfigFromRegistry` agora deixa a predacao sempre DISPONIVEL — quem decide e a
+dieta de CADA genoma (`eatAgents`), que e o modelo da Fase 18. Comportamento default inalterado:
+a bacteria nasce com `eatAgents=false`, entao uma simulacao nova se comporta exatamente como
+antes (golden `--phase32-checksum` byte-identico ao artefato historico, Debug e Release). O campo
+`predationEnabled` continua existindo no struct para os selftests/benchmarks que desligam a
+predacao explicitamente (Fases 18/19).
+
+Selftest da fase: **93 checks** (bloco H com 6 novos: gate desacoplado do flag; predador via
+caminho real do registry com `predators_enabled=false` come presa de outra label num passo, presa
+removida, energia ganha; mesma label nao se preda sem `diet_same_label`). Regressoes 7-32
+completas PASS em Debug e Release.
+
 Nao avancar para a Fase 33 sem autorizacao explicita do usuario.
