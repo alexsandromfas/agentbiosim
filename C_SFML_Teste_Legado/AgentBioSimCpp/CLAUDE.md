@@ -149,6 +149,16 @@ de codigo.
   Golden 32 MUDOU de forma intencional (colisao on por padrao); provado por isolamento que SO a
   reordenacao altera o digest (death/predacao/rescue sao no-op nos cenarios) e `--phase32-selftest`
   (determinismo) segue PASS. `--phase31-selftest` = 99 checks (bloco I).
+- **Microfase 32.5 (visao POR LABEL)**: os checkboxes de visao (ver comida/organismos/tudo) nao
+  apareciam no editor (nomes sem o infixo `retina_` em `editorParameters()`) e a visao era GLOBAL.
+  Agora os see-flags vivem no `GenomeRecord` (`simulation::VisionConfig`, herda via cloneFrom,
+  copiado do registry em `overwriteGenomeScalarsFromRegistry` — bootstrap + editor-apply per-label,
+  igual a dieta da 32.2). `PerceptionSystem::computeInputs(...,const GenomeStore*)` resolve a visao
+  por-agente (geometria da retina segue GLOBAL pois dimensiona a entrada da rede). "Ver tudo" =
+  sem filtro de tipo (o caso mais SIMPLES; a selecao natural/RGB resolve). Golden byte-identico
+  (visao default = defaults globais). `--phase31-selftest` = 103 checks (bloco J). Novo
+  `--vision-bench`: filtrar por tipo e ~de graca; o custo e QUANTOS objetos entram na retina —
+  "ver tudo" e o MAIS caro (~+70% na percepcao vs so-comida), nao o mais barato.
 - **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
   C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 

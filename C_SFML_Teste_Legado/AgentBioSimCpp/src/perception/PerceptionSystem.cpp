@@ -949,7 +949,8 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
                                                   const simulation::World& world,
                                                   const PerceptionConfig& config,
                                                   const PerceptionDebugRequest& debugRequest,
-                                                  const simulation::ObstacleStore* obstacles)
+                                                  const simulation::ObstacleStore* obstacles,
+                                                  const simulation::GenomeStore* genomes)
 {
     PerceptionResult result;
     const auto& retina = config.retina;
@@ -998,12 +999,32 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
     result.flatInputs.assign(result.agentCount * result.inputSize, 0.0);
     const auto channels = retina.activeChannels();
 
-    const double maxSeenRadius = std::max({
-        retina.seeFood || retina.seeAll ? 5.0 : 0.0,
-        retina.seeAgents || retina.seeAll ? 12.0 : 0.0,
-        retina.seePredators || retina.seeAll ? 18.0 : 0.0,
-        1.0
-    });
+    // Microfase 32.5: resolve per-agent vision targeting once (serial) from each
+    // agent's genome (retina geometry stays global). With no genome store every
+    // agent keeps the global config flags — legacy path, bit-identical to before.
+    perAgentVision_.assign(result.agentCount, simulation::VisionConfig{
+        retina.seeFood, retina.seeAgents, retina.seePredators,
+        retina.seeObstacles, retina.seeAll, retina.seeThroughWalls});
+    if (genomes != nullptr)
+    {
+        for (std::size_t i = 0; i < result.agentCount; ++i)
+        {
+            if (!agents.aliveAt(i)) continue;
+            const auto* g = genomes->find(agents.genomeIdAt(i));
+            if (g != nullptr) perAgentVision_[i] = g->vision;
+        }
+    }
+
+    // Per-agent margin (largest body radius the agent may perceive) used to size
+    // the spatial query so a body whose centre sits just past the vision radius is
+    // still gathered. Default bacteria (food only) => 5.0, exactly as before.
+    const auto maxSeenRadiusFor = [](const simulation::VisionConfig& v) {
+        return std::max({
+            v.seeFood || v.seeAll ? 5.0 : 0.0,
+            v.seeAgents || v.seeAll ? 12.0 : 0.0,
+            v.seePredators || v.seeAll ? 18.0 : 0.0,
+            1.0});
+    };
 
     const double halfFovRad = retina.fovDegrees * 0.5 * kDegToRad;
     if (activeMode == VisionMode::Fullbody)
@@ -1022,9 +1043,10 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
     // `obstaclesBlockVision` flag is set. The candidate buffer is filtered
     // before being handed to the vision strategy.
     const bool obstaclesActive = obstacles != nullptr && !obstacles->empty();
-    const bool occlusionEnabledForRays = obstaclesActive &&
-        (!retina.seeThroughWalls ||
-         (activeMode == VisionMode::Sector && retina.sectorBins.obstaclesBlockVision));
+    // Microfase 32.5: the sector "obstacles block vision" gate is global geometry;
+    // the seeThroughWalls part is per-agent (resolved inside the loop).
+    const bool sectorBlocksVision =
+        (activeMode == VisionMode::Sector && retina.sectorBins.obstaclesBlockVision);
     std::atomic<std::size_t> obstacleCandidateCount{0};
     std::atomic<std::size_t> occlusionChecksCount{0};
     std::atomic<std::size_t> occludedCandidatesCount{0};
@@ -1047,12 +1069,14 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
 
         const simulation::Vec2 pos = agents.positionAt(i);
         const double agentRadius = agents.radiusAt(i);
-        const double searchRadius = retina.visionRadius + agentRadius + maxSeenRadius;
+        // Microfase 32.5: per-agent vision targeting (geometry still global).
+        const simulation::VisionConfig& vis = perAgentVision_[i];
+        const double searchRadius = retina.visionRadius + agentRadius + maxSeenRadiusFor(vis);
         const std::uint64_t agentId = agents.idAt(i).value;
 
         queryVisibleCandidates(
             pos.x, pos.y, searchRadius,
-            retina.seeFood, retina.seeAgents, retina.seePredators, retina.seeAll,
+            vis.seeFood, vis.seeAgents, vis.seePredators, vis.seeAll,
             agentId,
             constSpatial, agents, foods,
             candidates, queryScratch);
@@ -1060,7 +1084,7 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
         // Phase 20: append obstacles as candidates when the retina sees them.
         // Even when seeObstacles=false, obstacles still occlude vision (filtered
         // below). seeAll bypasses retina filters but also adds obstacles.
-        if (obstaclesActive && (retina.seeObstacles || retina.seeAll))
+        if (obstaclesActive && (vis.seeObstacles || vis.seeAll))
         {
             const std::size_t beforeObstacles = candidates.size();
             appendObstacleCandidates(pos.x, pos.y, searchRadius, *obstacles, candidates);
@@ -1070,8 +1094,9 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
 
         // Phase 20: pre-filter occluded candidates so the vision strategies see
         // a clean buffer. Obstacle candidates are kept (an obstacle never
-        // occludes itself).
-        if (occlusionEnabledForRays)
+        // occludes itself). Microfase 32.5: seeThroughWalls is per-agent.
+        const bool occForThis = obstaclesActive && (!vis.seeThroughWalls || sectorBlocksVision);
+        if (occForThis)
         {
             std::size_t localChecks = 0;
             std::size_t localOccluded = 0;

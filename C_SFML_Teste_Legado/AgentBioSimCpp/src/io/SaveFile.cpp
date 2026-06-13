@@ -125,6 +125,33 @@ DietConfig dietFrom(const Json* j)
     return d;
 }
 
+// ---- VisionConfig (Microfase 32.5) -----------------------------------------
+Json toJson(const VisionConfig& v)
+{
+    Json j = Json::makeObject();
+    j.set("seeFood", Json(v.seeFood));
+    j.set("seeAgents", Json(v.seeAgents));
+    j.set("seePredators", Json(v.seePredators));
+    j.set("seeObstacles", Json(v.seeObstacles));
+    j.set("seeAll", Json(v.seeAll));
+    j.set("seeThroughWalls", Json(v.seeThroughWalls));
+    return j;
+}
+VisionConfig visionFrom(const Json* j)
+{
+    VisionConfig v;
+    if (j != nullptr)
+    {
+        v.seeFood = j->getBool("seeFood", true);
+        v.seeAgents = j->getBool("seeAgents", false);
+        v.seePredators = j->getBool("seePredators", false);
+        v.seeObstacles = j->getBool("seeObstacles", false);
+        v.seeAll = j->getBool("seeAll", false);
+        v.seeThroughWalls = j->getBool("seeThroughWalls", true);
+    }
+    return v;
+}
+
 // ---- BrainConfig (topology + reconstruction recipe) ------------------------
 Json toJson(const neural::BrainConfig& c)
 {
@@ -453,6 +480,7 @@ Json toJson(const GenomeRecord& r)
     j.set("brainConfig", toJson(r.brainConfig));
     j.set("speciesPrefix", Json(r.speciesPrefix));
     j.set("diet", toJson(r.diet));
+    j.set("vision", toJson(r.vision));
     return j;
 }
 GenomeRecord genomeFrom(const Json& j)
@@ -476,6 +504,7 @@ GenomeRecord genomeFrom(const Json& j)
     r.brainConfig = brainConfigFrom(j.find("brainConfig"));
     r.speciesPrefix = j.getString("speciesPrefix");
     r.diet = dietFrom(j.find("diet"));
+    r.vision = visionFrom(j.find("vision"));
     return r;
 }
 

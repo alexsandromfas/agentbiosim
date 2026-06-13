@@ -363,4 +363,87 @@ Phase29ValidationSummary runPhase29Validation()
     summary.details = log.str();
     return summary;
 }
+
+std::string runVisionCostReport()
+{
+    struct Variant
+    {
+        const char* label;
+        bool seeFood;
+        bool seeAgents;
+        bool seeAll;
+        const char* inputMode;
+        bool r, g, b;
+    };
+    // Distance-only keeps the neural input size constant across the first three
+    // rows, so their delta is PURE vision-gather cost. The RGB row also enlarges
+    // the retina (4 channels), so part of its extra cost is the bigger network.
+    const Variant variants[] = {
+        {"distancia, ve so COMIDA",     true,  false, false, "distance_only",       false, false, false},
+        {"distancia, ve so ORGANISMOS", false, true,  false, "distance_only",       false, false, false},
+        {"distancia, VE TUDO",          false, false, true,  "distance_only",       false, false, false},
+        {"RGB, VE TUDO",                false, false, true,  "color_plus_distance", true,  true,  true},
+    };
+
+    constexpr int kAgents = 1000;
+    constexpr int kSteps = 200;
+    constexpr int kWarmup = 40;
+
+    std::ostringstream out;
+    out << "Custo de VISAO (secao Perception do profiler) — populacao FIXA de "
+        << kAgents << " agentes (sem nascimento/morte), " << kSteps << " passos medidos.\n";
+    out << "Cena identica em todas as linhas; muda so O QUE o organismo enxerga.\n\n";
+    out << "  modo de visao                | percepcao us/passo | passo total us/passo | % do passo\n";
+    out << "  -----------------------------+--------------------+----------------------+-----------\n";
+
+    double baselinePerc = 0.0;
+    constexpr std::size_t kVariantCount = sizeof(variants) / sizeof(variants[0]);
+    for (std::size_t vi = 0; vi < kVariantCount; ++vi)
+    {
+        const Variant& v = variants[vi];
+        config::ParameterRegistry reg = config::createDefaultParameterRegistry();
+        static_cast<void>(reg.setValue("random_seed", 9090));
+        static_cast<void>(reg.setValue("bacteria_count", kAgents));
+        static_cast<void>(reg.setValue("food_target", 400));
+        static_cast<void>(reg.setValue("auto_export_substrate", false));
+        static_cast<void>(reg.setValue("profiler_enabled", true));
+        static_cast<void>(reg.setValue("metrics_enabled", false));
+        // Freeze the population so every variant is timed at the SAME density.
+        static_cast<void>(reg.setValue("bacteria_split_energy", 1.0e12));  // no births
+        static_cast<void>(reg.setValue("max_deaths_per_step", 0));         // no deaths
+        // Vision targeting under test (baked into the genome at initialize()).
+        static_cast<void>(reg.setValue("bacteria_retina_see_food", v.seeFood));
+        static_cast<void>(reg.setValue("bacteria_retina_see_bacteria", v.seeAgents));
+        static_cast<void>(reg.setValue("bacteria_retina_see_all", v.seeAll));
+        static_cast<void>(reg.setValue("bacteria_retina_input_mode", std::string(v.inputMode)));
+        static_cast<void>(reg.setValue("bacteria_retina_channel_r", v.r));
+        static_cast<void>(reg.setValue("bacteria_retina_channel_g", v.g));
+        static_cast<void>(reg.setValue("bacteria_retina_channel_b", v.b));
+
+        sim::SimulationRunner runner(reg);
+        runner.initialize();
+        for (int i = 0; i < kWarmup; ++i) runner.step(1.0 / 30.0);
+        runner.profilerMutable().reset();
+        for (int i = 0; i < kSteps; ++i) runner.step(1.0 / 30.0);
+
+        const core::Profiler& prof = runner.profiler();
+        const double percUs = prof.averageUs(core::ProfileSection::Perception);
+        const double stepUs = prof.averageUs(core::ProfileSection::SimStep);
+        const double pct = stepUs > 0.0 ? percUs / stepUs * 100.0 : 0.0;
+        if (vi == 0) baselinePerc = percUs;
+
+        char line[256];
+        std::snprintf(line, sizeof(line), "  %-28s | %18.1f | %20.1f | %8.1f%%\n",
+                      v.label, percUs, stepUs, pct);
+        out << line;
+    }
+
+    out << "\nLeitura: 've so comida' e o piso de custo; 've tudo' processa todo objeto\n"
+           "proximo na retina (mais caro). Filtrar por tipo (so comida / so organismos)\n"
+           "e uma comparacao de inteiro por candidato — praticamente de graca; o que pesa\n"
+           "e QUANTOS objetos entram no calculo da retina. RGB multiplica os canais da\n"
+           "retina (entrada da rede maior), entao seu custo extra inclui a rede neural.\n";
+    static_cast<void>(baselinePerc);
+    return out.str();
+}
 } // namespace agentbiosim::bench

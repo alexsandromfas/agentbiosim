@@ -379,6 +379,13 @@ const std::vector<LabelEntry> kSpeciesSuffixLabels{
     {"retina_fov_degrees",       "Campo de visao (graus)", "Field of view (degrees)"},
     {"eye_count",                "Quantidade de olhos", "Eye count"},
     {"eye_angle_degrees",        "Angulo entre olhos (graus)", "Angle between eyes (degrees)"},
+    {"retina_see_food",          "Enxerga comida", "Sees food"},
+    {"retina_see_bacteria",      "Enxerga organismos", "Sees organisms"},
+    {"retina_see_predators",     "Enxerga predadores", "Sees predators"},
+    {"retina_see_obstacles",     "Enxerga obstaculos", "Sees obstacles"},
+    {"retina_see_all",           "Enxerga tudo (sem filtro de tipo)", "Sees everything (no type filter)"},
+    {"retina_see_through_walls", "Enxerga atraves de paredes", "Sees through walls"},
+    // Aliases antigos (nomes sem o infixo retina_) mantidos por compatibilidade.
     {"see_food",                 "Enxerga comida", "Sees food"},
     {"see_agents",               "Enxerga organismos", "Sees organisms"},
     {"see_predators",            "Enxerga predadores", "Sees predators"},

@@ -91,6 +91,7 @@ int main(const int argc, char* argv[])
         bool runPhase28Benchmark = false;
         bool runPhase29Validation = false;
         bool runPhase29Benchmark = false;
+        bool runVisionBench = false;
         bool runPhase30Validation = false;
         bool runPhase30Benchmark = false;
         bool runPhase31Validation = false;
@@ -409,6 +410,10 @@ int main(const int argc, char* argv[])
             else if (argument == "--phase29-bench" || argument == "--benchmark")
             {
                 runPhase29Benchmark = true;
+            }
+            else if (argument == "--vision-bench")
+            {
+                runVisionBench = true;
             }
             else if (argument == "--phase30-selftest")
             {
@@ -1421,6 +1426,12 @@ int main(const int argc, char* argv[])
             {
                 std::cerr << "Aviso: falha ao gravar os relatorios em benchmarks/.\n";
             }
+            return 0;
+        }
+
+        if (runVisionBench)
+        {
+            std::cout << agentbiosim::bench::runVisionCostReport();
             return 0;
         }
 

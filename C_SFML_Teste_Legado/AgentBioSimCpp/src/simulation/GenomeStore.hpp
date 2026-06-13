@@ -3,6 +3,7 @@
 #include "neural/BrainConfig.hpp"
 #include "simulation/DietConfig.hpp"
 #include "simulation/EntityTypes.hpp"
+#include "simulation/VisionConfig.hpp"
 
 #include <cstdint>
 #include <string>
@@ -42,6 +43,10 @@ struct GenomeRecord
     std::string speciesPrefix;
     // Phase 18: diet config is owned by genome (heritable via cloneFrom).
     DietConfig diet;
+    // Microfase 32.5: vision targeting (what the agent perceives) owned by the
+    // genome too, so each label can see food / organisms / everything. Retina
+    // GEOMETRY stays global (it sizes the neural input).
+    VisionConfig vision;
 };
 
 class GenomeStore

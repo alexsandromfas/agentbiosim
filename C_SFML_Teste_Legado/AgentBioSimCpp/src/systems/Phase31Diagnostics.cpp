@@ -7,6 +7,7 @@
 #include "core/Command.hpp"
 #include "core/Profiler.hpp"
 #include "io/SaveFile.hpp"
+#include "perception/PerceptionSystem.hpp"
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
@@ -758,6 +759,68 @@ Phase31ValidationSummary runPhase31Validation()
         const auto sOld = sysI.applyWithDiet(agOld, noFood, genI, nullptr, diI, nullptr);
         check(sOld.predationEvents == 0 && agOld.contains(preyOld),
               "32.4 I4: ordem antiga (colisao primeiro) separa e a presa sobrevive ao passo");
+    }
+
+    // ------------- J. Microfase 32.5: visao POR LABEL filtra a percepcao --------
+    // A geometria da retina e global (define o tamanho da entrada da rede), mas O
+    // QUE cada agente enxerga vem do genoma. Mesma cena fisica, genomas diferentes
+    // => percepcoes diferentes. "Ver tudo" e o caso simples: nao filtra tipo.
+    {
+        simulation::World wj;
+        simulation::WorldConfig wcj;
+        wcj.width = 400.0; wcj.height = 400.0; wcj.radius = 200.0;
+        wcj.center = {200.0, 200.0}; wcj.shape = simulation::WorldShape::Rectangular;
+        wj.configure(wcj);
+
+        // Comida diretamente a frente do agente (olha para +x, angle=0).
+        simulation::FoodStore foodsj;
+        simulation::FoodSpawn fj; fj.position = {250.0, 200.0}; fj.radius = 6.0; fj.energy = 50.0;
+        static_cast<void>(foodsj.createFood(fj));
+
+        simulation::GenomeStore genj;
+        simulation::GenomeRecord seer;    seer.vision.seeFood = true;  seer.vision.seeAll = false;
+        const auto seerId = genj.createGenome(seer);
+        simulation::GenomeRecord blind;   blind.vision.seeFood = false; blind.vision.seeAll = false;
+        const auto blindId = genj.createGenome(blind);
+        simulation::GenomeRecord allSeer; allSeer.vision.seeFood = false; allSeer.vision.seeAll = true;
+        const auto allId = genj.createGenome(allSeer);
+
+        perception::PerceptionConfig pcj;
+        pcj.retina.visionMode = "single";
+        pcj.retina.visionRadius = 120.0;
+        pcj.retina.retinaCount = 8;
+        pcj.retina.fovDegrees = 200.0;
+        pcj.retina.inputMode = perception::RetinaInputMode::DistanceOnly;
+        pcj.parallelEnabled = false;
+        perception::PerceptionSystem psj;
+
+        auto perceiveMax = [&](const simulation::GenomeId gid) {
+            simulation::AgentStore ag;
+            simulation::AgentSpawn a; a.position = {200.0, 200.0}; a.angle = 0.0;
+            a.radius = 9.0; a.energy = 100.0; a.genomeId = gid;
+            static_cast<void>(ag.createAgent(a));
+            const auto r = psj.computeInputs(ag, foodsj, nullptr, wj, pcj, {}, nullptr, &genj);
+            double m = 0.0;
+            for (const double x : r.flatInputs) m = std::max(m, x);
+            return m;
+        };
+        check(perceiveMax(seerId.id) > 1.0e-9,
+              "32.5 J: genoma que ve comida percebe a comida (input != 0)");
+        check(perceiveMax(blindId.id) <= 1.0e-9,
+              "32.5 J: genoma que NAO ve comida nao percebe nada (input 0)");
+        check(perceiveMax(allId.id) > 1.0e-9,
+              "32.5 J: genoma 'ver tudo' percebe a comida sem filtro de tipo");
+
+        // Bootstrap copia a visao do registry para o genoma da label (per-label).
+        config::ParameterRegistry regj = config::createDefaultParameterRegistry();
+        static_cast<void>(regj.setValue("auto_export_substrate", false));
+        sim::SimulationRunner rj(regj);
+        rj.initialize();
+        const auto bId = rj.species().idByName("bacteria");
+        const auto* brec = rj.species().find(bId);
+        const auto* bgen = brec != nullptr ? rj.genomes().find(brec->defaultGenomeId) : nullptr;
+        check(bgen != nullptr && bgen->vision.seeFood && !bgen->vision.seeAll,
+              "32.5 J: genoma da label padrao carrega a visao do registry (seeFood=true)");
     }
 
     summary.details = log.str();

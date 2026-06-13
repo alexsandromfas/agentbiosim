@@ -219,8 +219,11 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Perception))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Perception);
+        // Microfase 32.5: &genomes_ enables per-label vision targeting (each agent's
+        // genome decides what it sees). Retina geometry stays global.
         perceptionResult = perceptionSystem_.computeInputs(
-            agents_, foods_, &spatialHash_, world_, perceptionConfig, debugRequest, obstaclePtr);
+            agents_, foods_, &spatialHash_, world_, perceptionConfig, debugRequest, obstaclePtr,
+            &genomes_);
     }
 
     const systems::MovementConfig movementConfig = systems::MovementSystem::fromRegistry(parameters_);

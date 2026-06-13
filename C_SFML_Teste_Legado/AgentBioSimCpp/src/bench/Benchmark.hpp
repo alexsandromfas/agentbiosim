@@ -81,4 +81,10 @@ struct Phase29ValidationSummary
     std::string details;
 };
 [[nodiscard]] Phase29ValidationSummary runPhase29Validation();
+
+// Microfase 32.5: focused vision-cost report. Holds population FIXED (no births,
+// no deaths) so the per-step Perception time is compared at constant density
+// across vision targeting modes (see food only / see organisms only / see all)
+// plus the RGB retina. Returns a human-readable summary (printed by --vision-bench).
+[[nodiscard]] std::string runVisionCostReport();
 } // namespace agentbiosim::bench

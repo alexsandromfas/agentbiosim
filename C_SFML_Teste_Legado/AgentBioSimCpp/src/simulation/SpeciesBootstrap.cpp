@@ -62,6 +62,18 @@ void overwriteGenomeScalarsFromRegistry(GenomeRecord& genome,
     genome.diet.agentEfficiency = std::max(0.0,
         parameterDouble(registry, p + "_diet_agent_efficiency", 0.7));
     genome.diet.corpseToFood = parameterBool(registry, p + "_corpse_to_food", false);
+
+    // Microfase 32.5: vision targeting per label (mirrors the diet block). The
+    // predator template defaults to also seeing organisms (it must perceive prey);
+    // the registry usually carries explicit values, so the fallbacks only matter
+    // for labels whose prefix lacks the key.
+    genome.vision.seeFood = parameterBool(registry, p + "_retina_see_food", true);
+    genome.vision.seeAgents = parameterBool(registry, p + "_retina_see_bacteria",
+                                            predatorPrefix ? true : false);
+    genome.vision.seePredators = parameterBool(registry, p + "_retina_see_predators", false);
+    genome.vision.seeObstacles = parameterBool(registry, p + "_retina_see_obstacles", false);
+    genome.vision.seeAll = parameterBool(registry, p + "_retina_see_all", false);
+    genome.vision.seeThroughWalls = parameterBool(registry, p + "_retina_see_through_walls", true);
 }
 
 SpeciesBootstrapResult bootstrapSpecies(SpeciesStore& species,

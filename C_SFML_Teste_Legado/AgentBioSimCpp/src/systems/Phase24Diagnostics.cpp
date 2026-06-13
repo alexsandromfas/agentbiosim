@@ -80,11 +80,13 @@ Phase24ValidationSummary runPhase24Validation()
         addCheck(s, "(30) Editor lists bacteria_retina_fov_degrees", std::find(names.begin(), names.end(), std::string("bacteria_retina_fov_degrees")) != names.end());
         addCheck(s, "(31) Editor lists bacteria_eye_count", std::find(names.begin(), names.end(), std::string("bacteria_eye_count")) != names.end());
         addCheck(s, "(32) Editor lists bacteria_eye_angle_degrees", std::find(names.begin(), names.end(), std::string("bacteria_eye_angle_degrees")) != names.end());
-        addCheck(s, "(33) Editor lists bacteria_see_food", std::find(names.begin(), names.end(), std::string("bacteria_see_food")) != names.end());
-        addCheck(s, "(34) Editor lists bacteria_see_agents", std::find(names.begin(), names.end(), std::string("bacteria_see_agents")) != names.end());
-        addCheck(s, "(35) Editor lists bacteria_see_predators", std::find(names.begin(), names.end(), std::string("bacteria_see_predators")) != names.end());
-        addCheck(s, "(36) Editor lists bacteria_see_obstacles", std::find(names.begin(), names.end(), std::string("bacteria_see_obstacles")) != names.end());
-        addCheck(s, "(37) Editor lists bacteria_see_through_walls", std::find(names.begin(), names.end(), std::string("bacteria_see_through_walls")) != names.end());
+        // Microfase 32.5: nomes corrigidos (com o infixo retina_, que casa o registry).
+        addCheck(s, "(33) Editor lists bacteria_retina_see_food", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_food")) != names.end());
+        addCheck(s, "(34) Editor lists bacteria_retina_see_bacteria", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_bacteria")) != names.end());
+        addCheck(s, "(35) Editor lists bacteria_retina_see_predators", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_predators")) != names.end());
+        addCheck(s, "(36) Editor lists bacteria_retina_see_obstacles", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_obstacles")) != names.end());
+        addCheck(s, "(37) Editor lists bacteria_retina_see_all", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_all")) != names.end());
+        addCheck(s, "(37b) Editor lists bacteria_retina_see_through_walls", std::find(names.begin(), names.end(), std::string("bacteria_retina_see_through_walls")) != names.end());
         addCheck(s, "(38) Editor lists bacteria_retina_channel_r", std::find(names.begin(), names.end(), std::string("bacteria_retina_channel_r")) != names.end());
         addCheck(s, "(39) Editor lists bacteria_retina_channel_g", std::find(names.begin(), names.end(), std::string("bacteria_retina_channel_g")) != names.end());
         addCheck(s, "(40) Editor lists bacteria_retina_channel_b", std::find(names.begin(), names.end(), std::string("bacteria_retina_channel_b")) != names.end());
