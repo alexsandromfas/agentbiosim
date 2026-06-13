@@ -353,7 +353,7 @@ std::vector<std::string> UiLeftDock::editorParameters()
         "bacteria_retina_count", "bacteria_retina_fov_degrees",
         "bacteria_eye_count", "bacteria_eye_angle_degrees",
         "bacteria_see_food", "bacteria_see_agents", "bacteria_see_predators",
-        "bacteria_see_obstacles", "bacteria_see_through_walls",
+        "bacteria_see_obstacles", "bacteria_retina_see_all", "bacteria_see_through_walls",
         "bacteria_retina_channel_r", "bacteria_retina_channel_g",
         "bacteria_retina_channel_b", "bacteria_retina_channel_d",
         "bacteria_retina_input_mode", "bacteria_diet_food",

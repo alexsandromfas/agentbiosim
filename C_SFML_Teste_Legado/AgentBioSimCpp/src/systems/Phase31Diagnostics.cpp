@@ -10,6 +10,10 @@
 #include "simulation/AgentStore.hpp"
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
+#include "simulation/SpeciesStore.hpp"
+#include "simulation/World.hpp"
+#include "systems/CollisionSystem.hpp"
+#include "systems/DeathSystem.hpp"
 #include "systems/InteractionSystem.hpp"
 #include "render/Camera2D.hpp"
 #include "sim/SimulationRunner.hpp"
@@ -333,33 +337,21 @@ Phase31ValidationSummary runPhase31Validation()
                   std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " <= " +
                   std::to_string(capCount) + ")");
 
-        // 6. Resgate de MINIMO por label: abaixo do minimo, repoe ate ele.
+        // 6. Microfase 32.4: o piso BLOQUEIA a morte (em vez de respawnar do nada).
+        //    O comportamento antigo (repor ate o minimo criando organismos do nada)
+        //    foi removido — o usuario reportou "quando morre um esta surgindo outro do
+        //    nada". Prova robusta (independe de reproducao): com death_energy enorme,
+        //    todo agente vira candidato a morte; com o minimo ACIMA da populacao atual,
+        //    o contador de mortes nao sobe (o piso bloqueia toda morte).
+        const auto popNow = r.countAgentsOfSpecies(bacteriaId);
         static_cast<void>(r.speciesMutable().setMaxPopulation(bacteriaId, 0));
-        static_cast<void>(r.speciesMutable().setMinPopulation(bacteriaId, 30));
-        std::vector<simulation::EntityId> toDelete;
-        for (std::size_t i = 0; i < r.agents().size(); ++i)
-        {
-            if (r.agents().speciesIdAt(i) == bacteriaId && toDelete.size() + 5 <
-                r.countAgentsOfSpecies(bacteriaId))
-            {
-                toDelete.push_back(r.agents().idAt(i));
-            }
-        }
-        r.deleteAgents(toDelete);
-        check(r.countAgentsOfSpecies(bacteriaId) < 30, "31.1: populacao reduzida p/ teste");
+        static_cast<void>(r.speciesMutable().setMinPopulation(
+            bacteriaId, static_cast<int>(popNow) + 50));
+        static_cast<void>(reg2.setValue("bacteria_death_energy", 1.0e9));  // todos famintos
+        const auto deathsBefore = r.stats().deaths;
         r.step(1.0 / 30.0);
-        check(r.countAgentsOfSpecies(bacteriaId) >= 30,
-              "31.1: resgate repoe ate o minimo da label (" +
-                  std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " >= 30)");
-        // Repostos pertencem a label e estao dentro do mundo.
-        bool rescuedOk = true;
-        for (std::size_t i = 0; i < r.agents().size(); ++i)
-        {
-            if (!r.species().contains(r.agents().speciesIdAt(i))) { rescuedOk = false; break; }
-            const auto p = r.agents().positionAt(i);
-            if (p.x < 0.0 || p.x > 600.0 || p.y < 0.0 || p.y > 300.0) { rescuedOk = false; break; }
-        }
-        check(rescuedOk, "31.1: resgatados com label valida e dentro do mundo");
+        check(r.stats().deaths == deathsBefore,
+              "32.4: piso bloqueia morte (min > pop, death_energy enorme -> 0 mortes, sem respawn)");
     }
 
     // ------------- F. Microfase 32.1: defaults de min/max por label -----------
@@ -385,22 +377,8 @@ Phase31ValidationSummary runPhase31Validation()
         }
         check(capHeld, "32.1: maximo padrao (150) segura sob pressao de reproducao (" +
                            std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " <= 150)");
-
-        // Resgate padrao: derrubar para 2 -> volta para >= 5 num passo.
-        std::vector<simulation::EntityId> doomed;
-        for (std::size_t i = 0; i < r.agents().size(); ++i)
-        {
-            if (doomed.size() + 2 < r.countAgentsOfSpecies(bacteriaId) &&
-                r.agents().speciesIdAt(i) == bacteriaId)
-            {
-                doomed.push_back(r.agents().idAt(i));
-            }
-        }
-        r.deleteAgents(doomed);
-        r.step(1.0 / 30.0);
-        check(r.countAgentsOfSpecies(bacteriaId) >= 5,
-              "32.1: minimo padrao (5) resgatado (" +
-                  std::to_string(r.countAgentsOfSpecies(bacteriaId)) + " >= 5)");
+        // (O antigo "resgate de minimo" foi removido na 32.4 — sem respawn do nada.
+        //  O piso por bloqueio de morte e o no-respawn sao cobertos no bloco I.)
 
         // Labels criadas pelo usuario tambem nascem com 5/150.
         std::vector<simulation::EntityId> one{r.agents().idAt(0)};
@@ -620,6 +598,166 @@ Phase31ValidationSummary runPhase31Validation()
         const auto sameStats = sys.applyWithDiet(sameLabel, foods, genomes, nullptr, dcfg);
         check(sameStats.predationEvents == 0 && sameLabel.contains(sid1),
               "32.3: membros da mesma label nao se predam");
+    }
+
+    // ------------- I. Microfase 32.4: piso por bloqueio de morte + predacao sem atraso ----
+    {
+        // I0: SEM respawn do nada (runner dedicado). Reproducao desligada no template
+        // (split_energy alto ANTES do initialize, para o genoma baker o valor), minimo
+        // bem acima da populacao e rescue off (default 32.4): a populacao reduzida
+        // permanece CONGELADA por varios passos — nada surge do nada para "completar" o
+        // minimo (era exatamente o bug "quando morre um surge outro do nada").
+        {
+            config::ParameterRegistry regNR = config::createDefaultParameterRegistry();
+            static_cast<void>(regNR.setValue("auto_export_substrate", false));
+            static_cast<void>(regNR.setValue("bacteria_split_energy", 1.0e9));  // repro off no template
+            sim::SimulationRunner rNR(regNR);
+            rNR.initialize();
+            const auto nrId = rNR.species().idByName("bacteria");
+            static_cast<void>(rNR.speciesMutable().setMinPopulation(nrId, 30));
+            static_cast<void>(rNR.speciesMutable().setMaxPopulation(nrId, 0));
+            std::vector<simulation::EntityId> nrDoom;
+            for (std::size_t i = 0; i < rNR.agents().size(); ++i)
+                if (nrDoom.size() + 2 < rNR.countAgentsOfSpecies(nrId) &&
+                    rNR.agents().speciesIdAt(i) == nrId)
+                    nrDoom.push_back(rNR.agents().idAt(i));
+            rNR.deleteAgents(nrDoom);
+            const auto nrBefore = rNR.countAgentsOfSpecies(nrId);
+            for (int i = 0; i < 5; ++i) rNR.step(1.0 / 30.0);
+            check(nrBefore == 2 && rNR.countAgentsOfSpecies(nrId) == 2,
+                  "32.4 I0: sem respawn do nada (2 permanece 2 por 5 passos; rescue off + repro off)");
+        }
+
+        // I1: DeathSystem bloqueia mortes no piso. 5 famintos, min=3 -> so 2 morrem
+        // (ate o piso) e 3 sobrevivem; sem store o piso nao se aplica (5 morrem).
+        simulation::SpeciesStore spD;
+        simulation::SpeciesRecord recD;
+        recD.name = "floor";
+        recD.minPopulation = 3;
+        recD.enabled = true;
+        const auto floorSp = spD.registerSpecies(recD);
+        auto makeStarving = [&](simulation::AgentStore& store) {
+            for (int i = 0; i < 5; ++i)
+            {
+                simulation::AgentSpawn s;
+                s.position = {static_cast<double>(i) * 5.0, 0.0};
+                s.radius = 5.0;
+                s.energy = 10.0;            // <= deathEnergy (50) => candidato a morte
+                s.speciesId = floorSp;
+                static_cast<void>(store.createAgent(s));
+            }
+        };
+        systems::DeathConfig dcI;
+        dcI.deathEnergy = 50.0;
+        dcI.maxDeathsPerStep = 5;
+        systems::DeathSystem deathSys;
+
+        simulation::AgentStore agFloor;
+        makeStarving(agFloor);
+        const auto dsFloor = deathSys.apply(agFloor, dcI, &spD);
+        check(agFloor.size() == 3 && dsFloor.deaths == 2 && dsFloor.blockedByMinPopulation > 0,
+              "32.4 I1: morte bloqueada no piso (5 famintos, min=3 -> 2 morrem, 3 vivem)");
+
+        simulation::AgentStore agNoStore;
+        makeStarving(agNoStore);
+        const auto dsNoStore = deathSys.apply(agNoStore, dcI, nullptr);
+        check(dsNoStore.deaths == 5,
+              "32.4 I1: sem store o piso nao se aplica (5 morrem ate max_deaths)");
+
+        // Genomas + especies compartilhados pelos testes de predacao (I2/I3/I4).
+        simulation::GenomeStore genI;
+        simulation::GenomeRecord predG;
+        predG.diet.eatFood = false;
+        predG.diet.eatAgents = true;
+        predG.diet.eatSameSpecies = false;
+        predG.diet.agentEfficiency = 0.7;
+        predG.energyCap = 400.0;
+        const auto predGid = genI.createGenome(predG);
+        simulation::GenomeRecord preyG;
+        preyG.diet.eatFood = true;
+        preyG.diet.eatAgents = false;
+        const auto preyGid = genI.createGenome(preyG);
+        simulation::FoodStore noFood;
+        systems::InteractionSystem sysI;
+
+        simulation::SpeciesStore spP;
+        simulation::SpeciesRecord recPred; recPred.name = "pred"; recPred.minPopulation = 0; recPred.enabled = true;
+        const auto predSp = spP.registerSpecies(recPred);
+        simulation::SpeciesRecord recPrey; recPrey.name = "prey"; recPrey.minPopulation = 1; recPrey.enabled = true;
+        const auto preySp = spP.registerSpecies(recPrey);
+
+        auto makePredator = [&](simulation::AgentStore& s, const simulation::Vec2 at) {
+            simulation::AgentSpawn a; a.position = at; a.radius = 10.0; a.energy = 100.0;
+            a.speciesId = predSp; a.genomeId = predGid.id; return s.createAgent(a);
+        };
+        auto makePrey = [&](simulation::AgentStore& s, const simulation::Vec2 at) {
+            simulation::AgentSpawn a; a.position = at; a.radius = 10.0; a.energy = 60.0;
+            a.speciesId = preySp; a.genomeId = preyGid.id; return s.createAgent(a);
+        };
+        systems::DietInteractionConfig diI;
+        diI.useSpatial = false;  // caminho O(n^2), sem hash
+
+        // I2: presa NO piso (count=1 == min=1) e protegida; sem store seria comida.
+        simulation::AgentStore agAtFloor;
+        static_cast<void>(makePredator(agAtFloor, {100.0, 100.0}));
+        const auto preyAtFloor = makePrey(agAtFloor, {108.0, 100.0});  // encostada (dist 8 < 20)
+        const auto sFloorProt = sysI.applyWithDiet(agAtFloor, noFood, genI, nullptr, diI, &spP);
+        check(sFloorProt.predationEvents == 0 && agAtFloor.contains(preyAtFloor),
+              "32.4 I2: presa no piso minimo nao e predada");
+        simulation::AgentStore agNoProt;
+        static_cast<void>(makePredator(agNoProt, {100.0, 100.0}));
+        const auto preyNoProt = makePrey(agNoProt, {108.0, 100.0});
+        const auto sNoProt = sysI.applyWithDiet(agNoProt, noFood, genI, nullptr, diI, nullptr);
+        check(sNoProt.predationEvents == 1 && !agNoProt.contains(preyNoProt),
+              "32.4 I2: sem piso a mesma presa e comida (controle)");
+
+        // I3: predacao PARA exatamente no piso. 2 predadores + 2 presas (min=1):
+        // com store so 1 e comida (para em min=1); sem store as 2 morrem.
+        auto buildCluster = [&](simulation::AgentStore& s) {
+            static_cast<void>(makePredator(s, {100.0, 100.0}));
+            static_cast<void>(makePredator(s, {100.0, 110.0}));
+            static_cast<void>(makePrey(s, {110.0, 100.0}));
+            static_cast<void>(makePrey(s, {110.0, 110.0}));
+        };
+        simulation::AgentStore agStop; buildCluster(agStop);
+        const auto sStop = sysI.applyWithDiet(agStop, noFood, genI, nullptr, diI, &spP);
+        check(sStop.predationEvents == 1,
+              "32.4 I3: predacao para no piso (2 presas, min=1 -> 1 comida)");
+        simulation::AgentStore agStopNo; buildCluster(agStopNo);
+        const auto sStopNo = sysI.applyWithDiet(agStopNo, noFood, genI, nullptr, diI, nullptr);
+        check(sStopNo.predationEvents == 2,
+              "32.4 I3: sem piso ambas as presas sao comidas (controle)");
+
+        // I4: regressao do atraso. Predador e presa encostados (dist 12 < 20). Ordem
+        // NOVA (Interaction antes de Collision) mata no mesmo passo; ordem ANTIGA
+        // (Collision primeiro, separation=0.9) separa os corpos (dist 26.4 > 20) e a
+        // predacao erra o toque -> a presa sobrevive aquele passo.
+        simulation::World worldI;
+        simulation::WorldConfig wcI;
+        wcI.width = 400.0; wcI.height = 400.0; wcI.radius = 200.0;
+        wcI.center = {200.0, 200.0}; wcI.shape = simulation::WorldShape::Rectangular;
+        worldI.configure(wcI);
+
+        simulation::AgentStore agNew;
+        static_cast<void>(makePredator(agNew, {100.0, 100.0}));
+        const auto preyNew = makePrey(agNew, {112.0, 100.0});
+        const auto sNew = sysI.applyWithDiet(agNew, noFood, genI, nullptr, diI, nullptr);
+        check(sNew.predationEvents == 1 && !agNew.contains(preyNew),
+              "32.4 I4: ordem nova (predacao antes da colisao) mata a presa no mesmo passo");
+
+        simulation::AgentStore agOld;
+        static_cast<void>(makePredator(agOld, {100.0, 100.0}));
+        const auto preyOld = makePrey(agOld, {112.0, 100.0});
+        systems::CollisionConfig ccI;
+        ccI.agentCollisionEnabled = true;
+        ccI.separation = 0.9;
+        ccI.useSpatial = false;
+        ccI.dt = 1.0 / 30.0;
+        systems::CollisionSystem collI;
+        static_cast<void>(collI.apply(agOld, noFood, worldI, nullptr, nullptr, ccI));  // separa
+        const auto sOld = sysI.applyWithDiet(agOld, noFood, genI, nullptr, diI, nullptr);
+        check(sOld.predationEvents == 0 && agOld.contains(preyOld),
+              "32.4 I4: ordem antiga (colisao primeiro) separa e a presa sobrevive ao passo");
     }
 
     summary.details = log.str();

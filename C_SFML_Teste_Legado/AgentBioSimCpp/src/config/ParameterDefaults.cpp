@@ -263,7 +263,10 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addInt(registry, "random_seed", -1, "simulation.random", "Fixed random seed; -1 disables fixed seeding.", -1.0, std::nullopt, {}, {"runtime", "debug"});
     addString(registry, "agent_template_name", "organismo_1", "genome.template", "Default agent/genome template name.", {"species_template_name"}, {"ui", "species"});
     addInt(registry, "max_deaths_per_step", 5, "simulation.lifecycle", "Maximum deaths processed per step.", 0.0, std::nullopt, {}, {"runtime"});
-    addBool(registry, "population_min_rescue_enabled", true, "simulation.population", "Respect minimum population rescue.", {}, {"runtime", "species"});
+    // Microfase 32.4: OFF by default. The minimum population is maintained by
+    // blocking deaths/predation at the floor + reproduction, never by spawning from
+    // nothing. This knob only re-enables the legacy per-step respawn for opt-in use.
+    addBool(registry, "population_min_rescue_enabled", false, "simulation.population", "Respawn agents to refill below-minimum populations (legacy; off by default).", {}, {"runtime", "species"});
 
     addInt(registry, "retina_skip", 0, "vision.global", "Frames skipped between retina updates.", 0.0, std::nullopt, {}, {"runtime", "vision"});
     addString(registry, "retina_vision_mode", "single", "vision.global", "Global retina algorithm: single, fullbody or sector.", {}, {"runtime", "vision"});

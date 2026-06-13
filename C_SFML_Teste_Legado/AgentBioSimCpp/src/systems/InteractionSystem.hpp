@@ -5,6 +5,7 @@
 #include "simulation/FoodStore.hpp"
 #include "simulation/GenomeStore.hpp"
 #include "simulation/SpatialHash.hpp"
+#include "simulation/SpeciesStore.hpp"
 
 #include <cstddef>
 
@@ -79,11 +80,16 @@ public:
     // marks prey for removal; this method physically removes prey at the end of
     // the call via AgentStore::removeAgent (preserves swap-remove + spatial hash).
     // Corpse-to-food spawns instant food at the prey's last position.
+    // Microfase 32.4: when `species` is provided, prey whose species sits at or
+    // below its minPopulation is protected from predation (the population floor is
+    // absolute — it can't be breached by predators either). Passing nullptr keeps
+    // the legacy behavior (no floor protection) for the standalone selftests.
     [[nodiscard]] DietInteractionStats applyWithDiet(simulation::AgentStore& agents,
                                                      simulation::FoodStore& foods,
                                                      const simulation::GenomeStore& genomes,
                                                      simulation::SpatialHash* spatialHash,
-                                                     const DietInteractionConfig& config) const;
+                                                     const DietInteractionConfig& config,
+                                                     const simulation::SpeciesStore* species = nullptr) const;
 
 private:
     [[nodiscard]] static bool touching(const simulation::AgentStore& agents,

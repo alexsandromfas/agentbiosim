@@ -234,6 +234,7 @@ void SimulationRunner::runOneStep(const double dt)
         neuralControls = neuralSystem_.produceMovementControls(agents_, world_, neuralConfig, &perceptionResult);
         haveControls = true;
     }
+
     if (devOn(core::ProfileSection::Movement))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Movement);
@@ -242,15 +243,9 @@ void SimulationRunner::runOneStep(const double dt)
                                                   obstaclePtr));
     }
 
-    systems::CollisionConfig collisionConfig = systems::CollisionSystem::fromRegistry(parameters_);
-    collisionConfig.dt = dt;
-    if (devOn(core::ProfileSection::Collision))
-    {
-        core::ScopedTimer t(profiler_, core::ProfileSection::Collision);
-        static_cast<void>(collisionSystem_.apply(agents_, foods_, world_, &spatialHash_, obstaclePtr,
-                                                   collisionConfig));
-    }
-
+    // Energy (metabolic cost) runs before Interaction so eating still tops up the
+    // post-cost energy, exactly as before. It is independent of agent positions, so
+    // moving it ahead of the rebuild leaves the hash reflecting post-movement state.
     const systems::EnergyConfig energyConfig = systems::EnergySystem::fromRegistry(parameters_);
     if (devOn(core::ProfileSection::Energy))
     {
@@ -258,6 +253,14 @@ void SimulationRunner::runOneStep(const double dt)
         static_cast<void>(energySystem_.apply(agents_, dt, energyConfig));
     }
 
+    // Microfase 32.4: rebuild the hash on post-movement positions, then run
+    // Interaction (eat + predation) BEFORE Collision. Predation must register the
+    // predator/prey contact at the fresh overlap: if Collision ran first it would
+    // separate the bodies (agent collision is ON by default, separation up to 0.9)
+    // and predation would miss the touch for one or more steps — the lag the user
+    // reported. Isolated proof (microfase 32.4): with the original order this reorder
+    // is the ONLY change to the Phase 32 golden digest; the death/predation floor and
+    // the rescue-off default are byte-identical no-ops on the checksum scenarios.
     if (devOn(core::ProfileSection::SpatialHash))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
@@ -274,13 +277,24 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Interaction))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Interaction);
+        // Microfase 32.4: pass &species_ so predation honors each label's min floor.
         const auto interStats =
-            interactionSystem_.applyWithDiet(agents_, foods_, genomes_, &spatialHash_, dietCfg);
+            interactionSystem_.applyWithDiet(agents_, foods_, genomes_, &spatialHash_, dietCfg, &species_);
         foodsConsumed = interStats.foodsConsumed + interStats.chunkParticlesDepleted;
         predationEvents = interStats.predationEvents;
         foodEnergyGained = interStats.agentEnergyGainedByFood;
         predationEnergyGained = interStats.agentEnergyGainedByPredation;
     }
+
+    systems::CollisionConfig collisionConfig = systems::CollisionSystem::fromRegistry(parameters_);
+    collisionConfig.dt = dt;
+    if (devOn(core::ProfileSection::Collision))
+    {
+        core::ScopedTimer t(profiler_, core::ProfileSection::Collision);
+        static_cast<void>(collisionSystem_.apply(agents_, foods_, world_, &spatialHash_, obstaclePtr,
+                                                   collisionConfig));
+    }
+
     stats_.foodEaten += foodsConsumed;
 
     const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
@@ -311,14 +325,17 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Death))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Death);
-        const auto deathStats = deathSystem_.apply(agents_, deathConfig);
+        // Microfasa 32.4: pass species store to block deaths at minPopulation floor.
+        const auto deathStats = deathSystem_.apply(agents_, deathConfig, &species_);
         deathsThisStep = deathStats.deaths;
     }
     stats_.deaths += deathsThisStep;
 
-    // Microfase 31.1: per-label population floor (respects each species'
-    // minPopulation when the rescue knob is on). Runs before the final spatial
-    // rebuild so respawned agents enter the hash this step.
+    // Microfase 32.4: the population floor is now maintained by BLOCKING death
+    // (DeathSystem + predation honor minPopulation) and natural reproduction —
+    // never by spawning organisms from nothing. The legacy respawn rescue below is
+    // OFF by default (population_min_rescue_enabled defaults to false) and stays only
+    // as an explicit opt-in; when off this call returns immediately.
     applyPopulationRescue();
 
     if (devOn(core::ProfileSection::SpatialHash))

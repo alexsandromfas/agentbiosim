@@ -134,6 +134,21 @@ de codigo.
   do genoma de cada agente (modelo da Fase 18). `predators_enabled` segue controlando apenas o
   spawn da especie predadora legada. Golden byte-identico (bacteria default nao preda).
   `--phase31-selftest` = 93 checks (bloco H).
+- **Microfase 32.4 (piso minimo SEM respawn + predacao sem atraso)**: dois bugs reportados na
+  simulacao real. DESCOBERTA: `agent_collision_enabled` tem default **true** no registry (o
+  comentario "off by default" da Fase 21 estava errado), entao a colisao esta sempre ligada.
+  (1) **Piso por bloqueio de morte:** o antigo `applyPopulationRescue` repunha a populacao
+  criando organismos do nada ("quando morre um surge outro do nada"). Agora o piso e mantido
+  BLOQUEANDO mortes: `DeathSystem::apply(...,&species_)` nao mata abaixo do `minPopulation`
+  (contagem viva por especie decrementada ao matar, nunca fura o piso no lote) e a predacao
+  tambem respeita o piso (`InteractionSystem::applyWithDiet(...,&species_)` protege presa cuja
+  especie esta no minimo). `population_min_rescue_enabled` agora default **false** (respawn vira
+  opt-in legado). (2) **Predacao sem atraso:** a ordem dos sistemas virou `Movement -> Energy ->
+  rebuild -> Interaction -> Collision` (era `...Collision -> Energy -> rebuild -> Interaction`) —
+  a predacao registra o toque fresco ANTES de a colisao (separation=0.9) separar os corpos.
+  Golden 32 MUDOU de forma intencional (colisao on por padrao); provado por isolamento que SO a
+  reordenacao altera o digest (death/predacao/rescue sao no-op nos cenarios) e `--phase32-selftest`
+  (determinismo) segue PASS. `--phase31-selftest` = 99 checks (bloco I).
 - **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
   C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 

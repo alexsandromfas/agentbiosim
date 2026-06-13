@@ -3,6 +3,7 @@
 #include "config/ParameterHelpers.hpp"
 
 #include <algorithm>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -21,7 +22,8 @@ DeathConfig DeathSystem::fromRegistry(const config::ParameterRegistry& parameter
     return config;
 }
 
-DeathStats DeathSystem::apply(simulation::AgentStore& agents, const DeathConfig& config) const
+DeathStats DeathSystem::apply(simulation::AgentStore& agents, const DeathConfig& config,
+                                const simulation::SpeciesStore* species) const
 {
     DeathStats stats;
     if (config.maxDeathsPerStep <= 0 || agents.empty())
@@ -29,26 +31,70 @@ DeathStats DeathSystem::apply(simulation::AgentStore& agents, const DeathConfig&
         return stats;
     }
 
-    std::vector<std::pair<double, simulation::EntityId>> candidates;
+    // Microfase 32.4: per-species live population, used to enforce the
+    // minPopulation floor. `projected` is decremented as deaths are applied so a
+    // single step's batch can never push a species below its floor (the old draft
+    // counted once and over-killed when several members starved at the same step).
+    std::unordered_map<simulation::SpeciesId, std::size_t> projected;
+    if (species != nullptr)
+    {
+        for (std::size_t i = 0; i < agents.size(); ++i)
+        {
+            if (agents.aliveAt(i))
+            {
+                ++projected[agents.speciesIdAt(i)];
+            }
+        }
+    }
+
+    // Collect starvation candidates with their species so the floor check can run
+    // per label after sorting by energy (weakest dies first).
+    struct Candidate
+    {
+        double energy;
+        simulation::EntityId id;
+        simulation::SpeciesId species;
+    };
+    std::vector<Candidate> candidates;
     candidates.reserve(agents.size());
     for (std::size_t i = 0; i < agents.size(); ++i)
     {
         if (agents.aliveAt(i) && agents.energyAt(i) <= config.deathEnergy)
         {
-            candidates.emplace_back(agents.energyAt(i), agents.idAt(i));
+            candidates.push_back({agents.energyAt(i), agents.idAt(i), agents.speciesIdAt(i)});
         }
     }
 
-    std::stable_sort(candidates.begin(), candidates.end(), [](const auto& left, const auto& right) {
-        return left.first < right.first;
+    std::stable_sort(candidates.begin(), candidates.end(), [](const Candidate& left, const Candidate& right) {
+        return left.energy < right.energy;
     });
 
-    const std::size_t deathsToApply = std::min<std::size_t>(static_cast<std::size_t>(config.maxDeathsPerStep), candidates.size());
-    for (std::size_t i = 0; i < deathsToApply; ++i)
+    const std::size_t maxDeaths = static_cast<std::size_t>(config.maxDeathsPerStep);
+    for (const Candidate& cand : candidates)
     {
-        if (agents.removeAgent(candidates[i].second))
+        if (stats.deaths >= maxDeaths)
+        {
+            break;
+        }
+        // Microfase 32.4: block death while the label sits at (or below) its floor.
+        // Population is maintained by NOT dying + reproduction, never by respawn.
+        if (species != nullptr)
+        {
+            const auto* rec = species->find(cand.species);
+            if (rec != nullptr && rec->minPopulation > 0 &&
+                projected[cand.species] <= static_cast<std::size_t>(rec->minPopulation))
+            {
+                ++stats.blockedByMinPopulation;
+                continue;
+            }
+        }
+        if (agents.removeAgent(cand.id))
         {
             ++stats.deaths;
+            if (species != nullptr && projected[cand.species] > 0)
+            {
+                --projected[cand.species];
+            }
         }
     }
 

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -210,12 +211,31 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
                                                        simulation::FoodStore& foods,
                                                        const simulation::GenomeStore& genomes,
                                                        simulation::SpatialHash* spatialHash,
-                                                       const DietInteractionConfig& config) const
+                                                       const DietInteractionConfig& config,
+                                                       const simulation::SpeciesStore* species) const
 {
     DietInteractionStats stats;
     if (agents.empty()) return stats;
 
     const bool useSpatial = config.useSpatial && spatialHash != nullptr && !spatialHash->empty();
+
+    // Microfase 32.4: per-species live population so predation honors each label's
+    // minPopulation floor. Decremented as prey are marked dead within this step so
+    // a burst of predators can't drive a label below its floor.
+    std::unordered_map<simulation::SpeciesId, std::size_t> projected;
+    if (species != nullptr)
+    {
+        for (std::size_t i = 0; i < agents.size(); ++i)
+        {
+            if (agents.aliveAt(i)) ++projected[agents.speciesIdAt(i)];
+        }
+    }
+    auto atFloor = [&](const simulation::SpeciesId sp) -> bool {
+        if (species == nullptr) return false;
+        const auto* rec = species->find(sp);
+        return rec != nullptr && rec->minPopulation > 0 &&
+               projected[sp] <= static_cast<std::size_t>(rec->minPopulation);
+    };
     std::vector<simulation::SpatialItem> candidates;
     std::vector<simulation::EntityId> consumedFoodIds;
     std::unordered_set<std::uint64_t> consumedFoodSet;
@@ -384,6 +404,8 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
                 ++stats.blockedSameSpecies;
                 return;
             }
+            // Microfase 32.4: prey at/below its label's minPopulation is off-limits.
+            if (atFloor(agents.speciesIdAt(preyIndex))) return;
             if (!touchingAgents(agents, agentIndex, preyIndex)) return;
             if (bestPreyId == 0U || preyId < bestPreyId)
             {
@@ -420,6 +442,13 @@ DietInteractionStats InteractionSystem::applyWithDiet(simulation::AgentStore& ag
         // Mark predator + prey for this step.
         markedDead.insert(bestPreyId);
         predatorsLockedThisStep.insert(agentId);
+        // Microfase 32.4: account the kill against the prey's live count so later
+        // predators this step see the updated floor and stop at minPopulation.
+        if (species != nullptr)
+        {
+            const auto preySpecies = agents.speciesIdAt(bestPreyIndex);
+            if (projected[preySpecies] > 0) --projected[preySpecies];
+        }
 
         PredationEvent ev;
         ev.predatorId = agentId;

@@ -324,9 +324,10 @@ Phase17ValidationSummary runPhase17Validation()
     // 38. minPopulation armazenado.
     addCheck(summary, "minPopulation stored for rescue",
              bacteria != nullptr);
-    // 39. population_min_rescue_enabled lido.
+    // 39. population_min_rescue_enabled lido (Microfase 32.4: default agora false —
+    // o piso e mantido por bloqueio de morte + reproducao, nao por respawn do nada).
     addCheck(summary, "population_min_rescue_enabled read",
-             bacteria != nullptr && bacteria->populationMinRescueEnabled == true);
+             bacteria != nullptr && bacteria->populationMinRescueEnabled == false);
     // 40. initialCount por especie preservado.
     addCheck(summary, "initialCount per species preserved",
              bacteria != nullptr && bacteria->initialCount == 150);
