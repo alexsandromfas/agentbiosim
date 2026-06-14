@@ -240,6 +240,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     // preferences tab; the value is the locale tag consumed by i18n ("pt-br"/"en").
     // Stored like any other setting so it persists with the rest of the prefs.
     addString(registry, "ui_language", "pt-br", "appearance", "UI display language (pt-br or en).", {}, {"runtime", "ui"});
+    // UI scale (acessibilidade): tamanho de fontes/menus/botoes. Default medio (um
+    // pouco maior que o original "small", que ficava pequeno em telas menores).
+    addString(registry, "ui_scale", "medium", "appearance", "UI text/widget size: small, medium or large.", {}, {"runtime", "ui"});
     // Phase 27: observability toggles (off by default; near-zero cost when off).
     addBool(registry, "profiler_enabled", false, "performance.observability", "Enable the per-system profiler.", {}, {"runtime", "performance", "ui"});
     addBool(registry, "metrics_enabled", false, "performance.observability", "Enable time-series metrics collection.", {}, {"runtime", "performance", "ui"});

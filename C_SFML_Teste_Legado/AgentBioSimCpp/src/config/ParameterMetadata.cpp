@@ -153,6 +153,7 @@ const char* pick(const LabelEntry& e) noexcept { return i18n::tr(e.ptbr, e.en); 
 // Phase 23.2: friendly labels list grown to cover all neural family knobs.
 const std::vector<LabelEntry> kFriendlyLabels{
     {"ui_language",                  "Idioma", "Language"},
+    {"ui_scale",                     "Tamanho da interface", "Interface size"},
     {"profiler_enabled",             "Profiler por sistema", "Per-system profiler"},
     {"metrics_enabled",              "Metricas (series temporais)", "Metrics (time series)"},
     {"metrics_max_samples",          "Maximo de amostras", "Max samples"},
@@ -440,6 +441,8 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
 {
     // Phase 25.2: UI language selector.
     if (name == "ui_language") return {"pt-br", "en"};
+    // UI scale (acessibilidade): tamanho da interface.
+    if (name == "ui_scale") return {"small", "medium", "large"};
     // Phase 27: log verbosity selector.
     if (name == "log_level") return {"off", "error", "warn", "info", "debug"};
 
@@ -499,6 +502,12 @@ std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
         if (is("warn"))  return tr::tr("Aviso", "Warning");
         if (is("info"))  return tr::tr("Info", "Info");
         if (is("debug")) return tr::tr("Depuracao", "Debug");
+    }
+    if (name == "ui_scale")
+    {
+        if (is("small"))  return tr::tr("Pequeno", "Small");
+        if (is("medium")) return tr::tr("Medio", "Medium");
+        if (is("large"))  return tr::tr("Grande", "Large");
     }
     if (name == "substrate_shape")
     {

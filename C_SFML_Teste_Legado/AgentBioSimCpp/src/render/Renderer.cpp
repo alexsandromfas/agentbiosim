@@ -138,26 +138,60 @@ void Renderer::drawWorldBoundary(sf::RenderTarget& target,
                                  const RenderOptions& options) const
 {
     const sf::Vector2u viewport = target.getSize();
-    const sf::Color substrateFill = options.substrateGradientEnabled
-        ? mixColor(options.substrateColorTop, options.substrateColorBottom)
-        : options.substrateColorTop;
+    const bool grad = options.substrateGradientEnabled;
+    const sf::Color top = options.substrateColorTop;
+    const sf::Color bot = options.substrateColorBottom;
+    // Real vertical gradient (was a flat 50/50 MIX before — white->black showed up
+    // as solid gray instead of an actual top-to-bottom fade).
+    const auto lerpC = [](const sf::Color a, const sf::Color b, float t) {
+        t = std::clamp(t, 0.0F, 1.0F);
+        const auto ch = [t](const sf::Uint8 ca, const sf::Uint8 cb) {
+            return static_cast<sf::Uint8>(static_cast<float>(ca) +
+                   (static_cast<float>(cb) - static_cast<float>(ca)) * t);
+        };
+        return sf::Color(ch(a.r, b.r), ch(a.g, b.g), ch(a.b, b.b), ch(a.a, b.a));
+    };
 
     if (world.shape() == simulation::WorldShape::Circular)
     {
         const sf::Vector2f center = camera.worldToScreen(toSfml(world.center()), viewport);
         const float radius = static_cast<float>(world.radius()) * camera.zoom();
-
-        // Phase 22.1: higher segment count + thin inner ring for a cleaner dish.
-        sf::CircleShape circle(radius, 192);
-        circle.setOrigin(radius, radius);
-        circle.setPosition(center);
-        circle.setFillColor(substrateFill);
+        constexpr int kSeg = 192;
+        if (grad)
+        {
+            // Vertical gradient clipped to the disc (triangle fan; rim vertices
+            // tinted by their vertical position so the fade matches the rectangle).
+            sf::VertexArray fan(sf::TriangleFan, static_cast<std::size_t>(kSeg) + 2U);
+            fan[0].position = center;
+            fan[0].color = lerpC(top, bot, 0.5F);
+            for (int i = 0; i <= kSeg; ++i)
+            {
+                const float a = static_cast<float>(i) / static_cast<float>(kSeg) * 6.28318530718F;
+                const sf::Vector2f p{center.x + std::cos(a) * radius, center.y + std::sin(a) * radius};
+                fan[static_cast<std::size_t>(i) + 1U].position = p;
+                fan[static_cast<std::size_t>(i) + 1U].color =
+                    lerpC(top, bot, (p.y - (center.y - radius)) / (2.0F * radius));
+            }
+            target.draw(fan);
+        }
+        else
+        {
+            sf::CircleShape circle(radius, kSeg);
+            circle.setOrigin(radius, radius);
+            circle.setPosition(center);
+            circle.setFillColor(top);
+            target.draw(circle);
+        }
         if (options.substrateBorderEnabled)
         {
-            circle.setOutlineColor(options.substrateBorderColor);
-            circle.setOutlineThickness(2.0F);
+            sf::CircleShape ring(radius, kSeg);
+            ring.setOrigin(radius, radius);
+            ring.setPosition(center);
+            ring.setFillColor(sf::Color::Transparent);
+            ring.setOutlineColor(options.substrateBorderColor);
+            ring.setOutlineThickness(2.0F);
+            target.draw(ring);
         }
-        target.draw(circle);
         return;
     }
 
@@ -166,15 +200,35 @@ void Renderer::drawWorldBoundary(sf::RenderTarget& target,
     const sf::Vector2f position{std::min(topLeft.x, bottomRight.x), std::min(topLeft.y, bottomRight.y)};
     const sf::Vector2f size{std::abs(bottomRight.x - topLeft.x), std::abs(bottomRight.y - topLeft.y)};
 
-    sf::RectangleShape rectangle(size);
-    rectangle.setPosition(position);
-    rectangle.setFillColor(substrateFill);
+    if (grad)
+    {
+        sf::VertexArray quad(sf::Quads, 4);
+        quad[0].position = {position.x, position.y};
+        quad[1].position = {position.x + size.x, position.y};
+        quad[2].position = {position.x + size.x, position.y + size.y};
+        quad[3].position = {position.x, position.y + size.y};
+        quad[0].color = top;
+        quad[1].color = top;
+        quad[2].color = bot;
+        quad[3].color = bot;
+        target.draw(quad);
+    }
+    else
+    {
+        sf::RectangleShape rectangle(size);
+        rectangle.setPosition(position);
+        rectangle.setFillColor(top);
+        target.draw(rectangle);
+    }
     if (options.substrateBorderEnabled)
     {
-        rectangle.setOutlineColor(options.substrateBorderColor);
-        rectangle.setOutlineThickness(2.0F);
+        sf::RectangleShape ring(size);
+        ring.setPosition(position);
+        ring.setFillColor(sf::Color::Transparent);
+        ring.setOutlineColor(options.substrateBorderColor);
+        ring.setOutlineThickness(2.0F);
+        target.draw(ring);
     }
-    target.draw(rectangle);
 }
 
 void Renderer::drawSpatialGrid(sf::RenderTarget& target,
@@ -236,17 +290,7 @@ std::size_t Renderer::drawFoods(sf::RenderTarget& target,
             food.setOutlineColor(options.chunkFoodOutlineColor);
         }
         target.draw(food);
-
-        // Inner highlight (small lighter disc offset slightly toward top-left).
-        if (radius >= 4.0F)
-        {
-            const float hr = radius * 0.45F;
-            sf::CircleShape hi(hr, 16);
-            hi.setOrigin(hr, hr);
-            hi.setPosition(position.x - radius * 0.18F, position.y - radius * 0.18F);
-            hi.setFillColor(lighten(base, 0.45F));
-            target.draw(hi);
-        }
+        // (Brilho interno removido a pedido: a comida e um disco liso.)
         ++drawn;
     }
 

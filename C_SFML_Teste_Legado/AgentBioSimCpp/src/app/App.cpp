@@ -1185,6 +1185,19 @@ void App::render()
     // world is drawn, so the UI stays responsive. ImGuiUi reads engine/UI state
     // and emits commands; it never mutates stores.
     ImGui::SFML::Update(window_, uiDeltaClock_.restart());
+    // Aparencia > Tamanho da interface (ui_scale): scales fonts AND widget/spacing
+    // sizes so small screens / low vision can read the UI. Applied live every frame
+    // from a captured base style (idempotent), so changing it in Preferences takes
+    // effect immediately. small=1.0 (original), medium~1.3, large~1.6.
+    {
+        static const ImGuiStyle kBaseStyle = ImGui::GetStyle();
+        const std::string scaleName = config::parameterString(parameters_, "ui_scale", "medium");
+        const float scale = scaleName == "small" ? 1.0F : (scaleName == "large" ? 1.6F : 1.3F);
+        ImGui::GetIO().FontGlobalScale = scale;
+        ImGuiStyle& style = ImGui::GetStyle();
+        style = kBaseStyle;
+        style.ScaleAllSizes(scale);
+    }
     ui::ImGuiFrameInfo info;
     info.fps = lastFps_;
     info.steps = simulatedSteps_;
