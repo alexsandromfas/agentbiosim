@@ -23,5 +23,10 @@ struct RenderOptions
 
     sf::Color agentHeadColor{0, 0, 0};
     sf::Color chunkFoodOutlineColor{35, 25, 20};
+
+    // Fase 32.1 (auditoria): overlay da grade do spatial hash (menu Exibir).
+    // Antes o item de menu so alternava um flag sem desenhar nada.
+    bool showSpatialHashOverlay = false;
+    double spatialHashCellSize = 36.0;
 };
 } // namespace agentbiosim::render

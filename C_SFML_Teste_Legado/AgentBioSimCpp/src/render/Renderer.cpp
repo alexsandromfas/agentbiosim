@@ -63,7 +63,8 @@ RenderStats Renderer::render(sf::RenderTarget& target,
                              const RenderOptions& options,
                              const perception::VisionDebugData* visionDebug,
                              const simulation::ObstacleStore* obstacles,
-                             const SelectionRenderInput* selection) const
+                             const SelectionRenderInput* selection,
+                             const RenderInterpolation* interpolation) const
 {
     RenderStats stats;
     if (!options.renderEnabled)
@@ -74,12 +75,16 @@ RenderStats Renderer::render(sf::RenderTarget& target,
 
     drawBackground(target, options);
     drawWorldBoundary(target, camera, world, options);
+    if (options.showSpatialHashOverlay)
+    {
+        drawSpatialGrid(target, camera, world, options);
+    }
     if (obstacles != nullptr && !obstacles->empty())
     {
         stats.obstaclesDrawn = drawObstacles(target, camera, *obstacles, options);
     }
     stats.foodsDrawn = drawFoods(target, camera, foods, options);
-    stats.agentsDrawn = drawAgents(target, camera, agents, options);
+    stats.agentsDrawn = drawAgents(target, camera, agents, options, interpolation);
     if (visionDebug != nullptr && visionDebug->active && !visionDebug->rays.empty())
     {
         // Fase 32.1: mode-aware, prettier overlay (sector wedges vs raycast beams).
@@ -172,6 +177,34 @@ void Renderer::drawWorldBoundary(sf::RenderTarget& target,
     target.draw(rectangle);
 }
 
+void Renderer::drawSpatialGrid(sf::RenderTarget& target,
+                               const Camera2D& camera,
+                               const simulation::World& world,
+                               const RenderOptions& options) const
+{
+    const double cell = options.spatialHashCellSize;
+    if (cell <= 0.0) return;
+    const sf::Vector2u viewport = target.getSize();
+    const simulation::Vec2 lo = world.minBounds();
+    const simulation::Vec2 hi = world.maxBounds();
+    const sf::Color line(90, 110, 150, 60);
+
+    sf::VertexArray grid(sf::Lines);
+    // Vertical lines (constant x), spanning the world height.
+    for (double x = lo.x; x <= hi.x + 1.0e-6; x += cell)
+    {
+        grid.append({camera.worldToScreen({static_cast<float>(x), static_cast<float>(lo.y)}, viewport), line});
+        grid.append({camera.worldToScreen({static_cast<float>(x), static_cast<float>(hi.y)}, viewport), line});
+    }
+    // Horizontal lines (constant y), spanning the world width.
+    for (double y = lo.y; y <= hi.y + 1.0e-6; y += cell)
+    {
+        grid.append({camera.worldToScreen({static_cast<float>(lo.x), static_cast<float>(y)}, viewport), line});
+        grid.append({camera.worldToScreen({static_cast<float>(hi.x), static_cast<float>(y)}, viewport), line});
+    }
+    target.draw(grid);
+}
+
 std::size_t Renderer::drawFoods(sf::RenderTarget& target,
                                 const Camera2D& camera,
                                 const simulation::FoodStore& foods,
@@ -248,11 +281,17 @@ std::size_t Renderer::drawObstacles(sf::RenderTarget& target,
 std::size_t Renderer::drawAgents(sf::RenderTarget& target,
                                  const Camera2D& camera,
                                  const simulation::AgentStore& agents,
-                                 const RenderOptions& options) const
+                                 const RenderOptions& options,
+                                 const RenderInterpolation* interpolation) const
 {
     static_cast<void>(options);
     const sf::Vector2u viewport = target.getSize();
     std::size_t drawn = 0;
+
+    // Render interpolation (visual only): draw at lerp(prev, live, alpha).
+    const bool interp = interpolation != nullptr && interpolation->enabled &&
+                        interpolation->prevPositions != nullptr;
+    const double alpha = interp ? std::clamp(static_cast<double>(interpolation->alpha), 0.0, 1.0) : 0.0;
 
     for (std::size_t i = 0; i < agents.size(); ++i)
     {
@@ -261,7 +300,16 @@ std::size_t Renderer::drawAgents(sf::RenderTarget& target,
             continue;
         }
 
-        const simulation::Vec2 worldPosition = agents.positionAt(i);
+        simulation::Vec2 worldPosition = agents.positionAt(i);
+        if (interp)
+        {
+            const auto it = interpolation->prevPositions->find(agents.idAt(i).value);
+            if (it != interpolation->prevPositions->end())
+            {
+                worldPosition.x = it->second.x + (worldPosition.x - it->second.x) * alpha;
+                worldPosition.y = it->second.y + (worldPosition.y - it->second.y) * alpha;
+            }
+        }
         const sf::Vector2f position = camera.worldToScreen(toSfml(worldPosition), viewport);
         const float radius = std::max(2.0F, static_cast<float>(agents.radiusAt(i)) * camera.zoom());
         const sf::Color base = toSfmlColor(agents.colorAt(i));

@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <future>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace agentbiosim
@@ -41,6 +42,7 @@ private:
     void configureFromParameters();
     void configureRenderOptions();
     void fitCameraToWorld();
+    void captureRenderPrevPositions();
     void update();
     void render();
     void updateFpsTitle();
@@ -87,6 +89,12 @@ private:
     float lastFps_ = 0.0F;
     unsigned long long simulatedSteps_ = 0;
     unsigned int lastStepsThisFrame_ = 0;
+
+    // Render interpolation: agent positions captured right before the most recent
+    // physics step (id -> pos). The renderer draws lerp(prev, live, alpha) when
+    // render_interpolation_enabled. Purely visual; rebuilt only while enabled.
+    std::unordered_map<std::uint64_t, simulation::Vec2> renderPrevPos_;
+    bool renderPrevValid_ = false;
 
     // Phase 28: last saved/loaded file path ("Salvar" reuses it; empty = prompt).
     std::string currentSavePath_;

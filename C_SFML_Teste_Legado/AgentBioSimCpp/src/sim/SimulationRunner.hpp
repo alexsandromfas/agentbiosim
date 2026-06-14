@@ -162,6 +162,7 @@ public:
     // does not own them. These two are runtime engine knobs the user can edit
     // through commands but the runner persists them itself.
     [[nodiscard]] bool spatialHashOverlay() const noexcept { return showSpatialHash_; }
+    [[nodiscard]] double spatialHashCellSize() const noexcept { return spatialHash_.cellSize(); }
     [[nodiscard]] bool simpleRender() const noexcept { return simpleRender_; }
 
     // Phase 26: neural viewer for the selected agent. Setting a target makes the

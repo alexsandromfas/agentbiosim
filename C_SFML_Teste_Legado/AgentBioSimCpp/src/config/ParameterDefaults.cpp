@@ -249,9 +249,12 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addDouble(registry, "time_scale", 1.0, "simulation.time", "Simulation time multiplier.", 0.1, std::nullopt, {}, {"runtime"});
     addInt(registry, "fps", 60, "render.timing", "Target render frames per second.", 1.0, 240.0, {}, {"runtime", "render"});
     addBool(registry, "paused", false, "simulation.time", "Pause simulation updates.", {}, {"runtime", "ui"});
-    addInt(registry, "physics_steps_per_second", 30, "simulation.time", "Fixed physics steps per simulated second.", 1.0, 1000.0, {}, {"runtime", "physics"});
-    addInt(registry, "max_physics_steps_per_frame", 8, "simulation.time", "Maximum fixed steps processed per rendered frame.", 1.0, std::nullopt, {}, {"runtime", "physics"});
-    addDouble(registry, "max_physics_backlog_seconds", 0.25, "simulation.time", "Maximum accumulated simulation backlog.", 0.0, std::nullopt, {}, {"runtime", "physics"});
+    // Fase 32.1: timing de fisica vive na aba "Fisica" (categoria root = physics),
+    // ao lado da colisao/fluidos — e o lever de performance vs velocidade (menos Hz
+    // = menos passos por segundo simulado; dt sempre fixo, determinismo preservado).
+    addInt(registry, "physics_steps_per_second", 30, "physics.timing", "Fixed physics steps per simulated second.", 1.0, 1000.0, {}, {"runtime", "physics"});
+    addInt(registry, "max_physics_steps_per_frame", 8, "physics.timing", "Maximum fixed steps processed per rendered frame.", 1.0, std::nullopt, {}, {"runtime", "physics"});
+    addDouble(registry, "max_physics_backlog_seconds", 0.25, "physics.timing", "Maximum accumulated simulation backlog.", 0.0, std::nullopt, {}, {"runtime", "physics"});
     addBool(registry, "use_spatial", true, "performance.spatial", "Enable spatial hash acceleration.", {}, {"runtime", "performance"});
     // Phase 32: deterministic multithreading of perception + neural forward
     // (disjoint per-agent writes, no RNG -> bit-identical to serial).
@@ -353,7 +356,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addDouble(registry, "smooth_max_angular_accel", 12.566370614359172, "physics.smooth_locomotion", "Maximum angular acceleration.", 0.0, std::nullopt, {}, {"runtime", "physics"});
     addBool(registry, "smooth_angular_drag_enabled", true, "physics.smooth_locomotion", "Enable angular drag.", {}, {"runtime", "physics"});
     addDouble(registry, "smooth_angular_drag", 1.5, "physics.smooth_locomotion", "Angular drag coefficient.", 0.0, std::nullopt, {}, {"runtime", "physics"});
-    addBool(registry, "render_interpolation_enabled", false, "render", "Interpolate render poses between physics steps.", {}, {"runtime", "render"});
+    // Fase 32.1: interpolacao de render na aba "Fisica" (junto do timing): suaviza
+    // o movimento entre passos de fisica, util quando se baixa o physics_steps_per_second.
+    addBool(registry, "render_interpolation_enabled", false, "physics.timing", "Interpolate render poses between physics steps.", {}, {"runtime", "render"});
     addBool(registry, "camera_follow_smoothing_enabled", true, "render.camera", "Enable smooth selected-agent camera follow.", {}, {"ui", "render"});
     addDouble(registry, "camera_follow_smoothing", 10.0, "render.camera", "Camera follow smoothing strength.", 0.0, std::nullopt, {}, {"ui", "render"});
     addBool(registry, "agent_collision_enabled", true, "physics.collision", "Enable organism-organism collision.", {}, {"runtime", "physics"});

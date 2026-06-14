@@ -12,6 +12,8 @@
 #include <SFML/Graphics/RenderTarget.hpp>
 
 #include <cstddef>
+#include <cstdint>
+#include <unordered_map>
 #include <vector>
 
 namespace agentbiosim::render
@@ -48,6 +50,18 @@ struct SelectionRenderInput
     bool brushIsEraser = false;
 };
 
+// Render interpolation (render_interpolation_enabled): when on, agents are drawn
+// at lerp(previous-step position, current position, alpha) so movement is smooth
+// even at low physics rates. `prevPositions` maps agent id -> position right before
+// the most recent physics step; ids absent from it (newborns) draw at the live
+// position. Purely visual: the simulation state is never read or written here.
+struct RenderInterpolation
+{
+    bool enabled = false;
+    float alpha = 0.0F;
+    const std::unordered_map<std::uint64_t, simulation::Vec2>* prevPositions = nullptr;
+};
+
 class Renderer
 {
 public:
@@ -59,7 +73,8 @@ public:
                                      const RenderOptions& options,
                                      const perception::VisionDebugData* visionDebug = nullptr,
                                      const simulation::ObstacleStore* obstacles = nullptr,
-                                     const SelectionRenderInput* selection = nullptr) const;
+                                     const SelectionRenderInput* selection = nullptr,
+                                     const RenderInterpolation* interpolation = nullptr) const;
 
 private:
     void drawBackground(sf::RenderTarget& target, const RenderOptions& options) const;
@@ -67,6 +82,10 @@ private:
                            const Camera2D& camera,
                            const simulation::World& world,
                            const RenderOptions& options) const;
+    void drawSpatialGrid(sf::RenderTarget& target,
+                         const Camera2D& camera,
+                         const simulation::World& world,
+                         const RenderOptions& options) const;
     std::size_t drawFoods(sf::RenderTarget& target,
                           const Camera2D& camera,
                           const simulation::FoodStore& foods,
@@ -74,7 +93,8 @@ private:
     std::size_t drawAgents(sf::RenderTarget& target,
                            const Camera2D& camera,
                            const simulation::AgentStore& agents,
-                           const RenderOptions& options) const;
+                           const RenderOptions& options,
+                           const RenderInterpolation* interpolation) const;
     std::size_t drawObstacles(sf::RenderTarget& target,
                                const Camera2D& camera,
                                const simulation::ObstacleStore& obstacles,

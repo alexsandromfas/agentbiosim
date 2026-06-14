@@ -163,6 +163,7 @@ const std::vector<LabelEntry> kFriendlyLabels{
     {"physics_steps_per_second",     "Passos de fisica por segundo", "Physics steps per second"},
     {"max_physics_steps_per_frame",  "Maximo de passos por frame", "Max steps per frame"},
     {"max_physics_backlog_seconds",  "Backlog maximo (segundos)", "Max backlog (seconds)"},
+    {"render_interpolation_enabled", "Interpolar renderizacao (movimento suave)", "Interpolate rendering (smooth motion)"},
     {"random_seed",                  "Semente aleatoria (-1 = aleatoria)", "Random seed (-1 = random)"},
     {"max_deaths_per_step",          "Mortes maximas por passo", "Max deaths per step"},
     {"population_min_rescue_enabled","Resgatar populacao minima", "Rescue minimum population"},

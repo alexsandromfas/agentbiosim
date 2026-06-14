@@ -278,6 +278,21 @@ void App::fitCameraToWorld()
     }
 }
 
+void App::captureRenderPrevPositions()
+{
+    const auto& agents = runner_.agents();
+    renderPrevPos_.clear();
+    renderPrevPos_.reserve(agents.size());
+    for (std::size_t i = 0; i < agents.size(); ++i)
+    {
+        if (agents.aliveAt(i))
+        {
+            renderPrevPos_[agents.idAt(i).value] = agents.positionAt(i);
+        }
+    }
+    renderPrevValid_ = true;
+}
+
 void App::saveSimulation(const bool forcePrompt)
 {
     std::string path = currentSavePath_;
@@ -1132,10 +1147,23 @@ void App::update()
     }
 
     lastStepsThisFrame_ = timestep_.beginFrame(realDeltaSeconds);
+    const bool interpolate = config::parameterBool(parameters_, "render_interpolation_enabled", false);
     for (unsigned int step = 0; step < lastStepsThisFrame_; ++step)
     {
+        // Render interpolation: snapshot positions right BEFORE the final step of
+        // the batch, so render() can draw lerp(prev, live, alpha). Only the last
+        // gap is interpolated (the alpha represents the leftover toward the next
+        // step). Captured only while the feature is on (zero cost otherwise).
+        if (interpolate && step + 1 == lastStepsThisFrame_)
+        {
+            captureRenderPrevPositions();
+        }
         runner_.step(timestep_.fixedDeltaSeconds());
         ++simulatedSteps_;
+    }
+    if (!interpolate)
+    {
+        renderPrevValid_ = false;  // drop stale data so re-enabling starts clean
     }
 
     // Phase 28: periodic autosave (wall-clock; writes on a background thread).
@@ -1205,11 +1233,23 @@ void App::render()
         const auto* visionDebugPtr =
             (uiState_.selectedVisionOverlay && visionData.active) ? &visionData : nullptr;
 
+        // Fase 32.1 (auditoria): spatial-hash grid overlay (menu Exibir) — toggled
+        // at runtime via CmdToggleSpatialHashOverlay, so refresh it every frame.
+        renderOptions_.showSpatialHashOverlay = runner_.spatialHashOverlay();
+        renderOptions_.spatialHashCellSize = runner_.spatialHashCellSize();
+
+        // Fase 32.1: render interpolation (smooth movement at low physics rates).
+        render::RenderInterpolation interp;
+        interp.enabled = renderPrevValid_ &&
+                         config::parameterBool(parameters_, "render_interpolation_enabled", false);
+        interp.alpha = static_cast<float>(timestep_.interpolationAlpha());
+        interp.prevPositions = &renderPrevPos_;
+
         core::ScopedTimer renderTimer(runner_.profilerMutable(), core::ProfileSection::Render);
         lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
                                               runner_.agents(), runner_.foods(),
                                               renderOptions_, visionDebugPtr, obstaclePtr,
-                                              &selInput);
+                                              &selInput, &interp);
     }
     else
     {
