@@ -104,7 +104,22 @@ void queryVisibleCandidates(const double searchX, const double searchY, const do
     out.clear();
     if (spatial != nullptr && !spatial->empty())
     {
-        spatial->queryRadiusInto(searchX, searchY, searchRadius, scratch.items, scratch.spatial);
+        // Fase 32.1: coarse type mask so a food-only retina never builds the agent
+        // entries (and vice-versa). Superset of what filterSpatialItems keeps, so
+        // the result + order are identical — only the skipped TYPE is excluded.
+        std::uint8_t typeMask = 0u;
+        if (seeFood || seeAll)
+        {
+            typeMask |= static_cast<std::uint8_t>(
+                1u << static_cast<unsigned>(simulation::SpatialEntityType::Food));
+        }
+        if (seeAgents || seePredators || seeAll)
+        {
+            typeMask |= static_cast<std::uint8_t>(
+                1u << static_cast<unsigned>(simulation::SpatialEntityType::Agent));
+        }
+        spatial->queryRadiusInto(searchX, searchY, searchRadius, scratch.items, scratch.spatial,
+                                 typeMask);
         filterSpatialItems(scratch.items, seeFood, seeAgents, seePredators, seeAll,
                            ignoreAgentId, agents, foods, out);
         return;

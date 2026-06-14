@@ -79,9 +79,8 @@ private:
                                const Camera2D& camera,
                                const simulation::ObstacleStore& obstacles,
                                const RenderOptions& options) const;
-    std::size_t drawVisionDebug(sf::RenderTarget& target,
-                                const Camera2D& camera,
-                                const perception::VisionDebugData& debug) const;
+    // Fase 32.1: o desenho da visao do agente selecionado vive em
+    // render/VisionOverlay (mode-aware: cunhas no setor, feixes no raycast).
     // Phase 22.1: separate pass for selection halos so they sit above the
     // agents but under UI panels and overlays.
     std::size_t drawSelectionHalos(sf::RenderTarget& target,

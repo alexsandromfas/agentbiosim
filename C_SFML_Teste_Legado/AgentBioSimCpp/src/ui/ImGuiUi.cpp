@@ -1091,9 +1091,13 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                              "vmax_cost", "energy_cap", "death_by_age_enabled", "death_age",
                              "corpse_to_food", "reproduction_min_age", "reproduction_cooldown"}},
                         {"grp_vision", "Visao", "Vision",
+                            // Microfase 32.5/Fase 32.1: nomes com o infixo retina_ (casam
+                            // o registry e o editorParameters() corrigido). Sem isso os
+                            // checkboxes de "o que enxergar" nao apareciam na secao Visao.
                             {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",
-                             "eye_angle_degrees", "see_food", "see_agents", "see_predators",
-                             "see_obstacles", "see_through_walls", "retina_channel_r",
+                             "eye_angle_degrees", "retina_see_food", "retina_see_bacteria",
+                             "retina_see_predators", "retina_see_obstacles", "retina_see_all",
+                             "retina_see_through_walls", "retina_channel_r",
                              "retina_channel_g", "retina_channel_b", "retina_channel_d",
                              "retina_input_mode"}},
                         {"grp_diet", "Dieta", "Diet",

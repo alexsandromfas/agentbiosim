@@ -1106,14 +1106,22 @@ void App::update()
     {
         runner_.clearNeuralViewerTarget();
     }
-    if (uiState_.selectedVisionOverlay)
+    // Fase 32.1: o visualizador de visao aparece AUTOMATICAMENTE quando ha
+    // EXATAMENTE 1 organismo selecionado (e a preferencia mestre esta ligada). Com 0
+    // ou >1 selecionados o alvo e limpo — a percepcao nem preenche o debug, custo
+    // zero, e nao pesa desenhar varios overlays.
     {
         simulation::EntityId visionId{};
+        std::size_t selectedAlive = 0;
         for (const auto id : uiState_.selection.ids())
         {
-            if (runner_.agents().contains(id)) { visionId = id; break; }
+            if (runner_.agents().contains(id))
+            {
+                ++selectedAlive;
+                visionId = id;
+            }
         }
-        if (visionId.isValid())
+        if (uiState_.selectedVisionOverlay && selectedAlive == 1 && visionId.isValid())
         {
             runner_.setVisionDebugTarget(visionId);
         }
@@ -1121,10 +1129,6 @@ void App::update()
         {
             runner_.clearVisionDebugTarget();
         }
-    }
-    else
-    {
-        runner_.clearVisionDebugTarget();
     }
 
     lastStepsThisFrame_ = timestep_.beginFrame(realDeltaSeconds);

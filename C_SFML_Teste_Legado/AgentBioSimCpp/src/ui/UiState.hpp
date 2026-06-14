@@ -80,8 +80,10 @@ struct UiState
     bool agentPanelOpen = true;
     // Neural viewer layout: false = fixed node spacing (scrolls), true = fill panel.
     bool neuralViewerFillLayout = false;
-    // Toggle for the selected-agent vision overlay (Phase 11/12 rays).
-    bool selectedVisionOverlay = false;
+    // Fase 32.1: preferencia mestre do visualizador de visao. Default ON: ao
+    // selecionar UM organismo a visao dele aparece automaticamente (a tecla V e o
+    // menu Debug alternam esta preferencia; com 0 ou >1 selecionados nao desenha).
+    bool selectedVisionOverlay = true;
     // Cross-frame signals written by ImGuiUi and consumed by App to drive the
     // engine's trace target (so the trace is only captured while the Rede Neural
     // tab is actually visible — zero cost otherwise).

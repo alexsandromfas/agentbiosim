@@ -159,6 +159,19 @@ de codigo.
   (visao default = defaults globais). `--phase31-selftest` = 103 checks (bloco J). Novo
   `--vision-bench`: filtrar por tipo e ~de graca; o custo e QUANTOS objetos entram na retina —
   "ver tudo" e o MAIS caro (~+70% na percepcao vs so-comida), nao o mais barato.
+- **Fase 32.1 (visualizador de visao + see-flags no editor + type-mask)** — prompt em
+  `MIGRACAO_C++SFML/PHASE_32_1_VISION_VIEWER.md` (nome "32.1" escolhido pelo usuario; nao
+  confundir com a microfase 32.1 interna de defaults). (A) Os checkboxes de visao agora
+  APARECEM na secao Visao do editor: o agrupamento `grp_vision` do ImGuiUi ainda usava os
+  sufixos antigos (`see_food`) e nao casava os nomes corrigidos na 32.5 (`retina_see_food`).
+  (B) Ao selecionar UM organismo a visao dele aparece automaticamente (sem precisar da tecla
+  V; `selectedVisionOverlay` default true; 0 ou >1 selecionados = nao desenha). Desenho
+  mode-aware no novo modulo `render/VisionOverlay`: cunhas/grid polar no modo setor, feixes +
+  cone + pontos de hit no raycast (single/fullbody). (C) Otimizacao type-mask no
+  `SpatialHash::queryRadiusInto` (golden-safe, ordem preservada): ver-so-comida ficou ~40%
+  mais barato na percepcao (581->345us). Golden byte-identico; `--phase31-selftest` = 107
+  checks (bloco K). LEMBRETE: o CMakeLists lista fontes EXPLICITAMENTE — arquivo .cpp novo
+  exige adiciona-lo la + `cmake -S . -B build`.
 - **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
   C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
 

@@ -90,6 +90,7 @@ add_executable(AgentBioSimCpp
     src/perception/SceneQuery.cpp
     src/render/Camera2D.cpp
     src/render/Renderer.cpp
+    src/render/VisionOverlay.cpp
     src/simulation/AgentStore.cpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp

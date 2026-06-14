@@ -78,8 +78,15 @@ public:
         std::vector<std::uint32_t> seenStamp;
         std::uint32_t stamp = 0;
     };
+    // Fase 32.1: `typeMask` is a bitmask of (1u << SpatialEntityType) — a COARSE
+    // pre-filter so a query for a single type (e.g. food-only vision) skips entries
+    // of other types during the cell scan instead of building+returning them. It is
+    // a superset filter: callers still apply any fine (typeCode) filtering on the
+    // result, so the kept order is identical and the digest is preserved. Default
+    // 0xFF = every type (legacy behavior, bit-identical).
+    static constexpr std::uint8_t kAllTypes = 0xFFu;
     void queryRadiusInto(double x, double y, double radius, std::vector<SpatialItem>& out,
-                         QueryScratch& scratch) const;
+                         QueryScratch& scratch, std::uint8_t typeMask = kAllTypes) const;
 
     [[nodiscard]] std::vector<SpatialItem> queryAabb(double minX, double minY, double maxX, double maxY);
     void queryAabbInto(double minX, double minY, double maxX, double maxY, std::vector<SpatialItem>& out);

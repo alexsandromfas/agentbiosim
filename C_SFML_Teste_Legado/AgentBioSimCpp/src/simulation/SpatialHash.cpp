@@ -236,7 +236,8 @@ void SpatialHash::queryRadiusInto(const double x, const double y, const double r
 }
 
 void SpatialHash::queryRadiusInto(const double x, const double y, const double radius,
-                                  std::vector<SpatialItem>& out, QueryScratch& scratch) const
+                                  std::vector<SpatialItem>& out, QueryScratch& scratch,
+                                  const std::uint8_t typeMask) const
 {
     out.clear();
     if (buckets_.empty())
@@ -270,12 +271,19 @@ void SpatialHash::queryRadiusInto(const double x, const double y, const double r
             const std::vector<std::size_t>& bucket = buckets_[bucketIndex(cx, cy)];
             for (const std::size_t itemIndex : bucket)
             {
+                const SpatialItem& item = items_[itemIndex];
+                // Fase 32.1: coarse type pre-filter. Skipping BEFORE the dedup stamp
+                // keeps kept-item order identical (only unwanted types are dropped),
+                // and avoids the stamp write + push for filtered-out types.
+                if (((1u << static_cast<unsigned>(item.entityType)) & typeMask) == 0u)
+                {
+                    continue;
+                }
                 if (scratch.seenStamp[itemIndex] == scratch.stamp)
                 {
                     continue;
                 }
                 scratch.seenStamp[itemIndex] = scratch.stamp;
-                const SpatialItem& item = items_[itemIndex];
                 if (itemIntersectsRadius(item, x, y, safeRadius))
                 {
                     out.push_back(item);

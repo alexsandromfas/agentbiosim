@@ -823,6 +823,49 @@ Phase31ValidationSummary runPhase31Validation()
               "32.5 J: genoma da label padrao carrega a visao do registry (seeFood=true)");
     }
 
+    // ------------- K. Fase 32.1: visualizador da visao do agente selecionado ----
+    // O visualizador desenha a partir do VisionDebugData (read-only) preenchido pela
+    // percepcao SO para o agente-alvo. Aqui validamos o motor desse dado: alvo unico
+    // preenche; sem alvo (0 ou >1 selecionados) NAO preenche (custo zero); o modo
+    // (single/raycast vs sector/bin) chega no debug para o overlay escolher o desenho.
+    {
+        config::ParameterRegistry regK = config::createDefaultParameterRegistry();
+        static_cast<void>(regK.setValue("auto_export_substrate", false));
+        static_cast<void>(regK.setValue("bacteria_count", 40));
+        static_cast<void>(regK.setValue("food_target", 60));
+        static_cast<void>(regK.setValue("retina_vision_mode", std::string("single")));
+        sim::SimulationRunner rk(regK);
+        rk.initialize();
+
+        const auto targetId = rk.agents().idAt(0);
+        rk.setVisionDebugTarget(targetId);
+        rk.step(1.0 / 30.0);
+        const auto& vd = rk.visionDebug();
+        check(vd.active && vd.agentId == targetId.value && !vd.rays.empty(),
+              "32.1 K: alvo unico preenche o VisionDebugData (raios do selecionado)");
+        check(vd.mode == perception::VisionMode::Single,
+              "32.1 K: modo single (raycast) refletido no debug");
+
+        rk.clearVisionDebugTarget();
+        rk.step(1.0 / 30.0);
+        check(!rk.visionDebug().active,
+              "32.1 K: sem alvo (0 ou >1 selecionados) o debug fica inativo (custo zero)");
+
+        config::ParameterRegistry regKs = config::createDefaultParameterRegistry();
+        static_cast<void>(regKs.setValue("auto_export_substrate", false));
+        static_cast<void>(regKs.setValue("bacteria_count", 40));
+        static_cast<void>(regKs.setValue("food_target", 60));
+        static_cast<void>(regKs.setValue("retina_vision_mode", std::string("sector")));
+        sim::SimulationRunner rks(regKs);
+        rks.initialize();
+        rks.setVisionDebugTarget(rks.agents().idAt(0));
+        rks.step(1.0 / 30.0);
+        check(rks.visionDebug().active &&
+                  rks.visionDebug().mode == perception::VisionMode::Sector &&
+                  !rks.visionDebug().rays.empty(),
+              "32.1 K: modo setor (bin) preenche o debug -> overlay desenha cunhas");
+    }
+
     summary.details = log.str();
     return summary;
 }
