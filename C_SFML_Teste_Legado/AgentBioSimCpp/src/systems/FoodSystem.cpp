@@ -61,8 +61,11 @@ FoodSystemConfig FoodSystem::fromRegistry(const config::ParameterRegistry& param
     cfg.clusterRadius = std::max(0.1, parameterDouble(parameters, "food_piece_cluster_radius", cfg.clusterRadius));
     cfg.particleSpacing = std::max(0.0, parameterDouble(parameters, "food_piece_particle_spacing", cfg.particleSpacing));
     cfg.replenishMode = parseReplenishMode(parameterString(parameters, "food_piece_replenish_mode", "spawn_cluster"));
-    cfg.instantMinRadius = std::max(0.1, parameterDouble(parameters, "food_min_r", cfg.instantMinRadius));
-    cfg.instantMaxRadius = std::max(cfg.instantMinRadius, parameterDouble(parameters, "food_max_r", cfg.instantMaxRadius));
+    // Food fix: a SINGLE food particle radius now drives both instant and chunk
+    // food (food_piece_particle_radius). The old food_min_r/food_max_r spawn-radius
+    // range was removed from the UI; instant pieces use one uniform radius.
+    cfg.instantMinRadius = cfg.particleRadius;
+    cfg.instantMaxRadius = cfg.particleRadius;
     cfg.color = toEntityColor(parameterColor(parameters, "food_color", {220, 30, 30}));
     cfg.trimExcessEnabled = parameterBool(parameters, "food_trim_excess_enabled", cfg.trimExcessEnabled);
     cfg.trimMaxPerStep = std::max(0, parameterInt(parameters, "food_trim_max_per_step", cfg.trimMaxPerStep));
@@ -165,10 +168,21 @@ std::uint32_t FoodSystem::spawnCluster(simulation::FoodStore& foods,
     int placed = 0;
     std::uniform_real_distribution<double> ang(0.0, kTwoPi);
     std::uniform_real_distribution<double> uni(0.0, 1.0);
+    // Irregular blob outline: modulate the cluster radius per angle with a couple
+    // of random harmonics (fixed per cluster) so blobs look organic and lumpy
+    // instead of perfect discs.
+    const double ph1 = ang(rng_);
+    const double ph2 = ang(rng_);
+    const double k1 = static_cast<double>(2 + (rng_() % 3U));  // 2..4 lobes
+    const double k2 = static_cast<double>(3 + (rng_() % 4U));  // 3..6 finer lobes
+    const auto blob = [&](const double a) {
+        const double f = 1.0 + 0.28 * std::sin(k1 * a + ph1) + 0.16 * std::sin(k2 * a + ph2);
+        return std::clamp(f, 0.25, 1.35);
+    };
     for (int attempt = 0; attempt < requestedCount * 4 && placed < requestedCount; ++attempt)
     {
-        const double r = std::sqrt(uni(rng_)) * cr;
         const double a = ang(rng_);
+        const double r = std::sqrt(uni(rng_)) * cr * blob(a);
         const simulation::Vec2 pos = world.clampPosition({center.x + std::cos(a) * r,
                                                            center.y + std::sin(a) * r}, pr);
         // Per-particle obstacle rejection. Particles that fall inside an obstacle
@@ -196,7 +210,8 @@ std::uint32_t FoodSystem::growExistingCluster(simulation::FoodStore& foods,
                                                 const FoodSystemConfig& config,
                                                 const simulation::ObstacleStore* obstacles)
 {
-    // Pick smallest active clusterId deterministically.
+    // Pick a RANDOM active cluster (not always the smallest id). Always growing the
+    // same cluster was what made the whole field collapse into one giant blob.
     std::uint32_t bestId = 0;
     simulation::Vec2 bestCenter{0.0, 0.0};
     {
@@ -211,12 +226,14 @@ std::uint32_t FoodSystem::growExistingCluster(simulation::FoodStore& foods,
         }
         if (centersByCluster.empty())
         {
-            // Fallback documented in status doc: spawn a new cluster.
+            // No cluster to grow yet — seed one.
             return spawnCluster(foods, world, config, obstacles);
         }
-        const auto it = centersByCluster.begin();
+        std::uniform_int_distribution<std::size_t> pick(0, centersByCluster.size() - 1U);
+        auto it = centersByCluster.begin();
+        std::advance(it, pick(rng_));
         bestId = it->first;
-        // Center of mass.
+        // Center of mass of the chosen cluster.
         double cx = 0.0, cy = 0.0;
         for (const auto& p : it->second) { cx += p.x; cy += p.y; }
         cx /= static_cast<double>(it->second.size());
@@ -292,17 +309,25 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
 
     if (config.mode == simulation::FoodKind::Instant)
     {
-        // Phase 7 instant path: spawn one-by-one until count reaches target.
-        // Avoid spawning more than `trimMaxPerStep` to bound work per step.
-        const int maxPerStep = std::max(1, config.trimMaxPerStep);
+        // Fill the FULL deficit toward the target each replenish call. The old code
+        // capped this at `trim_max_per_step` (default 5) per step, so under heavy
+        // consumption the food count stalled far below large targets (e.g. ~700 vs
+        // a 20000 target) and that, in turn, capped the population. The per-call
+        // work is bounded by the target (one-time fill) and then by consumption
+        // (steady state); the REPLENISH RATE is governed by the caller's interval
+        // (SimulationRunner gates this by food_replenish_interval).
         int spawned = 0;
-        while (static_cast<int>(foods.size()) < config.target && spawned < maxPerStep)
+        int rejected = 0;
+        while (static_cast<int>(foods.size()) < config.target)
         {
             const auto id = spawnInstant(foods, world, config, obstacles);
             if (!id.isValid())
             {
+                // Position rejected (obstacle); allow a few retries then stop to
+                // avoid an infinite loop when the world is too crowded.
                 ++stats.spawnsRejectedByObstacle;
-                break;
+                if (++rejected >= 32) break;
+                continue;
             }
             ++spawned;
             ++stats.spawnedInstant;
@@ -310,49 +335,70 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
         return stats;
     }
 
-    // Chunk mode. Replenish gating depends on the mode: grow_particles is a
-    // maintenance pass (refill depleted energy) and always runs; the cluster
-    // spawn/grow modes only fire when below target.
+    // Chunk modes build toward the target in CLUSTER-sized increments. A guard
+    // caps cluster ops per call so a big target fills over a few replenish ticks
+    // (the field grows as distinct blobs) instead of dumping everything at once.
+    constexpr int kMaxClusterOpsPerCall = 12;
+    int ops = 0;
     switch (config.replenishMode)
     {
     case FoodReplenishMode::SpawnCluster:
     {
-        if (static_cast<int>(foods.size()) >= config.target) return stats;
-        const std::size_t before = foods.size();
-        const auto cid = spawnCluster(foods, world, config, obstacles);
-        const std::size_t after = foods.size();
-        stats.spawnedChunkParticles += (after - before);
-        if (cid != 0 && after > before) ++stats.clustersCreated;
+        // New irregular clusters until the target is reached.
+        while (static_cast<int>(foods.size()) < config.target && ops < kMaxClusterOpsPerCall)
+        {
+            const std::size_t before = foods.size();
+            const auto cid = spawnCluster(foods, world, config, obstacles);
+            const std::size_t after = foods.size();
+            stats.spawnedChunkParticles += (after - before);
+            if (after == before) break;  // could not place (obstacles) — avoid spin
+            if (cid != 0) ++stats.clustersCreated;
+            ++ops;
+        }
         break;
     }
     case FoodReplenishMode::GrowExisting:
     {
-        if (static_cast<int>(foods.size()) >= config.target) return stats;
-        const std::size_t before = foods.size();
-        const auto cid = growExistingCluster(foods, world, config, obstacles);
-        const std::size_t after = foods.size();
-        stats.spawnedChunkParticles += (after - before);
-        if (cid != 0)
+        // Grow EXISTING clusters toward the target, but ~1 in 5 ops seeds a NEW
+        // cluster so the field keeps gaining blobs instead of collapsing into a
+        // single ever-growing one (the previous behavior always grew the same
+        // smallest-id cluster).
+        std::uniform_real_distribution<double> roll(0.0, 1.0);
+        while (static_cast<int>(foods.size()) < config.target && ops < kMaxClusterOpsPerCall)
         {
-            // If a fresh cluster was spawned via fallback, it counts as created.
-            // Otherwise it counts as grown.
-            if (before == 0U && after > 0U) ++stats.clustersCreated;
-            else ++stats.clustersGrown;
+            const std::size_t before = foods.size();
+            std::uint32_t cid = 0;
+            if (roll(rng_) < 0.2)
+            {
+                cid = spawnCluster(foods, world, config, obstacles);
+                if (cid != 0 && foods.size() > before) ++stats.clustersCreated;
+            }
+            else
+            {
+                cid = growExistingCluster(foods, world, config, obstacles);
+                if (cid != 0 && foods.size() > before) ++stats.clustersGrown;
+            }
+            const std::size_t after = foods.size();
+            stats.spawnedChunkParticles += (after - before);
+            if (after == before) break;
+            ++ops;
         }
         break;
     }
     case FoodReplenishMode::GrowParticles:
     {
+        // Maintenance: refill depleted particles, then top the field up with new
+        // clusters toward the target.
         const std::size_t grown = growExistingParticles(foods, config);
         stats.particlesGrown += grown;
-        if (grown == 0U && foods.empty())
+        while (static_cast<int>(foods.size()) < config.target && ops < kMaxClusterOpsPerCall)
         {
-            // Fallback: bootstrap with a cluster so future calls have something to grow.
             const std::size_t before = foods.size();
-            static_cast<void>(spawnCluster(foods, world, config));
-            const std::size_t after = foods.size();
-            stats.spawnedChunkParticles += (after - before);
-            if (after > before) ++stats.clustersCreated;
+            const auto cid = spawnCluster(foods, world, config, obstacles);
+            if (foods.size() == before) break;
+            if (cid != 0) ++stats.clustersCreated;
+            stats.spawnedChunkParticles += (foods.size() - before);
+            ++ops;
         }
         break;
     }

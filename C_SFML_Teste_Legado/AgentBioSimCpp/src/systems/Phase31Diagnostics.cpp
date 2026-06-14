@@ -980,6 +980,24 @@ Phase31ValidationSummary runPhase31Validation()
               "32.x M: time_scale nao afeta o resultado do passo (1x vs 10x identicos com dt fixo)");
     }
 
+    // ------------- N. Food fix: a reposicao atinge o alvo (antes travava em ~5/passo) --
+    // O cap por trim_max_per_step prendia a comida muito abaixo de alvos grandes
+    // (~700 vs 20000), o que tambem limitava a populacao. Agora a reposicao enche
+    // ate o food_target a cada passo.
+    {
+        config::ParameterRegistry regN = config::createDefaultParameterRegistry();
+        static_cast<void>(regN.setValue("auto_export_substrate", false));
+        static_cast<void>(regN.setValue("bacteria_count", 50));
+        static_cast<void>(regN.setValue("food_target", 1500));
+        static_cast<void>(regN.setValue("food_mode", std::string("instant")));
+        sim::SimulationRunner rn(regN);
+        rn.initialize();
+        for (int i = 0; i < 5; ++i) rn.step(1.0 / 30.0);
+        check(static_cast<int>(rn.foods().size()) >= 1490,
+              "N: reposicao de comida atinge o alvo alto (1500) em poucos passos (" +
+                  std::to_string(rn.foods().size()) + ")");
+    }
+
     summary.details = log.str();
     return summary;
 }

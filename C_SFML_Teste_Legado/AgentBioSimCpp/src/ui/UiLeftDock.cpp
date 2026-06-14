@@ -366,10 +366,14 @@ std::vector<std::string> UiLeftDock::editorParameters()
 
 std::vector<std::string> UiLeftDock::substratoParameters()
 {
+    // Food fix: removed food_min_r/food_max_r (spawn-radius range) and
+    // food_replenish_interval (the field now continuously holds food_target, so the
+    // interval was redundant). A single "raio da particula de comida"
+    // (food_piece_particle_radius) sizes both instant and chunk food.
     return {"substrate_shape", "world_w", "world_h", "substrate_radius",
-            "food_mode", "food_target", "food_min_r", "food_max_r",
-            "food_replenish_interval", "food_color", "food_bite_seconds",
-            "food_piece_particle_radius", "food_piece_cluster_radius",
+            "food_mode", "food_target", "food_piece_particle_radius",
+            "food_color", "food_bite_seconds",
+            "food_piece_cluster_radius",
             "food_piece_particle_spacing", "food_piece_replenish_mode",
             "food_trim_max_per_step"};
 }

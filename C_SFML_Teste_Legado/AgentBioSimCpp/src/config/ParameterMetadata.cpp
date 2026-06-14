@@ -336,7 +336,7 @@ const std::vector<LabelEntry> kFriendlyLabels{
     {"food_replenish_interval",      "Intervalo de reposicao (s)", "Replenish interval (s)"},
     {"food_color",                   "Cor da comida", "Food color"},
     {"food_bite_seconds",            "Tempo para consumir uma particula (s)", "Time to consume a particle (s)"},
-    {"food_piece_particle_radius",   "Raio da particula (pedaco)", "Particle radius (chunk)"},
+    {"food_piece_particle_radius",   "Raio da particula de comida", "Food particle radius"},
     {"food_piece_cluster_radius",    "Raio do cluster (pedaco)", "Cluster radius (chunk)"},
     {"food_piece_particle_spacing",  "Espacamento entre particulas", "Particle spacing"},
     {"food_piece_replenish_mode",    "Modo de reposicao (pedacos)", "Replenish mode (chunks)"},

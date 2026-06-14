@@ -185,9 +185,13 @@ Phase24ValidationSummary runPhase24Validation()
         addCheck(s, "(69) Substrato lists substrate_radius", std::find(names.begin(), names.end(), std::string("substrate_radius")) != names.end());
         addCheck(s, "(70) Substrato lists food_mode", std::find(names.begin(), names.end(), std::string("food_mode")) != names.end());
         addCheck(s, "(71) Substrato lists food_target", std::find(names.begin(), names.end(), std::string("food_target")) != names.end());
-        addCheck(s, "(72) Substrato lists food_min_r", std::find(names.begin(), names.end(), std::string("food_min_r")) != names.end());
-        addCheck(s, "(73) Substrato lists food_max_r", std::find(names.begin(), names.end(), std::string("food_max_r")) != names.end());
-        addCheck(s, "(74) Substrato lists food_replenish_interval", std::find(names.begin(), names.end(), std::string("food_replenish_interval")) != names.end());
+        // Food fix: food_min_r/food_max_r (spawn-radius range) REMOVED from the
+        // substrate UI — a single food_piece_particle_radius sizes food now.
+        addCheck(s, "(72) Substrato NAO lista mais food_min_r", std::find(names.begin(), names.end(), std::string("food_min_r")) == names.end());
+        addCheck(s, "(73) Substrato NAO lista mais food_max_r", std::find(names.begin(), names.end(), std::string("food_max_r")) == names.end());
+        // Food fix: food_replenish_interval removed from the substrate UI (food now
+        // continuously holds the target, so the interval was redundant).
+        addCheck(s, "(74) Substrato NAO lista mais food_replenish_interval", std::find(names.begin(), names.end(), std::string("food_replenish_interval")) == names.end());
         addCheck(s, "(75) Substrato lists food_color", std::find(names.begin(), names.end(), std::string("food_color")) != names.end());
         addCheck(s, "(76) Substrato lists food_bite_seconds", std::find(names.begin(), names.end(), std::string("food_bite_seconds")) != names.end());
         addCheck(s, "(77) Substrato lists food_piece_particle_radius", std::find(names.begin(), names.end(), std::string("food_piece_particle_radius")) != names.end());

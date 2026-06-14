@@ -186,7 +186,9 @@ void SimulationRunner::spawnInitial()
 
 void SimulationRunner::rebuildSpatial()
 {
-    const double foodMaxRadius = config::parameterDouble(parameters_, "food_max_r", 5.0);
+    // Food fix: the unified food particle radius (food_piece_particle_radius) sizes
+    // food now (the old food_max_r spawn range was removed from the UI).
+    const double foodMaxRadius = config::parameterDouble(parameters_, "food_piece_particle_radius", 5.0);
     const double bacteriaMaxRadius = config::parameterDouble(parameters_, "bacteria_max_r", 12.0);
     const double predatorMaxRadius = config::parameterDouble(parameters_, "predator_max_r", 18.0);
     const double cellSize = std::max({foodMaxRadius, bacteriaMaxRadius, predatorMaxRadius, 1.0}) * 2.0;
@@ -304,6 +306,11 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Food))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Food);
+        // Food fix: replenishToTarget now tops the field up to food_target every
+        // step (it was capped at trim_max_per_step ~5/step, which pinned the food
+        // count far below large targets and throttled the population). With a
+        // continuous fill the field simply holds the target supply, so the old
+        // food_replenish_interval knob became redundant and was removed from the UI.
         static_cast<void>(foodSystem_.replenishToTarget(foods_, world_, foodCfg, obstaclePtr));
         static_cast<void>(foodSystem_.trimExcess(foods_, foodCfg));
     }
