@@ -866,6 +866,82 @@ Phase31ValidationSummary runPhase31Validation()
               "32.1 K: modo setor (bin) preenche o debug -> overlay desenha cunhas");
     }
 
+    // ------------- L. Reproducao do bug relatado: piso de morte ponta-a-ponta -----
+    // Replica o fluxo do usuario (label CRIADA) sob fome total, varios passos, e
+    // confere que a populacao NUNCA cai abaixo do min da label. Se cair, o piso esta
+    // furado para labels criadas (que o I0/I1 nao cobriam — usavam a bacteria default).
+    {
+        // L1: bacteria default sob fome total -> estabiliza no min (5), nunca abaixo.
+        config::ParameterRegistry regL = config::createDefaultParameterRegistry();
+        static_cast<void>(regL.setValue("auto_export_substrate", false));
+        static_cast<void>(regL.setValue("bacteria_count", 30));
+        static_cast<void>(regL.setValue("food_target", 0));            // fome total
+        static_cast<void>(regL.setValue("bacteria_split_energy", 1.0e12)); // sem reproducao
+        sim::SimulationRunner rl(regL);
+        rl.initialize();
+        const auto bId = rl.species().idByName("bacteria");
+        std::size_t minSeenDefault = static_cast<std::size_t>(-1);
+        for (int s = 0; s < 900; ++s)
+        {
+            rl.step(1.0 / 30.0);
+            minSeenDefault = std::min(minSeenDefault, rl.countAgentsOfSpecies(bId));
+        }
+        check(minSeenDefault >= 5,
+              "L1: bacteria default sob fome nunca cai abaixo do min=5 (min visto=" +
+                  std::to_string(minSeenDefault) + ")");
+
+        // L2: label CRIADA pelo usuario sob fome total -> idem (min=5).
+        config::ParameterRegistry regL2 = config::createDefaultParameterRegistry();
+        static_cast<void>(regL2.setValue("auto_export_substrate", false));
+        static_cast<void>(regL2.setValue("bacteria_count", 30));
+        static_cast<void>(regL2.setValue("food_target", 0));
+        static_cast<void>(regL2.setValue("bacteria_split_energy", 1.0e12));
+        sim::SimulationRunner rl2(regL2);
+        rl2.initialize();
+        std::vector<simulation::EntityId> sel;
+        for (std::size_t i = 0; i < 12 && i < rl2.agents().size(); ++i)
+        {
+            sel.push_back(rl2.agents().idAt(i));
+        }
+        const auto created = rl2.createSpeciesFromSelected("presa_l2", sel);
+        const auto* crec = rl2.species().find(created);
+        const int createdFloor = crec != nullptr ? crec->minPopulation : -1;
+        std::size_t minSeenCreated = static_cast<std::size_t>(-1);
+        for (int s = 0; s < 900; ++s)
+        {
+            rl2.step(1.0 / 30.0);
+            minSeenCreated = std::min(minSeenCreated, rl2.countAgentsOfSpecies(created));
+        }
+        check(createdFloor == 5 && minSeenCreated >= 5,
+              "L2: label CRIADA sob fome nunca cai abaixo do min=5 (floor=" +
+                  std::to_string(createdFloor) + ", min visto=" +
+                  std::to_string(minSeenCreated) + ")");
+
+        // L3: PREDACAO real (predador legado cacando bacteria, sem comida) nao pode
+        // derrubar a presa abaixo do min dela.
+        config::ParameterRegistry regL3 = config::createDefaultParameterRegistry();
+        static_cast<void>(regL3.setValue("auto_export_substrate", false));
+        static_cast<void>(regL3.setValue("bacteria_count", 20));
+        static_cast<void>(regL3.setValue("predators_enabled", true));
+        static_cast<void>(regL3.setValue("predator_count", 40));
+        static_cast<void>(regL3.setValue("food_target", 0));               // forca a caca
+        static_cast<void>(regL3.setValue("bacteria_split_energy", 1.0e12)); // presa nao repoe
+        sim::SimulationRunner rl3(regL3);
+        rl3.initialize();
+        const auto preyId = rl3.species().idByName("bacteria");
+        const auto predId = rl3.species().idByName("predator");
+        const std::size_t preds0 = rl3.countAgentsOfSpecies(predId);
+        std::size_t minPrey = static_cast<std::size_t>(-1);
+        for (int s = 0; s < 900; ++s)
+        {
+            rl3.step(1.0 / 30.0);
+            minPrey = std::min(minPrey, rl3.countAgentsOfSpecies(preyId));
+        }
+        check(preds0 > 0 && minPrey >= 5,
+              "L3: predacao nao derruba a presa abaixo do min=5 (predadores=" +
+                  std::to_string(preds0) + ", presa min vista=" + std::to_string(minPrey) + ")");
+    }
+
     summary.details = log.str();
     return summary;
 }
