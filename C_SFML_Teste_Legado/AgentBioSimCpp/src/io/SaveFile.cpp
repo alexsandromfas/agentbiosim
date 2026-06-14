@@ -5,10 +5,13 @@
 #include "neural/BrainSerializer.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <ctime>
 #include <fstream>
 #include <sstream>
+#include <string>
 #include <variant>
+#include <vector>
 
 namespace agentbiosim::io
 {
@@ -51,16 +54,92 @@ ColorRgb colorFrom(const Json* j)
     return c;
 }
 
+// Fase 32.1: weight/bias arrays are stored as base64 of the raw IEEE-754 bytes
+// instead of one JSON number per value. This is EXACT (so brain checksums still
+// match — no precision loss) and collapses the node count from one-node-per-weight
+// to one-node-per-array. A dense save was ~120M JSON nodes and multiple GB of
+// "%.17g" text, which both bloated the file AND made loading run out of memory.
+// Base64 of the little-endian bytes is ~11 chars/double vs ~24, and parses with a
+// single memcpy. (Same-machine save format; not meant to be portable across
+// endianness, which matches the project's Windows-only target.)
+constexpr char kB64Chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+std::string base64Encode(const unsigned char* data, const std::size_t n)
+{
+    std::string out;
+    out.reserve((n + 2U) / 3U * 4U);
+    std::size_t i = 0;
+    for (; i + 3U <= n; i += 3U)
+    {
+        const unsigned int v = (static_cast<unsigned int>(data[i]) << 16) |
+                               (static_cast<unsigned int>(data[i + 1]) << 8) |
+                               static_cast<unsigned int>(data[i + 2]);
+        out.push_back(kB64Chars[(v >> 18) & 0x3F]);
+        out.push_back(kB64Chars[(v >> 12) & 0x3F]);
+        out.push_back(kB64Chars[(v >> 6) & 0x3F]);
+        out.push_back(kB64Chars[v & 0x3F]);
+    }
+    if (i < n)
+    {
+        const std::size_t rem = n - i;
+        unsigned int v = static_cast<unsigned int>(data[i]) << 16;
+        if (rem == 2U) v |= static_cast<unsigned int>(data[i + 1]) << 8;
+        out.push_back(kB64Chars[(v >> 18) & 0x3F]);
+        out.push_back(kB64Chars[(v >> 12) & 0x3F]);
+        out.push_back(rem == 2U ? kB64Chars[(v >> 6) & 0x3F] : '=');
+        out.push_back('=');
+    }
+    return out;
+}
+
+std::vector<unsigned char> base64Decode(const std::string& s)
+{
+    const auto val = [](const char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        if (c == '+') return 62;
+        if (c == '/') return 63;
+        return -1;
+    };
+    std::vector<unsigned char> out;
+    out.reserve(s.size() / 4U * 3U);
+    int buffer = 0;
+    int bits = 0;
+    for (const char c : s)
+    {
+        const int d = val(c);
+        if (d < 0) continue;  // skips '=', whitespace, etc.
+        buffer = (buffer << 6) | d;
+        bits += 6;
+        if (bits >= 8)
+        {
+            bits -= 8;
+            out.push_back(static_cast<unsigned char>((buffer >> bits) & 0xFF));
+        }
+    }
+    return out;
+}
+
 Json doublesToJson(const std::vector<double>& v)
 {
-    Json a = Json::makeArray();
-    for (const double d : v) a.push(Json(d));
-    return a;
+    if (v.empty()) return Json(std::string{});
+    const auto* bytes = reinterpret_cast<const unsigned char*>(v.data());
+    return Json(base64Encode(bytes, v.size() * sizeof(double)));
 }
 std::vector<double> doublesFrom(const Json* a)
 {
     std::vector<double> v;
-    if (a != nullptr && a->isArray())
+    if (a == nullptr) return v;
+    if (a->type() == Json::Type::String)
+    {
+        const std::vector<unsigned char> bytes = base64Decode(a->asString());
+        v.resize(bytes.size() / sizeof(double));
+        if (!v.empty()) std::memcpy(v.data(), bytes.data(), v.size() * sizeof(double));
+        return v;
+    }
+    // Backward compatibility: older saves stored a JSON array of numbers.
+    if (a->isArray())
     {
         v.reserve(a->size());
         for (const auto& e : a->items()) v.push_back(e.asDouble());
@@ -658,7 +737,10 @@ bool saveToFile(const std::string& path, const SaveBundle& bundle, std::string& 
         error = "nao foi possivel abrir o arquivo para escrita: " + path;
         return false;
     }
-    const std::string text = root.dump(true);
+    // Fase 32.1: NO pretty-print for save files. Indentation added a newline +
+    // spaces before every value (millions of them in a dense brain dump),
+    // bloating the file and the in-memory string for nothing readable at GB scale.
+    const std::string text = root.dump(false);
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
     if (!out)
     {
@@ -832,7 +914,10 @@ bool saveAgentToFile(const std::string& path, const sim::AgentExport& agent, std
         error = "nao foi possivel abrir o arquivo para escrita: " + path;
         return false;
     }
-    const std::string text = root.dump(true);
+    // Fase 32.1: NO pretty-print for save files. Indentation added a newline +
+    // spaces before every value (millions of them in a dense brain dump),
+    // bloating the file and the in-memory string for nothing readable at GB scale.
+    const std::string text = root.dump(false);
     out.write(text.data(), static_cast<std::streamsize>(text.size()));
     if (!out)
     {
