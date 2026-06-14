@@ -942,6 +942,44 @@ Phase31ValidationSummary runPhase31Validation()
                   std::to_string(preds0) + ", presa min vista=" + std::to_string(minPrey) + ")");
     }
 
+    // ------------- M. Determinismo independente do time_scale --------------------
+    // O passo do engine usa dt FIXO; a velocidade e PLAYBACK (o FixedTimestep do App
+    // roda MAIS passos por segundo real), nao escala o dt. Logo, dois runners com
+    // time_scale 1x e 10x, MESMA seed, rodando o MESMO numero de passos com o MESMO
+    // dt fixo, produzem estado IDENTICO. (Antes da correcao o runner multiplicava o
+    // dt por time_scale -> 10x dava dt gigante por passo e a populacao desabava.)
+    {
+        auto digest = [](const sim::SimulationRunner& r) {
+            double acc = static_cast<double>(r.agents().size()) * 1000.0;
+            for (std::size_t i = 0; i < r.agents().size(); ++i)
+            {
+                const auto p = r.agents().positionAt(i);
+                acc += p.x * 1.1 + p.y * 1.7 + r.agents().energyAt(i) * 0.3;
+            }
+            return acc;
+        };
+        config::ParameterRegistry regA = config::createDefaultParameterRegistry();
+        static_cast<void>(regA.setValue("auto_export_substrate", false));
+        static_cast<void>(regA.setValue("random_seed", 777));
+        static_cast<void>(regA.setValue("time_scale", 1.0));
+        config::ParameterRegistry regB = config::createDefaultParameterRegistry();
+        static_cast<void>(regB.setValue("auto_export_substrate", false));
+        static_cast<void>(regB.setValue("random_seed", 777));
+        static_cast<void>(regB.setValue("time_scale", 10.0));
+        sim::SimulationRunner runA(regA);
+        sim::SimulationRunner runB(regB);
+        runA.initialize();
+        runB.initialize();
+        for (int s = 0; s < 300; ++s)
+        {
+            runA.step(1.0 / 30.0);
+            runB.step(1.0 / 30.0);
+        }
+        check(runA.agents().size() == runB.agents().size() &&
+                  std::abs(digest(runA) - digest(runB)) < 1e-9,
+              "32.x M: time_scale nao afeta o resultado do passo (1x vs 10x identicos com dt fixo)");
+    }
+
     summary.details = log.str();
     return summary;
 }

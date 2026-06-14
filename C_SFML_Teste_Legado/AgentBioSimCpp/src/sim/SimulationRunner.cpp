@@ -383,8 +383,14 @@ void SimulationRunner::step(const double dt)
     {
         return;
     }
-    const double scaled = std::max(0.0, dt) * std::max(0.0, timeScale_);
-    runOneStep(scaled);
+    // DETERMINISMO vs ACELERACAO DE TEMPO: cada passo avanca um dt FIXO. A
+    // velocidade (time_scale) NAO escala o dt aqui — ela e tratada como playback
+    // pelo FixedTimestep (App), que roda MAIS passos de dt fixo por segundo real.
+    // Aplicar time_scale aqui TAMBEM (como era antes) inflava o dt por passo (ex.:
+    // 10x -> dt 0.33s), mudando movimento/energia/reproducao/morte e derrubando a
+    // populacao em velocidade alta. Do ponto de vista dos organismos, 1x e 10x
+    // produzem a MESMA trajetoria; so muda quantos passos rodam por segundo real.
+    runOneStep(std::max(0.0, dt));
     ++stats_.stepsExecuted;
     if (stepOnce_) stepOnce_ = false;
 }
