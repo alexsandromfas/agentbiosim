@@ -158,10 +158,13 @@ Phase23ValidationSummary runPhase23Validation()
                  hasParam(registry, "population_min_rescue_enabled"));
         addCheck(s, "(37) render_enabled present", hasParam(registry, "render_enabled"));
         addCheck(s, "(38) simple_render present", hasParam(registry, "simple_render"));
-        // immediate vs reset routing
-        addCheck(s, "(39) physics_steps_per_second marked RequiresReset",
+        // immediate vs reset routing. Reset overhaul: physics timing aplica AO VIVO
+        // (Immediate), nao reseta mais a simulacao.
+        addCheck(s, "(39) physics_steps_per_second e LIVE (Immediate, nao RequiresReset)",
                  (registry.find("physics_steps_per_second")->applyFlags &
-                  config::ApplyFlag::RequiresReset) != 0U);
+                  config::ApplyFlag::Immediate) != 0U &&
+                 (registry.find("physics_steps_per_second")->applyFlags &
+                  config::ApplyFlag::RequiresReset) == 0U);
         addCheck(s, "(40) random_seed marked RequiresReset",
                  (registry.find("random_seed")->applyFlags &
                   config::ApplyFlag::RequiresReset) != 0U);
@@ -266,8 +269,10 @@ Phase23ValidationSummary runPhase23Validation()
         addCheck(s, "(86) neural_network_type marked RebuildBrains",
                  (registry.find("neural_network_type")->applyFlags &
                   config::ApplyFlag::RebuildBrains) != 0U);
-        addCheck(s, "(87) RebuildBrains does not auto-recreate existing brains "
-                    "(documented: only new agents)", true);
+        // Reset overhaul: RebuildBrains agora NAO reseta a simulacao; o syncBrains
+        // recria os cerebros existentes (a architectureSignature muda) preservando
+        // agentes/labels/genomas — so o aprendizado e perdido.
+        addCheck(s, "(87) RebuildBrains recria cerebros via syncBrains (sem reset geral)", true);
         addCheck(s, "(88) MLP baseline keeps cost when others disabled", true);
         addCheck(s, "(89) NEAT off does not add cost to MLP", true);
     }

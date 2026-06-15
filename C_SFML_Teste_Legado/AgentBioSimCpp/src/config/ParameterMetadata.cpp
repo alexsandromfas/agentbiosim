@@ -17,8 +17,17 @@ struct FlagEntry { const char* name; unsigned int flags; };
 // Microfase 31.1: world geometry no longer resets — it reshapes LIVE (agents
 // and food are pushed back inside the new bounds). Only seed/timing remain.
 const std::vector<FlagEntry> kRequireResetParams{
+    // Reset overhaul: APENAS a seed reinicia a simulacao inteira. physics_steps_
+    // _per_second virou LIVE (o FixedTimestep e reconfigurado sem reset).
     {"random_seed",            ApplyFlag::RequiresReset},
-    {"physics_steps_per_second", ApplyFlag::RequiresReset},
+};
+
+// Reset overhaul: timing de fisica aplica AO VIVO (reconfigura o timestep via
+// configureFromParameters), sem reset geral.
+const std::vector<FlagEntry> kPhysicsLiveParams{
+    {"physics_steps_per_second",   ApplyFlag::Immediate},
+    {"max_physics_steps_per_frame", ApplyFlag::Immediate},
+    {"max_physics_backlog_seconds", ApplyFlag::Immediate},
 };
 
 // Microfase 31.1: world geometry applies live via
@@ -34,25 +43,33 @@ const std::vector<FlagEntry> kReshapeWorldParams{
 // implementation reconfigures perception on next initialize, so functionally
 // they also require reset. We mark them explicitly so the UI badge says
 // "requer rebuild de percepção".
+// Reset overhaul: mudar a geometria/modo de visao NAO reseta mais a simulacao. A
+// percepcao reconfigura sozinha e, quando o tamanho da entrada muda, syncBrains
+// recria os cerebros automaticamente (a architectureSignature inclui o inputSize),
+// preservando agentes/labels/genomas. Immediate = re-le config sem reset.
 const std::vector<FlagEntry> kRebuildPerceptionParams{
-    {"retina_vision_mode",          ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_mode",            ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_distance_subdivisions", ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_distance_distribution", ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_distance_falloff",      ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_projection",            ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_candidate_limit",       ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
-    {"retina_bins_obstacles_block_vision",ApplyFlag::RebuildPerception | ApplyFlag::RequiresReset},
+    {"retina_vision_mode",          ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_mode",            ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_distance_subdivisions", ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_distance_distribution", ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_distance_falloff",      ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_projection",            ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_candidate_limit",       ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
+    {"retina_bins_obstacles_block_vision",ApplyFlag::RebuildPerception | ApplyFlag::Immediate},
 };
 
 // Phase 23: parameters that change the brain type / topology. Changing them
 // affects newly created brains only — existing brains are NOT recreated. The
 // UI badge says "afeta novos agentes".
+// Reset overhaul: trocar o tipo/topologia da rede NAO reseta mais a simulacao. O
+// syncBrains recria os cerebros (a assinatura muda) preservando agentes/labels/
+// genomas — so o APRENDIZADO das redes e perdido (a UI avisa via badge). Immediate
+// = re-le config sem reset.
 const std::vector<FlagEntry> kRebuildBrainsParams{
-    {"neural_network_type",   ApplyFlag::RebuildBrains | ApplyFlag::RequiresReset},
-    {"neural_neat_initial_topology",            ApplyFlag::RebuildBrains | ApplyFlag::RequiresReset},
-    {"neural_proto_neat_initial_topology",      ApplyFlag::RebuildBrains | ApplyFlag::RequiresReset},
-    {"neural_recurrent_neat_initial_topology",  ApplyFlag::RebuildBrains | ApplyFlag::RequiresReset},
+    {"neural_network_type",   ApplyFlag::RebuildBrains | ApplyFlag::Immediate},
+    {"neural_neat_initial_topology",            ApplyFlag::RebuildBrains | ApplyFlag::Immediate},
+    {"neural_proto_neat_initial_topology",      ApplyFlag::RebuildBrains | ApplyFlag::Immediate},
+    {"neural_recurrent_neat_initial_topology",  ApplyFlag::RebuildBrains | ApplyFlag::Immediate},
 };
 
 // Phase 23: parameters that affect Renderer/UI on the next frame.
@@ -107,6 +124,7 @@ void applyFlagsFromTable(ParameterRegistry& registry, const std::vector<FlagEntr
 void applyPhase23ApplyFlags(ParameterRegistry& registry)
 {
     applyFlagsFromTable(registry, kRequireResetParams);
+    applyFlagsFromTable(registry, kPhysicsLiveParams);
     applyFlagsFromTable(registry, kReshapeWorldParams);
     applyFlagsFromTable(registry, kRebuildPerceptionParams);
     applyFlagsFromTable(registry, kRebuildBrainsParams);
