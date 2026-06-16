@@ -334,6 +334,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addString(registry, "food_chunk_mode", "fixed", "food",
               "Chunk replenish behaviour: 'fixed' refills the chunks in place forever; 'roaming' lets a chunk be eaten to nothing and a new one appears elsewhere.",
               {}, {"runtime", "food"});
+    addInt(registry, "food_chunk_particles", 60, "food",
+           "Roaming mode only: how many particles make up one whole crumb. New crumbs drop with this many particles each (irregular edges).",
+           1.0, std::nullopt, {}, {"runtime", "food"});
     addInt(registry, "food_target", 50, "food", "Target food count.", 0.0, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_min_r", 4.5, "food", "Minimum instant food radius.", 0.0, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_max_r", 5.0, "food", "Maximum instant food radius.", 0.0, std::nullopt, {}, {"runtime", "food"});

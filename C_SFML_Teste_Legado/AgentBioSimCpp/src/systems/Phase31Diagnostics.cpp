@@ -1009,9 +1009,10 @@ Phase31ValidationSummary runPhase31Validation()
             simulation::WorldShape::Rectangular, 800.0, 600.0, 400.0, {400.0, 300.0}}};
         systems::FoodSystemConfig cfg;
         cfg.mode = simulation::FoodKind::Chunk;
-        cfg.target = 40;
+        cfg.target = 48;
         cfg.particleRadius = 5.0;
         cfg.clusterRadius = 20.0;
+        cfg.chunkParticles = 12;  // -> 4 whole crumbs of 12 particles
         cfg.trimMaxPerStep = 100;
 
         const auto clusterIdSet = [](const simulation::FoodStore& f) {
@@ -1019,32 +1020,43 @@ Phase31ValidationSummary runPhase31Validation()
             for (std::size_t i = 0; i < f.size(); ++i) ids.insert(f.clusterIdAt(i));
             return ids;
         };
+        // Particles per cluster id -> proves crumbs are WHOLE (no fragments).
+        const auto crumbSizes = [](const simulation::FoodStore& f) {
+            std::unordered_map<std::uint32_t, int> n;
+            for (std::size_t i = 0; i < f.size(); ++i) ++n[f.clusterIdAt(i)];
+            return n;
+        };
         const auto removeCluster = [](simulation::FoodStore& f, std::uint32_t victim) {
             std::vector<simulation::EntityId> doomed;
             for (std::size_t i = 0; i < f.size(); ++i)
                 if (f.clusterIdAt(i) == victim) doomed.push_back(f.idAt(i));
             for (const auto id : doomed) static_cast<void>(f.removeFood(id));
         };
+        const auto allWhole = [&](const simulation::FoodStore& f) {
+            for (const auto& kv : crumbSizes(f))
+                if (kv.second != cfg.chunkParticles) return false;
+            return true;
+        };
 
-        // Roaming: the field fills UP TO the target (the bug fix — it used to stall far
-        // below), and a fully-eaten chunk does NOT come back with the same id — the
-        // deficit is refilled by NEW chunks (new ids) at fresh spots, so food relocates.
+        // Roaming = bread crumbs: WHOLE crumbs of exactly chunkParticles (no fragments),
+        // field filled to within one crumb of the target, and a devoured crumb does NOT
+        // return with the same id — a fresh whole crumb falls elsewhere (relocation).
         systems::FoodSystem fsR;
         cfg.chunkRoaming = true;
         simulation::FoodStore foodsR;
         static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
         check(static_cast<int>(foodsR.size()) == cfg.target,
-              "O: roaming enche ate o target (" + std::to_string(foodsR.size()) + "/" +
+              "O: migalhas enchem ate o target (" + std::to_string(foodsR.size()) + "/" +
                   std::to_string(cfg.target) + ")");
-        const auto idsR0 = clusterIdSet(foodsR);
-        const std::uint32_t victimR = *idsR0.begin();
-        removeCluster(foodsR, victimR);
+        check(allWhole(foodsR) && clusterIdSet(foodsR).size() == 4,
+              "O: cada migalha tem exatamente chunkParticles particulas (sem fragmentos)");
+        const std::uint32_t victimR = *clusterIdSet(foodsR).begin();
+        removeCluster(foodsR, victimR);  // organism devours a whole crumb
         static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
-        check(static_cast<int>(foodsR.size()) == cfg.target,
-              "O: roaming REENCHE ate o target apos consumo (" + std::to_string(foodsR.size()) +
-                  "/" + std::to_string(cfg.target) + ")");
+        check(static_cast<int>(foodsR.size()) == cfg.target && allWhole(foodsR),
+              "O: migalha devorada -> nova migalha INTEIRA repoe o target");
         check(clusterIdSet(foodsR).count(victimR) == 0,
-              "O: chunk esgotado NAO reaparece com o mesmo id (itinerante)");
+              "O: migalha devorada reaparece em OUTRO lugar (id novo, itinerante)");
 
         // Fixed (legacy): refills the SAME sites in place -> the eaten site id returns.
         systems::FoodSystem fsF;

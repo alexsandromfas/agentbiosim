@@ -35,9 +35,13 @@ struct FoodSystemConfig
     double particleRadius = 5.0;
     double clusterRadius = 36.0; // the chunk radius: a chunk never grows past this
     // Chunk replenish behaviour (food_chunk_mode). false = "fixed": chunks refill in
-    // place forever (organisms camp). true = "roaming": a chunk is eaten to nothing and
-    // a fresh chunk appears elsewhere (organisms must search). Default fixed = legacy.
+    // place forever (organisms camp). true = "roaming": whole crumbs fall, get devoured,
+    // and new crumbs fall elsewhere (organisms must search). Default fixed = legacy.
     bool chunkRoaming = false;
+    // Roaming only (food_chunk_particles): how many particles make ONE whole crumb. New
+    // crumbs always drop with exactly this many particles (irregular edges); the number
+    // of crumbs = target / chunkParticles. Not used by the fixed mode (which uses radii).
+    int chunkParticles = 60;
     // Phase 7 instant parameters.
     double instantMinRadius = 4.5;
     double instantMaxRadius = 5.0;

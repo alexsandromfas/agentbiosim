@@ -56,6 +56,7 @@ FoodSystemConfig FoodSystem::fromRegistry(const config::ParameterRegistry& param
     FoodSystemConfig cfg;
     cfg.mode = parseFoodKind(parameterString(parameters, "food_mode", "instant"));
     cfg.chunkRoaming = parameterString(parameters, "food_chunk_mode", "fixed") == "roaming";
+    cfg.chunkParticles = std::max(1, parameterInt(parameters, "food_chunk_particles", cfg.chunkParticles));
     cfg.target = std::max(0, parameterInt(parameters, "food_target", cfg.target));
     cfg.biteSeconds = std::max(0.0, parameterDouble(parameters, "food_bite_seconds", cfg.biteSeconds));
     cfg.particleRadius = std::max(0.1, parameterDouble(parameters, "food_piece_particle_radius", cfg.particleRadius));
@@ -267,31 +268,34 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
     }
 
     // Chunk mode — two behaviours selected by food_chunk_mode:
-    // ROAMING ("itinerante"): fill the field UP TO the target every step (so the food
-    // count tracks the target, exactly like the fixed mode), BUT route every refilled
-    // particle into a BRAND-NEW chunk at a FRESH random centre instead of topping up
-    // fixed sites. So the food an organism just ate reappears ELSEWHERE, not where it was
-    // camping — the field keeps ~target particles but they relocate. O(deficit) per step.
-    // Old piles are never refilled: they shrink as eaten and vanish; fresh piles appear
-    // at new spots. New chunks obey particleRadius + clusterRadius. Deterministic (rng_).
+    // ROAMING ("itinerante") = BREAD CRUMBS. Drop WHOLE crumbs only: each crumb is
+    // exactly `chunkParticles` particles in an IRREGULAR blob at a FRESH random centre.
+    // A new crumb falls only once a full crumb's worth has been consumed (deficit >=
+    // chunkParticles), so we never create fragments. Old crumbs are never refilled — they
+    // shrink as eaten and vanish; fresh crumbs fall elsewhere -> food relocates, the count
+    // stays within one crumb of the target, and organisms must search. O(deficit) per
+    // step; deterministic (rng_). The crumb's blob radius is derived from the particle
+    // count, so this mode ignores food_piece_cluster_radius (which is the fixed mode's).
     if (config.chunkRoaming)
     {
         const double prR = std::max(0.1, config.particleRadius);
-        const double crR = std::max(prR, config.clusterRadius);
-        const double capacity = std::max(1.0, (crR * crR) / (prR * prR));
+        const int crumb = std::max(1, config.chunkParticles);
+        // Blob radius packs `crumb` particles at a natural density (no fixed radius here).
+        const double blobR = std::max(prR, prR * std::sqrt(static_cast<double>(crumb)) * 1.7);
         std::uniform_real_distribution<double> angR(0.0, kTwoPi);
         std::uniform_real_distribution<double> uniR(0.0, 1.0);
+        std::uniform_real_distribution<double> phaseR(0.0, kTwoPi);
         int rejected = 0;
-        while (static_cast<int>(foods.size()) < config.target)
+        while (config.target - static_cast<int>(foods.size()) >= crumb)
         {
-            // Fresh random centre for this chunk (never a reused site -> relocation).
-            simulation::Vec2 center = world.clampPosition(randomPointInsideWorld(world, crR), crR);
+            // Fresh random centre for this whole crumb (never a reused site -> relocation).
+            simulation::Vec2 center = world.clampPosition(randomPointInsideWorld(world, blobR), blobR);
             if (obstacles != nullptr && !obstacles->empty())
             {
                 int attempts = 0;
                 while (obstacles->containsPoint(center) && attempts < 16)
                 {
-                    center = world.clampPosition(randomPointInsideWorld(world, crR), crR);
+                    center = world.clampPosition(randomPointInsideWorld(world, blobR), blobR);
                     ++attempts;
                 }
                 if (obstacles->containsPoint(center))
@@ -301,14 +305,20 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
                     continue;
                 }
             }
+            // Irregular edge: per-crumb harmonic modulation of the max radius by angle.
+            const double p1 = phaseR(rng_);
+            const double p2 = phaseR(rng_);
             const std::uint32_t cid = foods.allocateClusterId();
-            const int batch = std::min(static_cast<int>(capacity),
-                                       config.target - static_cast<int>(foods.size()));
             const std::size_t before = foods.size();
-            for (int k = 0; k < batch && static_cast<int>(foods.size()) < config.target; ++k)
+            int placed = 0;
+            int attempts = 0;
+            while (placed < crumb && attempts < crumb * 4)
             {
-                const double rr = std::sqrt(uniR(rng_)) * crR;
+                ++attempts;
                 const double aa = angR(rng_);
+                const double lobes = 1.0 + 0.28 * std::sin(3.0 * aa + p1) + 0.16 * std::sin(5.0 * aa + p2);
+                const double maxR = blobR * std::clamp(lobes, 0.45, 1.35);
+                const double rr = std::sqrt(uniR(rng_)) * maxR;
                 const simulation::Vec2 pos = world.clampPosition(
                     {center.x + std::cos(aa) * rr, center.y + std::sin(aa) * rr}, prR);
                 if (obstacles != nullptr && !obstacles->empty() && obstacles->overlapsCircle(pos, prR))
@@ -318,6 +328,7 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
                 }
                 static_cast<void>(spawnChunkParticleAt(foods, pos, config, cid));
                 ++stats.spawnedChunkParticles;
+                ++placed;
             }
             if (foods.size() > before) { ++stats.clustersCreated; rejected = 0; }
             else if (++rejected >= 64) break;  // no particle placed (all blocked) — stop
