@@ -49,6 +49,18 @@ void overwriteGenomeScalarsFromRegistry(GenomeRecord& genome,
     genome.initialEnergy = std::max(0.0, parameterDouble(registry, p + "_initial_energy", 100.0));
     genome.energyCap = std::max(0.0, parameterDouble(registry, p + "_energy_cap", 400.0));
 
+    // Fase 34.2: locomotion / metabolic-cost / death-energy traits, copied from the
+    // registry (per prefix) into the genome. The Movement/Energy/Death systems read
+    // these PER AGENT from the genome from now on; the bacteria_* params are just the
+    // factory defaults. Defaults here mirror the registry defaults so a bacteria
+    // genome reads exactly the old global values (golden byte-identical).
+    genome.maxSpeed = std::max(0.0, parameterDouble(registry, p + "_max_speed", 300.0));
+    genome.maxTurn = std::max(0.0, parameterDouble(registry, p + "_max_turn", 3.14159265358979323846));
+    genome.allowReverse = parameterBool(registry, p + "_allow_reverse_locomotion", false);
+    genome.moveCostV0 = std::max(0.0, parameterDouble(registry, p + "_metab_v0_cost", 0.5));
+    genome.moveCostVmax = std::max(0.0, parameterDouble(registry, p + "_metab_vmax_cost", 8.0));
+    genome.deathEnergy = std::max(0.0, parameterDouble(registry, p + "_death_energy", 50.0));
+
     // Phase 18 diet semantics preserved: `diet_same_label` is the legacy Python
     // name for eatSameSpecies; predator prefix flips the eatFood/eatAgents defaults.
     const bool predatorPrefix = (p == "predator");

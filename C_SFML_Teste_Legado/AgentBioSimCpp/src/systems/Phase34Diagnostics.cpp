@@ -3,6 +3,7 @@
 #include "config/ParameterDefaults.hpp"
 #include "config/ParameterRegistry.hpp"
 #include "core/Command.hpp"
+#include "io/SaveFile.hpp"
 #include "sim/SimulationRunner.hpp"
 #include "simulation/GenomeStore.hpp"
 #include "simulation/SpeciesStore.hpp"
@@ -170,6 +171,117 @@ Phase34ValidationSummary runPhase34Validation()
         runOnce(s2, b2, c2);
         check(std::abs(s1 - s2) < 1e-12 && std::abs(b1 - b2) < 1e-12 && c1 == c2,
               "H: determinismo (2 execucoes identicas)");
+    }
+
+    // ===================== Fase 34.2: traços globais -> genoma =====================
+
+    // --- I) MovementSystem reads maxSpeed PER GENOME -----------------------
+    {
+        const auto slow = runner.createSpeciesDefault();
+        runner.setSpeciesGenomeField(slow, "max_speed", config::ParameterValue{0.0});
+        for (int i = 0; i < 4; ++i) runner.step(kDt);
+        const auto& ag = runner.agents();
+        double slowMax = 0.0;
+        double bacteriaMax = 0.0;
+        for (std::size_t i = 0; i < ag.size(); ++i)
+        {
+            if (!ag.aliveAt(i)) continue;
+            const auto v = ag.velocityAt(i);
+            const double sp = std::hypot(v.x, v.y);
+            if (ag.speciesIdAt(i) == slow) slowMax = std::max(slowMax, sp);
+            else if (ag.speciesIdAt(i) == bacteriaId) bacteriaMax = std::max(bacteriaMax, sp);
+        }
+        check(slowMax < 1.0e-6, "I: max_speed=0 congela a especie (Movement le por-genoma)");
+        check(bacteriaMax > 1.0, "I: a especie default (max_speed=300) se move");
+    }
+
+    // --- I) DeathSystem reads deathEnergy PER GENOME ------------------------
+    {
+        const auto doomed = runner.createSpeciesDefault();
+        runner.adjustSpeciesPopulation(doomed, 0, -5);  // minPopulation 0 (no floor)
+        // Threshold above any real energy -> every member starves; if Death read the
+        // global 50 instead, these full-energy agents would NOT die.
+        runner.setSpeciesGenomeField(doomed, "death_energy", config::ParameterValue{1.0e9});
+        const std::size_t before = runner.countAgentsOfSpecies(doomed);
+        for (int i = 0; i < 4; ++i) runner.step(kDt);
+        check(before == 5 && runner.countAgentsOfSpecies(doomed) == 0,
+              "I: death_energy alto extingue a especie (Death le por-genoma)");
+    }
+
+    // --- I) The new traits are writable through the granular bridge --------
+    {
+        runner.setSpeciesGenomeField(bacteriaId, "metab_v0_cost", config::ParameterValue{3.25});
+        runner.setSpeciesGenomeField(bacteriaId, "max_turn", config::ParameterValue{1.5});
+        const auto* sp = runner.species().find(bacteriaId);
+        const auto* g = sp != nullptr ? runner.genomes().find(sp->defaultGenomeId) : nullptr;
+        check(g != nullptr && std::abs(g->moveCostV0 - 3.25) < 1e-9 &&
+                  std::abs(g->maxTurn - 1.5) < 1e-9,
+              "I: novos traços escrevem no genoma via setSpeciesGenomeField");
+    }
+
+    // --- J) Save/load round-trip preserves the new genome fields -----------
+    {
+        config::ParameterRegistry regS = config::createDefaultParameterRegistry();
+        sim::SimulationRunner rs(regS);
+        rs.initialize();
+        rs.step(kDt);
+        const auto bid = rs.species().idByName("bacteria");
+        rs.setSpeciesGenomeField(bid, "max_speed", config::ParameterValue{123.0});
+        rs.setSpeciesGenomeField(bid, "death_energy", config::ParameterValue{77.0});
+        rs.setSpeciesGenomeField(bid, "metab_vmax_cost", config::ParameterValue{12.5});
+
+        io::SaveBundle bundle;
+        bundle.snapshot = rs.snapshot();
+        const std::string path = "phase34_tmp.agentbiosim";
+        std::string err;
+        check(io::saveToFile(path, bundle, err), "J: gravar .agentbiosim " + err);
+        const io::LoadResult lr = io::loadFromFile(path);
+        check(lr.ok, "J: ler .agentbiosim " + lr.error);
+
+        config::ParameterRegistry regR = config::createDefaultParameterRegistry();
+        sim::SimulationRunner rr(regR);
+        rr.initialize();
+        rr.restore(lr.bundle.snapshot);
+        const auto bidR = rr.species().idByName("bacteria");
+        const auto* spR = rr.species().find(bidR);
+        const auto* gR = spR != nullptr ? rr.genomes().find(spR->defaultGenomeId) : nullptr;
+        check(gR != nullptr && std::abs(gR->maxSpeed - 123.0) < 1e-9 &&
+                  std::abs(gR->deathEnergy - 77.0) < 1e-9 &&
+                  std::abs(gR->moveCostVmax - 12.5) < 1e-9,
+              "J: save/load preserva maxSpeed/deathEnergy/metab_vmax_cost do genoma");
+    }
+
+    // --- K) Determinism with species that carry DIFFERENT traits -----------
+    {
+        const auto runOnce = [](double& sumX, std::size_t& count) {
+            config::ParameterRegistry r = config::createDefaultParameterRegistry();
+            sim::SimulationRunner rr(r);
+            rr.initialize();
+            rr.step(kDt);
+            const auto bid = rr.species().idByName("bacteria");
+            rr.setSpeciesGenomeField(bid, "max_speed", config::ParameterValue{55.0});
+            const auto fast = rr.createSpeciesDefault();
+            rr.setSpeciesGenomeField(fast, "max_speed", config::ParameterValue{480.0});
+            rr.setSpeciesGenomeField(fast, "metab_v0_cost", config::ParameterValue{2.0});
+            for (int i = 0; i < 8; ++i) rr.step(kDt);
+            sumX = 0.0;
+            count = 0;
+            const auto& ag = rr.agents();
+            for (std::size_t i = 0; i < ag.size(); ++i)
+            {
+                if (!ag.aliveAt(i)) continue;
+                sumX += ag.positionAt(i).x;
+                ++count;
+            }
+        };
+        double x1 = 0.0;
+        double x2 = 0.0;
+        std::size_t c1 = 0;
+        std::size_t c2 = 0;
+        runOnce(x1, c1);
+        runOnce(x2, c2);
+        check(c1 == c2 && std::abs(x1 - x2) < 1e-9,
+              "K: determinismo com especies de traços distintos (2 execucoes identicas)");
     }
 
     summary.details = log.str();

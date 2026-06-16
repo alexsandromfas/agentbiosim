@@ -554,6 +554,13 @@ Json toJson(const GenomeRecord& r)
     j.set("splitEnergy", Json(r.splitEnergy));
     j.set("initialEnergy", Json(r.initialEnergy));
     j.set("energyCap", Json(r.energyCap));
+    // Fase 34.2: per-individual locomotion / metabolic-cost / death-energy traits.
+    j.set("maxSpeed", Json(r.maxSpeed));
+    j.set("maxTurn", Json(r.maxTurn));
+    j.set("allowReverse", Json(r.allowReverse));
+    j.set("moveCostV0", Json(r.moveCostV0));
+    j.set("moveCostVmax", Json(r.moveCostVmax));
+    j.set("deathEnergy", Json(r.deathEnergy));
     j.set("speciesId", Json(static_cast<std::uint64_t>(r.speciesId)));
     j.set("typeCode", Json(static_cast<int>(r.typeCode)));
     j.set("brainConfig", toJson(r.brainConfig));
@@ -578,6 +585,13 @@ GenomeRecord genomeFrom(const Json& j)
     r.splitEnergy = j.getDouble("splitEnergy", 150.0);
     r.initialEnergy = j.getDouble("initialEnergy", 100.0);
     r.energyCap = j.getDouble("energyCap", 400.0);
+    // Fase 34.2: read with the old global defaults so pre-34.2 saves load sanely.
+    r.maxSpeed = j.getDouble("maxSpeed", 300.0);
+    r.maxTurn = j.getDouble("maxTurn", 3.14159265358979323846);
+    r.allowReverse = j.getBool("allowReverse", false);
+    r.moveCostV0 = j.getDouble("moveCostV0", 0.5);
+    r.moveCostVmax = j.getDouble("moveCostVmax", 8.0);
+    r.deathEnergy = j.getDouble("deathEnergy", 50.0);
     r.speciesId = static_cast<SpeciesId>(j.getInt("speciesId"));
     r.typeCode = static_cast<AgentTypeCode>(j.getInt("typeCode"));
     r.brainConfig = brainConfigFrom(j.find("brainConfig"));

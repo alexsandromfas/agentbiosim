@@ -2,6 +2,7 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "simulation/AgentStore.hpp"
+#include "simulation/GenomeStore.hpp"
 #include "simulation/ObstacleStore.hpp"
 #include "simulation/World.hpp"
 
@@ -63,12 +64,17 @@ class MovementSystem
 {
 public:
     [[nodiscard]] static MovementConfig fromRegistry(const config::ParameterRegistry& parameters);
+    // Fase 34.2: when `genomes` is provided, maxSpeed/maxTurn/allowReverse are read
+    // PER AGENT from its genome (so species can move differently); the other config
+    // fields (mode, smooth/inertia knobs) stay global. nullptr => the global config
+    // applies to all agents (legacy, used by standalone movement selftests).
     [[nodiscard]] MovementStats apply(simulation::AgentStore& agents,
                                       const simulation::World& world,
                                       double dt,
                                       const MovementConfig& config,
                                       const std::vector<MovementControl>* controls = nullptr,
-                                      const simulation::ObstacleStore* obstacles = nullptr) const;
+                                      const simulation::ObstacleStore* obstacles = nullptr,
+                                      const simulation::GenomeStore* genomes = nullptr) const;
 
     [[nodiscard]] static MovementMode normalizeMovementMode(const std::string& value);
     [[nodiscard]] static BodyShape normalizeBodyShape(const std::string& value);

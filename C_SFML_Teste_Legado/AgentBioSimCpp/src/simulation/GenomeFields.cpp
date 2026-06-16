@@ -51,10 +51,18 @@ bool setGenomeField(GenomeRecord& g, const std::string& f, const config::Paramet
     // Body / locomotion (only the body subset is on the genome in 34.1).
     if (f == "body_size")  { g.bodySize = std::max(0.1, asNum(v, g.bodySize)); return true; }
     if (f == "body_shape") { g.bodyShape = toShape(asStr(v, shapeStr(g.bodyShape))); return true; }
+    // Locomotion (Fase 34.2: per-individual; read by MovementSystem).
+    if (f == "max_speed") { g.maxSpeed = std::max(0.0, asNum(v, g.maxSpeed)); return true; }
+    if (f == "max_turn")  { g.maxTurn = std::max(0.0, asNum(v, g.maxTurn)); return true; }
+    if (f == "allow_reverse_locomotion") { g.allowReverse = asFlag(v, g.allowReverse); return true; }
     // Energy / reproduction.
     if (f == "initial_energy") { g.initialEnergy = std::max(0.0, asNum(v, g.initialEnergy)); return true; }
     if (f == "split_energy")   { g.splitEnergy = std::max(0.0, asNum(v, g.splitEnergy)); return true; }
     if (f == "energy_cap")     { g.energyCap = std::max(0.0, asNum(v, g.energyCap)); return true; }
+    if (f == "death_energy")   { g.deathEnergy = std::max(0.0, asNum(v, g.deathEnergy)); return true; }
+    // Metabolic costs (Fase 34.2: per-individual; read by EnergySystem).
+    if (f == "metab_v0_cost")   { g.moveCostV0 = std::max(0.0, asNum(v, g.moveCostV0)); return true; }
+    if (f == "metab_vmax_cost") { g.moveCostVmax = std::max(0.0, asNum(v, g.moveCostVmax)); return true; }
     if (f == "reproduction_min_age")  { g.reproductionMinAge = std::max(0.0, asNum(v, g.reproductionMinAge)); return true; }
     if (f == "reproduction_cooldown") { g.reproductionCooldown = std::max(0.0, asNum(v, g.reproductionCooldown)); return true; }
     // Mutation.
@@ -81,9 +89,15 @@ std::optional<config::ParameterValue> genomeFieldValue(const GenomeRecord& g, co
 {
     if (f == "body_size")  return config::ParameterValue{g.bodySize};
     if (f == "body_shape") return config::ParameterValue{std::string(shapeStr(g.bodyShape))};
+    if (f == "max_speed") return config::ParameterValue{g.maxSpeed};
+    if (f == "max_turn")  return config::ParameterValue{g.maxTurn};
+    if (f == "allow_reverse_locomotion") return config::ParameterValue{g.allowReverse};
     if (f == "initial_energy") return config::ParameterValue{g.initialEnergy};
     if (f == "split_energy")   return config::ParameterValue{g.splitEnergy};
     if (f == "energy_cap")     return config::ParameterValue{g.energyCap};
+    if (f == "death_energy")   return config::ParameterValue{g.deathEnergy};
+    if (f == "metab_v0_cost")   return config::ParameterValue{g.moveCostV0};
+    if (f == "metab_vmax_cost") return config::ParameterValue{g.moveCostVmax};
     if (f == "reproduction_min_age")  return config::ParameterValue{g.reproductionMinAge};
     if (f == "reproduction_cooldown") return config::ParameterValue{g.reproductionCooldown};
     if (f == "mutation_rate")     return config::ParameterValue{g.mutationRate};

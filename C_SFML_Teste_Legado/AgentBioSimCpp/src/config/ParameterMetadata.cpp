@@ -386,6 +386,8 @@ const std::vector<LabelEntry> kSpeciesSuffixLabels{
     {"split_energy",             "Energia para reproducao", "Energy to reproduce"},
     {"v0_cost",                  "Custo parado", "Idle cost"},
     {"vmax_cost",                "Custo em velocidade maxima", "Cost at max speed"},
+    {"metab_v0_cost",            "Custo parado", "Idle cost"},
+    {"metab_vmax_cost",          "Custo em velocidade maxima", "Cost at max speed"},
     {"energy_cap",               "Energia maxima (cap)", "Maximum energy (cap)"},
     {"death_by_age_enabled",     "Morrer por idade", "Death by age"},
     {"death_age",                "Idade de morte (s)", "Death age (s)"},

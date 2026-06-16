@@ -247,7 +247,7 @@ void SimulationRunner::runOneStep(const double dt)
         core::ScopedTimer t(profiler_, core::ProfileSection::Movement);
         static_cast<void>(movementSystem_.apply(agents_, world_, dt, movementConfig,
                                                   haveControls ? &neuralControls : nullptr,
-                                                  obstaclePtr));
+                                                  obstaclePtr, &genomes_));
     }
 
     // Energy (metabolic cost) runs before Interaction so eating still tops up the
@@ -257,7 +257,7 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Energy))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Energy);
-        static_cast<void>(energySystem_.apply(agents_, dt, energyConfig));
+        static_cast<void>(energySystem_.apply(agents_, dt, energyConfig, &genomes_));
     }
 
     // Microfase 32.4: rebuild the hash on post-movement positions, then run
@@ -337,8 +337,9 @@ void SimulationRunner::runOneStep(const double dt)
     if (devOn(core::ProfileSection::Death))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::Death);
-        // Microfasa 32.4: pass species store to block deaths at minPopulation floor.
-        const auto deathStats = deathSystem_.apply(agents_, deathConfig, &species_);
+        // Microfase 32.4: pass species store to block deaths at minPopulation floor.
+        // Fase 34.2: pass genomes so the starvation threshold is read per agent.
+        const auto deathStats = deathSystem_.apply(agents_, deathConfig, &species_, &genomes_);
         deathsThisStep = deathStats.deaths;
     }
     stats_.deaths += deathsThisStep;

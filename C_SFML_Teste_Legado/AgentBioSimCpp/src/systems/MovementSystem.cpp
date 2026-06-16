@@ -249,7 +249,8 @@ MovementStats MovementSystem::apply(simulation::AgentStore& agents,
                                     const double dt,
                                     const MovementConfig& config,
                                     const std::vector<MovementControl>* controls,
-                                    const simulation::ObstacleStore* obstacles) const
+                                    const simulation::ObstacleStore* obstacles,
+                                    const simulation::GenomeStore* genomes) const
 {
     MovementStats stats;
     const double safeDt = std::max(0.0, dt);
@@ -261,12 +262,26 @@ MovementStats MovementSystem::apply(simulation::AgentStore& agents,
             continue;
         }
 
+        // Fase 34.2: per-agent locomotion traits from the genome (maxSpeed/maxTurn/
+        // allowReverse). The rest of the config (mode, smooth/inertia knobs) is shared.
+        // A bacteria genome carries the old global defaults, so this is byte-identical.
+        MovementConfig cfg = config;
+        if (genomes != nullptr)
+        {
+            if (const auto* g = genomes->find(agents.genomeIdAt(index)))
+            {
+                cfg.maxSpeed = g->maxSpeed;
+                cfg.maxTurn = g->maxTurn;
+                cfg.allowReverse = g->allowReverse;
+            }
+        }
+
         const MovementControl control = controlAt(index, agents, controls);
         double forwardCommand = 0.0;
         double strafeCommand = 0.0;
         double steerCommand = 0.0;
 
-        if (config.mode == MovementMode::Omni)
+        if (cfg.mode == MovementMode::Omni)
         {
             forwardCommand = std::tanh(control.forward);
             strafeCommand = std::tanh(control.strafe);
@@ -280,45 +295,45 @@ MovementStats MovementSystem::apply(simulation::AgentStore& agents,
         }
         else
         {
-            forwardCommand = config.allowReverse ? std::tanh(control.forward) : sigmoid(control.forward);
+            forwardCommand = cfg.allowReverse ? std::tanh(control.forward) : sigmoid(control.forward);
             steerCommand = std::tanh(control.turn);
         }
 
         double angle = agents.angleAt(index);
         double angularVelocity = agents.angularVelocityAt(index);
-        if (config.smoothLocomotion)
+        if (cfg.smoothLocomotion)
         {
-            angle = updateSmoothRotation(angle, angularVelocity, steerCommand, safeDt, config);
+            angle = updateSmoothRotation(angle, angularVelocity, steerCommand, safeDt, cfg);
         }
         else
         {
-            angularVelocity = steerCommand * config.maxTurn;
+            angularVelocity = steerCommand * cfg.maxTurn;
             angle = normalizeAngle(angle + angularVelocity * safeDt);
         }
 
         const double cosAngle = std::cos(angle);
         const double sinAngle = std::sin(angle);
         const simulation::Vec2 desiredVelocity{
-            (cosAngle * forwardCommand - sinAngle * strafeCommand) * config.maxSpeed,
-            (sinAngle * forwardCommand + cosAngle * strafeCommand) * config.maxSpeed,
+            (cosAngle * forwardCommand - sinAngle * strafeCommand) * cfg.maxSpeed,
+            (sinAngle * forwardCommand + cosAngle * strafeCommand) * cfg.maxSpeed,
         };
 
         simulation::Vec2 velocity = agents.velocityAt(index);
-        if (config.smoothLocomotion)
+        if (cfg.smoothLocomotion)
         {
-            updateSmoothVelocity(velocity, desiredVelocity, safeDt, config);
+            updateSmoothVelocity(velocity, desiredVelocity, safeDt, cfg);
         }
-        else if (config.inertia <= 1.0)
+        else if (cfg.inertia <= 1.0)
         {
             velocity = desiredVelocity;
         }
         else
         {
-            const double alpha = std::min(1.0, 1.0 / std::max(1.0e-12, config.inertia));
+            const double alpha = std::min(1.0, 1.0 / std::max(1.0e-12, cfg.inertia));
             velocity.x += (desiredVelocity.x - velocity.x) * alpha;
             velocity.y += (desiredVelocity.y - velocity.y) * alpha;
         }
-        clampVelocity(velocity, config.maxSpeed);
+        clampVelocity(velocity, cfg.maxSpeed);
 
         const simulation::Vec2 previousPosition = agents.positionAt(index);
         simulation::Vec2 position{
@@ -343,7 +358,7 @@ MovementStats MovementSystem::apply(simulation::AgentStore& agents,
             ++stats.obstacleBlocks;
         }
 
-        clampVelocity(velocity, config.maxSpeed);
+        clampVelocity(velocity, cfg.maxSpeed);
 
         agents.setPositionAt(index, position);
         agents.setVelocityAt(index, velocity);

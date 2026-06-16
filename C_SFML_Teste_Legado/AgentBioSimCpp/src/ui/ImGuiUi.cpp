@@ -469,7 +469,7 @@ const std::vector<GenomeEditorGroup>& genomeEditorGroups()
             {"body_size", "body_shape", "max_speed", "max_turn",
              "allow_reverse_locomotion", "movement_mode"}},
         {"Energia e reproducao", "Energy & reproduction", "##grp_energy",
-            {"initial_energy", "death_energy", "split_energy", "v0_cost", "vmax_cost",
+            {"initial_energy", "death_energy", "split_energy", "metab_v0_cost", "metab_vmax_cost",
              "energy_cap", "death_by_age_enabled", "death_age",
              "reproduction_min_age", "reproduction_cooldown"}},
         {"Visao", "Vision", "##grp_vision",

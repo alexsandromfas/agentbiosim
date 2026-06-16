@@ -17,7 +17,8 @@ EnergyConfig EnergySystem::fromRegistry(const config::ParameterRegistry& paramet
     return config;
 }
 
-EnergyStats EnergySystem::apply(simulation::AgentStore& agents, const double dt, const EnergyConfig& config) const
+EnergyStats EnergySystem::apply(simulation::AgentStore& agents, const double dt, const EnergyConfig& config,
+                                const simulation::GenomeStore* genomes) const
 {
     EnergyStats stats;
     const double safeDt = std::max(0.0, dt);
@@ -28,14 +29,28 @@ EnergyStats EnergySystem::apply(simulation::AgentStore& agents, const double dt,
         {
             continue;
         }
+        // Fase 34.2: per-agent metabolic costs + speed reference (= maxSpeed) +
+        // energy cap from the genome. A bacteria genome carries the old global
+        // defaults, so this stays byte-identical.
+        EnergyConfig cfg = config;
+        if (genomes != nullptr)
+        {
+            if (const auto* g = genomes->find(agents.genomeIdAt(i)))
+            {
+                cfg.v0Cost = g->moveCostV0;
+                cfg.vmaxCost = g->moveCostVmax;
+                cfg.vmaxRef = std::max(1.0e-6, g->maxSpeed);
+                cfg.energyCap = g->energyCap;
+            }
+        }
         const simulation::Vec2 velocity = agents.velocityAt(i);
         const double speed = std::hypot(velocity.x, velocity.y);
         const double energyBefore = agents.energyAt(i);
-        const double cost = metabolicCostPerSecond(speed, config) * safeDt;
+        const double cost = metabolicCostPerSecond(speed, cfg) * safeDt;
         agents.setEnergyAt(i, energyBefore - cost);
-        if (config.energyCap >= 0.0 && agents.energyAt(i) > config.energyCap)
+        if (cfg.energyCap >= 0.0 && agents.energyAt(i) > cfg.energyCap)
         {
-            agents.setEnergyAt(i, config.energyCap);
+            agents.setEnergyAt(i, cfg.energyCap);
         }
         agents.addAgeAt(i, safeDt);
         stats.energyConsumed += std::max(0.0, energyBefore - agents.energyAt(i));

@@ -2,6 +2,7 @@
 
 #include "config/ParameterRegistry.hpp"
 #include "simulation/AgentStore.hpp"
+#include "simulation/GenomeStore.hpp"
 
 #include <cstddef>
 
@@ -25,7 +26,11 @@ class EnergySystem
 {
 public:
     [[nodiscard]] static EnergyConfig fromRegistry(const config::ParameterRegistry& parameters);
-    [[nodiscard]] EnergyStats apply(simulation::AgentStore& agents, double dt, const EnergyConfig& config) const;
+    // Fase 34.2: when `genomes` is provided, the metabolic costs (v0/vmax), the
+    // speed reference (= the agent's maxSpeed) and the energy cap are read PER AGENT
+    // from its genome. nullptr => the global config applies (legacy selftests).
+    [[nodiscard]] EnergyStats apply(simulation::AgentStore& agents, double dt, const EnergyConfig& config,
+                                    const simulation::GenomeStore* genomes = nullptr) const;
 
 private:
     [[nodiscard]] static double metabolicCostPerSecond(double speed, const EnergyConfig& config);

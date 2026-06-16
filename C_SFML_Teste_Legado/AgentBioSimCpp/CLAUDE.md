@@ -194,10 +194,31 @@ de codigo.
   por comando; UI nao toca no caminho deterministico). `--phase34-selftest` = 15 checks (PASS).
   Bateria 7-34 verde Debug+Release. `--phase31-selftest` = 112 checks. CMakeLists: +GenomeFields.cpp
   +Phase34Diagnostics.cpp.
-- **Proxima fase (apos autorizacao):** Fase 34.2 — genoma completo (mover os traços globais —
-  velocidade/morte/custos/geometria de visao — para o `GenomeRecord` por indivíduo, sistemas lendo
-  por-genoma; reusa GenomeFields + o modal; golden byte-identico se defaults=globais). Ver
-  `PHASE_34_2.md`. (Fase 33 — paridade/perf C++ vs Python — segue pendente, ver `PHASE_33.md`.)
+- **Fase 34.2 (genoma completo — ESCALARES) CONCLUIDA** (grupo 1; ver
+  `PHASE_34_2_FULL_GENOME_STATUS.md`, prompt `PHASE_34_2.md`). Migrados para o `GenomeRecord` (por
+  indivíduo) os traços globais ESCALARES que NAO mudam a arquitetura da rede: `maxSpeed`/`maxTurn`/
+  `allowReverse` (Movement), `moveCostV0`/`moveCostVmax` (Energy), `deathEnergy` (Death) + `energyCap`
+  lido por-agente. Movement/Energy/Death::apply ganharam `const GenomeStore* genomes=nullptr` e leem
+  por-agente (cfg local = config com overrides do genoma; nullptr=fallback global p/ selftests);
+  runOneStep passa `&genomes_`. `overwriteGenomeScalarsFromRegistry` semeia os 6 do `prefix` (os
+  `bacteria_*`/`predator_*` viram defaults de fabrica). GenomeFields ganhou os 6 (editor por-especie
+  da 34.1 os edita AO VIVO; corrigido bug: editor usava `v0_cost`/`vmax_cost` inexistentes ->
+  `metab_v0_cost`/`metab_vmax_cost` reais + labels). Save/load serializa os 6 (genomeToJson/From).
+  **GOLDEN `--phase32-checksum` BYTE-IDENTICO** (bacteria le do genoma = valor global antigo; golden
+  sem predadores, entao o unico delta por-prefixo — custo metab do predador — nao o afeta).
+  `--phase34-selftest`=**26 checks** (blocos I/J/K: max_speed=0 congela, death_energy alto extingue,
+  save/load preserva, determinismo c/ tracos distintos). Bench: Movement<5%/Energy~1%/Death~1%;
+  Perception/Neural inalterados. Bateria 7-34 PASS Debug+Release (predador inclusive — agora usa o
+  proprio custo metab; antes usava o do bacteria por bug, e nenhum teste quebrou). `death_by_age`/
+  `death_age` NAO migrados (nenhum sistema os consome — seria placeholder).
+- **PENDENTE — Fase 34.2 grupo 2 (decisao de risco do usuario):** geometria de visao
+  (retina_count/eye_count/canais/input_mode/fov/eye_angle) + `movement_mode` — mudam o TAMANHO da
+  entrada/saida da rede; tornar por-agente exige reescrever o layout flat do `PerceptionResult`
+  (offsets por-agente) + o batching neural por assinatura (incluir geometria), mantendo o caso
+  uniforme byte-identico. E a parte de maior risco a determinismo/FPS. Ficam GLOBAIS (marcados no
+  editor) ate o usuario autorizar.
+- **Proxima fase:** decidir 34.2 grupo 2 (acima) OU Fase 33 (paridade/perf C++ vs Python, fecha
+  Divida 10; ver `PHASE_33.md`).
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 

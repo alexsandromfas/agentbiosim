@@ -23,7 +23,8 @@ DeathConfig DeathSystem::fromRegistry(const config::ParameterRegistry& parameter
 }
 
 DeathStats DeathSystem::apply(simulation::AgentStore& agents, const DeathConfig& config,
-                                const simulation::SpeciesStore* species) const
+                                const simulation::SpeciesStore* species,
+                                const simulation::GenomeStore* genomes) const
 {
     DeathStats stats;
     if (config.maxDeathsPerStep <= 0 || agents.empty())
@@ -59,7 +60,18 @@ DeathStats DeathSystem::apply(simulation::AgentStore& agents, const DeathConfig&
     candidates.reserve(agents.size());
     for (std::size_t i = 0; i < agents.size(); ++i)
     {
-        if (agents.aliveAt(i) && agents.energyAt(i) <= config.deathEnergy)
+        if (!agents.aliveAt(i))
+        {
+            continue;
+        }
+        // Fase 34.2: per-agent starvation threshold from the genome (bacteria
+        // genome carries the old global default, so this stays byte-identical).
+        double threshold = config.deathEnergy;
+        if (genomes != nullptr)
+        {
+            if (const auto* g = genomes->find(agents.genomeIdAt(i))) threshold = g->deathEnergy;
+        }
+        if (agents.energyAt(i) <= threshold)
         {
             candidates.push_back({agents.energyAt(i), agents.idAt(i), agents.speciesIdAt(i)});
         }

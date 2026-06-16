@@ -38,6 +38,15 @@ struct GenomeRecord
     double splitEnergy = 150.0;
     double initialEnergy = 100.0;
     double energyCap = 400.0;
+    // Fase 34.2: locomotion + metabolic-cost + death-energy traits, now PER
+    // INDIVIDUAL (they were global bacteria_* params read by the systems). Defaults
+    // equal the old global defaults so the per-genome reads stay byte-identical.
+    double maxSpeed = 300.0;
+    double maxTurn = 3.14159265358979323846;
+    bool allowReverse = false;
+    double moveCostV0 = 0.5;   // metab cost/s at zero speed (<- *_metab_v0_cost)
+    double moveCostVmax = 8.0; // metab cost/s at max speed (<- *_metab_vmax_cost)
+    double deathEnergy = 50.0; // starvation threshold (<- *_death_energy)
     SpeciesId speciesId = 0;
     AgentTypeCode typeCode = AgentTypeCode::LegacyBacteria;
     neural::BrainConfig brainConfig;
