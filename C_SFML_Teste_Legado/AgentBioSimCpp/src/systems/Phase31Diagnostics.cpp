@@ -15,6 +15,7 @@
 #include "simulation/World.hpp"
 #include "systems/CollisionSystem.hpp"
 #include "systems/DeathSystem.hpp"
+#include "systems/FoodSystem.hpp"
 #include "systems/InteractionSystem.hpp"
 #include "render/Camera2D.hpp"
 #include "sim/SimulationRunner.hpp"
@@ -29,6 +30,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <variant>
 #include <vector>
 
@@ -996,6 +998,63 @@ Phase31ValidationSummary runPhase31Validation()
         check(static_cast<int>(rn.foods().size()) >= 1490,
               "N: reposicao de comida atinge o alvo alto (1500) em poucos passos (" +
                   std::to_string(rn.foods().size()) + ")");
+    }
+
+    // ------------- O. Comida em pedacos ITINERANTE (food_chunk_mode=roaming) ----------
+    // Modo novo: um chunk pode ser comido ate o fim e desaparecer; um chunk NOVO surge
+    // em OUTRO lugar (id diferente), em vez de repor no mesmo site (modo 'fixo'). Teste
+    // unitario do FoodSystem (sem organismos -> sem ruido). Contrasta roaming x fixed.
+    {
+        const simulation::World world{simulation::WorldConfig{
+            simulation::WorldShape::Rectangular, 800.0, 600.0, 400.0, {400.0, 300.0}}};
+        systems::FoodSystemConfig cfg;
+        cfg.mode = simulation::FoodKind::Chunk;
+        cfg.target = 40;
+        cfg.particleRadius = 5.0;
+        cfg.clusterRadius = 20.0;
+        cfg.trimMaxPerStep = 100;
+
+        const auto clusterIdSet = [](const simulation::FoodStore& f) {
+            std::unordered_set<std::uint32_t> ids;
+            for (std::size_t i = 0; i < f.size(); ++i) ids.insert(f.clusterIdAt(i));
+            return ids;
+        };
+        const auto removeCluster = [](simulation::FoodStore& f, std::uint32_t victim) {
+            std::vector<simulation::EntityId> doomed;
+            for (std::size_t i = 0; i < f.size(); ++i)
+                if (f.clusterIdAt(i) == victim) doomed.push_back(f.idAt(i));
+            for (const auto id : doomed) static_cast<void>(f.removeFood(id));
+        };
+
+        // Roaming: a fully-eaten chunk does NOT come back with the same id; a new one
+        // (new id) appears elsewhere, and the chunk count is restored.
+        systems::FoodSystem fsR;
+        cfg.chunkRoaming = true;
+        simulation::FoodStore foodsR;
+        static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
+        const auto idsR0 = clusterIdSet(foodsR);
+        check(idsR0.size() >= 2, "O: roaming criou multiplos chunks (" +
+                                     std::to_string(idsR0.size()) + ")");
+        const std::uint32_t victimR = *idsR0.begin();
+        removeCluster(foodsR, victimR);
+        static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
+        const auto idsR1 = clusterIdSet(foodsR);
+        check(idsR1.count(victimR) == 0,
+              "O: chunk esgotado NAO reaparece com o mesmo id (itinerante)");
+        check(idsR1.size() >= idsR0.size(),
+              "O: contagem de chunks restaurada por um chunk NOVO em outro lugar");
+
+        // Fixed (legacy): refills the SAME sites in place -> the eaten site id returns.
+        systems::FoodSystem fsF;
+        cfg.chunkRoaming = false;
+        simulation::FoodStore foodsF;
+        static_cast<void>(fsF.replenishToTarget(foodsF, world, cfg));
+        const auto idsF0 = clusterIdSet(foodsF);
+        const std::uint32_t victimF = *idsF0.begin();
+        removeCluster(foodsF, victimF);
+        static_cast<void>(fsF.replenishToTarget(foodsF, world, cfg));
+        check(clusterIdSet(foodsF).count(victimF) == 1,
+              "O: modo fixo repoe o MESMO site no lugar (contraste com itinerante)");
     }
 
     summary.details = log.str();

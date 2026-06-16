@@ -331,6 +331,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     registerNeatParameters(registry, "neural_recurrent_neat", 0.45, 0.08, 0.025, 0.01, 0.003, 0.02, 64, 640, true);
 
     addString(registry, "food_mode", "instant", "food", "Food mode: instant or chunk.", {"food_type"}, {"runtime", "food"});
+    addString(registry, "food_chunk_mode", "fixed", "food",
+              "Chunk replenish behaviour: 'fixed' refills the chunks in place forever; 'roaming' lets a chunk be eaten to nothing and a new one appears elsewhere.",
+              {}, {"runtime", "food"});
     addInt(registry, "food_target", 50, "food", "Target food count.", 0.0, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_min_r", 4.5, "food", "Minimum instant food radius.", 0.0, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_max_r", 5.0, "food", "Maximum instant food radius.", 0.0, std::nullopt, {}, {"runtime", "food"});

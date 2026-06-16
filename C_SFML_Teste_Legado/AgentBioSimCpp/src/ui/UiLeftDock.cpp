@@ -371,7 +371,7 @@ std::vector<std::string> UiLeftDock::substratoParameters()
     // interval was redundant). A single "raio da particula de comida"
     // (food_piece_particle_radius) sizes both instant and chunk food.
     return {"substrate_shape", "world_w", "world_h", "substrate_radius",
-            "food_mode", "food_target", "food_piece_particle_radius",
+            "food_mode", "food_chunk_mode", "food_target", "food_piece_particle_radius",
             "food_color", "food_bite_seconds",
             "food_piece_cluster_radius",
             "food_trim_max_per_step"};

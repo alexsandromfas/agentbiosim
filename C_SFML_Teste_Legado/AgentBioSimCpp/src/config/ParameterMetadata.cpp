@@ -349,6 +349,7 @@ const std::vector<LabelEntry> kFriendlyLabels{
 
     // Phase 25.1: substrato + comida (apareciam com nome interno em ingles).
     {"food_mode",                    "Modo da comida", "Food mode"},
+    {"food_chunk_mode",              "Reposicao dos pedacos", "Chunk replenishment"},
     {"food_target",                  "Quantidade alvo de comida", "Target food amount"},
     {"food_min_r",                   "Raio minimo de spawn da comida", "Food spawn min radius"},
     {"food_max_r",                   "Raio maximo de spawn da comida", "Food spawn max radius"},
@@ -475,6 +476,7 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
 
     // Phase 25.1: food/substrate enums.
     if (name == "food_mode")          return {"instant", "chunk"};
+    if (name == "food_chunk_mode")    return {"fixed", "roaming"};
 
     if (name == "substrate_shape")    return {"rectangular", "circular"};
     if (name == "neural_network_type") return {
@@ -534,6 +536,11 @@ std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
     {
         if (is("instant")) return tr::tr("Instantanea", "Instant");
         if (is("chunk"))   return tr::tr("Em pedacos", "Chunks");
+    }
+    if (name == "food_chunk_mode")
+    {
+        if (is("fixed"))   return tr::tr("Fixo (repoe no lugar)", "Fixed (refills in place)");
+        if (is("roaming")) return tr::tr("Itinerante (esgota e reaparece)", "Roaming (depletes, reappears)");
     }
     if (name == "body_shape" || nameEndsWith(name, "_body_shape"))
     {
@@ -658,6 +665,9 @@ const std::vector<HelpEntry> kParameterHelp{
     {"food_mode",
      "Como a comida se comporta: 'instantanea' some inteira ao ser tocada; 'em pedacos' precisa ser consumida aos poucos, como um aglomerado de particulas.",
      "How food behaves: 'instant' disappears whole when touched; 'chunks' must be eaten gradually, like a cluster of particles."},
+    {"food_chunk_mode",
+     "So no modo 'em pedacos'. 'Fixo': os pedacos repoem sempre no mesmo lugar (os organismos tendem a acampar). 'Itinerante': um pedaco pode ser comido ate o fim e desaparecer; um novo pedaco surge em outro lugar, entao os organismos precisam procurar comida.",
+     "Only in 'chunks' mode. 'Fixed': chunks always refill in the same place (organisms tend to camp). 'Roaming': a chunk can be eaten to nothing and vanish; a new chunk appears elsewhere, so organisms must search for food."},
     {"food_target",
      "Quantidade de comida que o mundo tenta manter. A reposicao trabalha para chegar nesse alvo.",
      "Amount of food the world tries to maintain. Replenishment works toward this target."},

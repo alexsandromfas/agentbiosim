@@ -6,6 +6,7 @@
 #include <cmath>
 #include <map>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace agentbiosim::systems
@@ -55,6 +56,7 @@ FoodSystemConfig FoodSystem::fromRegistry(const config::ParameterRegistry& param
 
     FoodSystemConfig cfg;
     cfg.mode = parseFoodKind(parameterString(parameters, "food_mode", "instant"));
+    cfg.chunkRoaming = parameterString(parameters, "food_chunk_mode", "fixed") == "roaming";
     cfg.target = std::max(0, parameterInt(parameters, "food_target", cfg.target));
     cfg.biteSeconds = std::max(0.0, parameterDouble(parameters, "food_bite_seconds", cfg.biteSeconds));
     cfg.particleRadius = std::max(0.1, parameterDouble(parameters, "food_piece_particle_radius", cfg.particleRadius));
@@ -265,10 +267,48 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
         return stats;
     }
 
-    // Chunk mode (growth): keep the field at the target by dropping each MISSING
-    // particle into a chunk site (round-robin), at a random spot within clusterRadius.
-    // The chunk is bounded by its radius (never fragments past it) and the work is
-    // O(deficit) per step — no full-food scan, no per-call cluster map (the old cost).
+    // Chunk mode — two behaviours selected by food_chunk_mode:
+    // ROAMING ("itinerante"): chunks are FINITE and never refilled in place. Keep
+    // ~`needed` whole chunks alive; when organisms eat one to nothing it vanishes and a
+    // FRESH chunk is spawned at a NEW random centre, so food relocates and organisms must
+    // search (no camping). New chunks obey particleRadius + clusterRadius (spawnCluster).
+    // spawnCluster uses the persistent rng_ -> deterministic. O(food) scan per call, but
+    // food is cheap and this mode is opt-in.
+    if (config.chunkRoaming)
+    {
+        const double pr = std::max(0.1, config.particleRadius);
+        const double cr = std::max(pr, config.clusterRadius);
+        const double capacity = std::max(1.0, (cr * cr) / (pr * pr));
+        const int needed =
+            std::max(1, static_cast<int>(std::ceil(static_cast<double>(config.target) / capacity)));
+        std::unordered_set<std::uint32_t> aliveChunks;
+        for (std::size_t i = 0; i < foods.size(); ++i)
+        {
+            if (foods.kindAt(i) == simulation::FoodKind::Chunk)
+            {
+                aliveChunks.insert(foods.clusterIdAt(i));
+            }
+        }
+        int toSpawn = needed - static_cast<int>(aliveChunks.size());
+        int rejected = 0;
+        while (toSpawn > 0)
+        {
+            const std::uint32_t cid = spawnCluster(foods, world, config, obstacles);
+            if (cid == 0U)
+            {
+                if (++rejected >= 16) break;  // world too crowded — avoid an infinite spin
+                continue;
+            }
+            ++stats.clustersCreated;
+            --toSpawn;
+        }
+        return stats;
+    }
+
+    // FIXED ("fixo", legacy/default): keep the field at the target by dropping each
+    // MISSING particle into a fixed chunk site (round-robin), at a random spot within
+    // clusterRadius. The chunk is bounded by its radius (never fragments past it) and the
+    // work is O(deficit) per step — no full-food scan, no per-call cluster map.
     ensureChunkSites(world, config);
     if (chunkSites_.empty()) return stats;
     const double pr = std::max(0.1, config.particleRadius);

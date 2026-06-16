@@ -34,6 +34,10 @@ struct FoodSystemConfig
     double biteSeconds = 6.0;
     double particleRadius = 5.0;
     double clusterRadius = 36.0; // the chunk radius: a chunk never grows past this
+    // Chunk replenish behaviour (food_chunk_mode). false = "fixed": chunks refill in
+    // place forever (organisms camp). true = "roaming": a chunk is eaten to nothing and
+    // a fresh chunk appears elsewhere (organisms must search). Default fixed = legacy.
+    bool chunkRoaming = false;
     // Phase 7 instant parameters.
     double instantMinRadius = 4.5;
     double instantMaxRadius = 5.0;
