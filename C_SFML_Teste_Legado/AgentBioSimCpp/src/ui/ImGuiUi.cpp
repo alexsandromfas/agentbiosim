@@ -471,6 +471,7 @@ const std::vector<GenomeEditorGroup>& genomeEditorGroups()
         {"Energia e reproducao", "Energy & reproduction", "##grp_energy",
             {"initial_energy", "death_energy", "split_energy", "metab_v0_cost", "metab_vmax_cost",
              "energy_cap", "death_by_age_enabled", "death_age",
+             "reproduction_mode", "offspring_count",
              "reproduction_min_age", "reproduction_cooldown"}},
         {"Visao", "Vision", "##grp_vision",
             {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",

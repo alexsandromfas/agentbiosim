@@ -284,6 +284,49 @@ Phase34ValidationSummary runPhase34Validation()
               "K: determinismo com especies de traços distintos (2 execucoes identicas)");
     }
 
+    // --- L) Fase 34.3: reproduction mode (energy vs age) + offspring count ---------
+    {
+        // Age mode reproduces from age + cooldown ALONE, with no energy gate. With a
+        // huge split_energy the ENERGY mode can never reproduce; switching to AGE mode
+        // makes the population grow regardless of energy.
+        config::ParameterRegistry rL = config::createDefaultParameterRegistry();
+        sim::SimulationRunner r(rL);
+        r.initialize();
+        r.step(kDt);
+        const auto sp = r.createSpeciesDefault();      // 5 founders
+        r.adjustSpeciesPopulation(sp, 1, 100000);      // raise max so the cap won't clamp
+        r.setSpeciesGenomeField(sp, "split_energy", config::ParameterValue{1.0e9});
+        r.setSpeciesGenomeField(sp, "reproduction_min_age", config::ParameterValue{0.0});
+        r.setSpeciesGenomeField(sp, "reproduction_cooldown", config::ParameterValue{0.0});
+        const std::size_t base = r.countAgentsOfSpecies(sp);
+        for (int i = 0; i < 4; ++i) r.step(kDt);
+        const std::size_t afterEnergy = r.countAgentsOfSpecies(sp);
+        check(afterEnergy <= base, "L: modo ENERGIA com split alto nao reproduz (sem energia)");
+        r.setSpeciesGenomeField(sp, "reproduction_mode", config::ParameterValue{std::string("age")});
+        for (int i = 0; i < 4; ++i) r.step(kDt);
+        check(r.countAgentsOfSpecies(sp) > afterEnergy,
+              "L: modo IDADE reproduz sem energia (pop " + std::to_string(afterEnergy) + " -> " +
+                  std::to_string(r.countAgentsOfSpecies(sp)) + ")");
+    }
+    {
+        // offspring_count = N -> each reproducing parent yields N children in one event.
+        config::ParameterRegistry rL2 = config::createDefaultParameterRegistry();
+        sim::SimulationRunner r(rL2);
+        r.initialize();
+        r.step(kDt);                                   // founders get brains
+        const auto sp = r.createSpeciesDefault();      // 5 founders
+        r.adjustSpeciesPopulation(sp, 1, 100000);
+        r.setSpeciesGenomeField(sp, "reproduction_mode", config::ParameterValue{std::string("age")});
+        r.setSpeciesGenomeField(sp, "reproduction_min_age", config::ParameterValue{0.0});
+        r.setSpeciesGenomeField(sp, "reproduction_cooldown", config::ParameterValue{1000.0});
+        r.setSpeciesGenomeField(sp, "offspring_count", config::ParameterValue{3});
+        const std::size_t before = r.countAgentsOfSpecies(sp);  // 5
+        r.step(kDt);                                   // each founder births 3 -> +15
+        check(r.countAgentsOfSpecies(sp) == before + before * 3,
+              "L: offspring_count=3 -> cada pai gera 3 filhos (" + std::to_string(before) + " -> " +
+                  std::to_string(r.countAgentsOfSpecies(sp)) + ")");
+    }
+
     summary.details = log.str();
     return summary;
 }

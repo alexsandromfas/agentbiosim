@@ -551,6 +551,8 @@ Json toJson(const GenomeRecord& r)
     j.set("mutationStrength", Json(r.mutationStrength));
     j.set("reproductionMinAge", Json(r.reproductionMinAge));
     j.set("reproductionCooldown", Json(r.reproductionCooldown));
+    j.set("reproductionMode", Json(static_cast<int>(r.reproductionMode)));
+    j.set("offspringCount", Json(r.offspringCount));
     j.set("splitEnergy", Json(r.splitEnergy));
     j.set("initialEnergy", Json(r.initialEnergy));
     j.set("energyCap", Json(r.energyCap));
@@ -582,6 +584,8 @@ GenomeRecord genomeFrom(const Json& j)
     r.mutationStrength = j.getDouble("mutationStrength", 0.08);
     r.reproductionMinAge = j.getDouble("reproductionMinAge", 0.0);
     r.reproductionCooldown = j.getDouble("reproductionCooldown", 0.0);
+    r.reproductionMode = static_cast<ReproductionMode>(j.getInt("reproductionMode", 0));
+    r.offspringCount = std::max(1, static_cast<int>(j.getInt("offspringCount", 1)));
     r.splitEnergy = j.getDouble("splitEnergy", 150.0);
     r.initialEnergy = j.getDouble("initialEnergy", 100.0);
     r.energyCap = j.getDouble("energyCap", 400.0);

@@ -44,6 +44,22 @@ const char* shapeStr(const BodyShapeCode code) noexcept
 {
     return code == BodyShapeCode::Circle ? "circle" : "ellipse";
 }
+ReproductionMode toReproMode(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](const unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return (value == "age" || value == "idade") ? ReproductionMode::Age : ReproductionMode::Energy;
+}
+const char* reproModeStr(const ReproductionMode mode) noexcept
+{
+    return mode == ReproductionMode::Age ? "age" : "energy";
+}
+int asInt(const config::ParameterValue& v, const int fallback)
+{
+    if (const auto* p = std::get_if<int>(&v)) return *p;
+    if (const auto* p = std::get_if<double>(&v)) return static_cast<int>(*p);
+    return fallback;
+}
 } // namespace
 
 bool setGenomeField(GenomeRecord& g, const std::string& f, const config::ParameterValue& v)
@@ -65,6 +81,8 @@ bool setGenomeField(GenomeRecord& g, const std::string& f, const config::Paramet
     if (f == "metab_vmax_cost") { g.moveCostVmax = std::max(0.0, asNum(v, g.moveCostVmax)); return true; }
     if (f == "reproduction_min_age")  { g.reproductionMinAge = std::max(0.0, asNum(v, g.reproductionMinAge)); return true; }
     if (f == "reproduction_cooldown") { g.reproductionCooldown = std::max(0.0, asNum(v, g.reproductionCooldown)); return true; }
+    if (f == "reproduction_mode") { g.reproductionMode = toReproMode(asStr(v, reproModeStr(g.reproductionMode))); return true; }
+    if (f == "offspring_count")   { g.offspringCount = std::max(1, asInt(v, g.offspringCount)); return true; }
     // Mutation.
     if (f == "mutation_rate")     { g.mutationRate = std::clamp(asNum(v, g.mutationRate), 0.0, 1.0); return true; }
     if (f == "mutation_strength") { g.mutationStrength = std::max(0.0, asNum(v, g.mutationStrength)); return true; }
@@ -100,6 +118,8 @@ std::optional<config::ParameterValue> genomeFieldValue(const GenomeRecord& g, co
     if (f == "metab_vmax_cost") return config::ParameterValue{g.moveCostVmax};
     if (f == "reproduction_min_age")  return config::ParameterValue{g.reproductionMinAge};
     if (f == "reproduction_cooldown") return config::ParameterValue{g.reproductionCooldown};
+    if (f == "reproduction_mode") return config::ParameterValue{std::string(reproModeStr(g.reproductionMode))};
+    if (f == "offspring_count")   return config::ParameterValue{g.offspringCount};
     if (f == "mutation_rate")     return config::ParameterValue{g.mutationRate};
     if (f == "mutation_strength") return config::ParameterValue{g.mutationStrength};
     if (f == "diet_food")             return config::ParameterValue{g.diet.eatFood};

@@ -396,6 +396,8 @@ const std::vector<LabelEntry> kSpeciesSuffixLabels{
     {"corpse_to_food",           "Cadaver vira comida", "Corpse becomes food"},
     {"reproduction_min_age",     "Idade minima para reproduzir (s)", "Min age to reproduce (s)"},
     {"reproduction_cooldown",    "Cooldown de reproducao (s)", "Reproduction cooldown (s)"},
+    {"reproduction_mode",        "Modo de reproducao", "Reproduction mode"},
+    {"offspring_count",          "Filhos por reproducao", "Offspring per birth"},
     {"vision_radius",            "Raio de visao", "Vision radius"},
     {"retina_count",             "Quantidade de retinas", "Retina count"},
     {"retina_fov_degrees",       "Campo de visao (graus)", "Field of view (degrees)"},
@@ -474,6 +476,8 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
         return {"forward", "omni"};
     if (name == "retina_input_mode" || nameEndsWith(name, "_retina_input_mode"))
         return {"distance_only", "color_distance", "color_plus_distance", "color_only"};
+    if (name == "reproduction_mode" || nameEndsWith(name, "_reproduction_mode"))
+        return {"energy", "age"};
 
     // Phase 25.1: food/substrate enums.
     if (name == "food_mode")          return {"instant", "chunk"};
@@ -559,6 +563,11 @@ std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
         if (is("color_distance"))     return tr::tr("Cor + distancia (combinadas)", "Color + distance (combined)");
         if (is("color_plus_distance"))return tr::tr("Cor e distancia (separadas)", "Color and distance (separate)");
         if (is("color_only"))         return tr::tr("Apenas cor", "Color only");
+    }
+    if (name == "reproduction_mode" || nameEndsWith(name, "_reproduction_mode"))
+    {
+        if (is("energy")) return tr::tr("Por energia", "By energy");
+        if (is("age"))    return tr::tr("Por idade", "By age");
     }
     if (name == "retina_vision_mode")
     {
@@ -764,6 +773,12 @@ const std::vector<HelpEntry> kSpeciesHelp{
     {"reproduction_cooldown",
      "Tempo de espera, em segundos, entre duas reproducoes do mesmo organismo. Controla o ritmo de natalidade.",
      "Wait time, in seconds, between two reproductions of the same organism. Controls the birth rate."},
+    {"reproduction_mode",
+     "Como o organismo decide se reproduzir. 'Por energia' (padrao): precisa acumular a energia de reproducao e divide essa energia com os filhos. 'Por idade': reproduz so pela idade minima + cooldown, SEM exigir nem gastar energia (os filhos nascem com a energia inicial) — a pressao seletiva vira sobreviver, nao comer. Combina com desligar a comida (alvo 0 no substrato).",
+     "How the organism decides to reproduce. 'By energy' (default): must accumulate the split energy and shares it with the children. 'By age': reproduces from minimum age + cooldown only, with NO energy requirement or cost (children spawn with the initial energy) — selective pressure becomes survival, not eating. Pairs well with turning food off (target 0 in the substrate)."},
+    {"offspring_count",
+     "Quantos filhos nascem em cada reproducao (em vez de sempre 1). No modo por energia, a energia do pai e dividida entre ele e os filhos; no modo por idade, cada filho nasce com a energia inicial.",
+     "How many children are born per reproduction (instead of always 1). In energy mode the parent's energy is split among it and the children; in age mode each child spawns with the initial energy."},
     {"vision_radius",
      "Ate que distancia o organismo enxerga. Raios maiores detectam comida e ameacas mais longe, mas custam mais para processar.",
      "How far the organism can see. Larger radii detect food and threats from farther away, but cost more to process."},

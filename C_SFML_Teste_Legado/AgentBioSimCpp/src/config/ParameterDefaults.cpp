@@ -139,6 +139,13 @@ void registerSpeciesParameters(ParameterRegistry& registry, const SpeciesDefault
     addBool(registry, (p + "_corpse_to_food").c_str(), false, category.c_str(), "Convert dead organism to food.", {}, {"runtime", "food", speciesDomain.c_str()});
     addDouble(registry, (p + "_reproduction_min_age").c_str(), 0.0, category.c_str(), "Minimum age before reproduction.", 0.0, std::nullopt, {}, {"runtime", "energy", speciesDomain.c_str()});
     addDouble(registry, (p + "_reproduction_cooldown").c_str(), 0.0, category.c_str(), "Cooldown between reproductions.", 0.0, std::nullopt, {}, {"runtime", "energy", speciesDomain.c_str()});
+    // Fase 34.3: reproduction strategy + litter size (per species genome trait).
+    addString(registry, (p + "_reproduction_mode").c_str(), "energy", category.c_str(),
+              "Reproduction trigger: 'energy' (reach split energy) or 'age' (by age + cooldown, no energy cost).",
+              {}, {"runtime", "energy", speciesDomain.c_str()});
+    addInt(registry, (p + "_offspring_count").c_str(), 1, category.c_str(),
+           "How many children are created per reproduction event.", 1.0, std::nullopt, {},
+           {"runtime", "energy", speciesDomain.c_str()});
     addDouble(registry, (p + "_metab_v0_cost").c_str(), defaults.v0Cost, category.c_str(), "Energy cost per second at zero speed.", 0.0, std::nullopt, {}, {"runtime", "energy", speciesDomain.c_str()});
     addDouble(registry, (p + "_metab_vmax_cost").c_str(), defaults.vmaxCost, category.c_str(), "Energy cost per second at maximum speed.", 0.0, std::nullopt, {}, {"runtime", "energy", speciesDomain.c_str()});
     addDouble(registry, (p + "_energy_cap").c_str(), defaults.energyCap, category.c_str(), "Maximum stored energy.", 0.0, std::nullopt, {}, {"runtime", "energy", speciesDomain.c_str()});

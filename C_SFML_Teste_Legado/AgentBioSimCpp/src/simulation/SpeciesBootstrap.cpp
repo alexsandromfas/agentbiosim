@@ -28,6 +28,14 @@ BodyShapeCode toBodyShapeCode(std::string value)
     }
     return BodyShapeCode::Ellipse;
 }
+
+ReproductionMode toReproductionMode(std::string value)
+{
+    std::transform(value.begin(), value.end(), value.begin(), [](const unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return (value == "age" || value == "idade") ? ReproductionMode::Age : ReproductionMode::Energy;
+}
 } // namespace
 
 void overwriteGenomeScalarsFromRegistry(GenomeRecord& genome,
@@ -45,6 +53,9 @@ void overwriteGenomeScalarsFromRegistry(GenomeRecord& genome,
     genome.mutationStrength = std::max(0.0, parameterDouble(registry, p + "_mutation_strength", 0.08));
     genome.reproductionMinAge = std::max(0.0, parameterDouble(registry, p + "_reproduction_min_age", 0.0));
     genome.reproductionCooldown = std::max(0.0, parameterDouble(registry, p + "_reproduction_cooldown", 0.0));
+    // Fase 34.3: reproduction strategy + litter size (per individual).
+    genome.reproductionMode = toReproductionMode(parameterString(registry, p + "_reproduction_mode", "energy"));
+    genome.offspringCount = std::max(1, config::parameterInt(registry, p + "_offspring_count", 1));
     genome.splitEnergy = std::max(0.0, parameterDouble(registry, p + "_split_energy", 150.0));
     genome.initialEnergy = std::max(0.0, parameterDouble(registry, p + "_initial_energy", 100.0));
     genome.energyCap = std::max(0.0, parameterDouble(registry, p + "_energy_cap", 400.0));

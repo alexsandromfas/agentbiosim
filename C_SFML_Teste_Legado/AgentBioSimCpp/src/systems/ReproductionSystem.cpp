@@ -79,6 +79,13 @@ ReproductionConfig ReproductionSystem::fromRegistry(const config::ParameterRegis
         config::parameterDouble(parameters, speciesPrefix + "_energy_cap", 400.0));
     config.bodySize = std::max(0.1,
         config::parameterDouble(parameters, speciesPrefix + "_body_size", 9.0));
+    // Fase 34.3: fallback strategy/litter (the live path honors each parent's genome).
+    config.reproductionMode =
+        config::parameterString(parameters, speciesPrefix + "_reproduction_mode", "energy") == "age"
+            ? simulation::ReproductionMode::Age
+            : simulation::ReproductionMode::Energy;
+    config.offspringCount = std::max(1,
+        config::parameterInt(parameters, speciesPrefix + "_offspring_count", 1));
     config.maxPopulation = std::max(0,
         config::parameterInt(parameters, speciesPrefix + "_max_limit", 0));
     config.minPopulation = std::max(0,
@@ -146,15 +153,19 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         // Fallback to the config values when the agent has no genome record.
         double effSplitEnergy = config.splitEnergy;
         double effMinAge = config.reproductionMinAge;
+        simulation::ReproductionMode effMode = config.reproductionMode;
         if (config.honorGenome)
         {
             if (const auto* g = genomes.find(agents.genomeIdAt(i)))
             {
                 effSplitEnergy = std::max(0.0, g->splitEnergy);
                 effMinAge = std::max(g->reproductionMinAge, config.globalMinAgeFloor);
+                effMode = g->reproductionMode;
             }
         }
-        if (agents.energyAt(i) < effSplitEnergy)
+        // Fase 34.3: the energy gate applies ONLY in energy mode. In age mode the
+        // organism reproduces from age + cooldown alone (no energy requirement).
+        if (effMode == simulation::ReproductionMode::Energy && agents.energyAt(i) < effSplitEnergy)
         {
             ++lastStats_.blockedByEnergy;
             continue;
@@ -198,40 +209,16 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
             continue;
         }
 
-        // Population cap. With a species store: PER LABEL (the child belongs to
-        // the parent's label; block once that label hits its maxPopulation).
-        // Without one (legacy callers/tests): old global total check.
-        const simulation::SpeciesId childSpecies = agents.speciesIdAt(parentIndex);
-        if (species != nullptr)
-        {
-            const auto* rec = species->find(childSpecies);
-            if (rec != nullptr && rec->maxPopulation > 0 &&
-                countBySpecies[childSpecies] >= static_cast<std::size_t>(rec->maxPopulation))
-            {
-                ++lastStats_.blockedByPopulation;
-                continue;
-            }
-            if (rec == nullptr && config.maxPopulation > 0 &&
-                agents.size() >= static_cast<std::size_t>(config.maxPopulation))
-            {
-                ++lastStats_.blockedByPopulation;
-                continue;
-            }
-        }
-        else if (config.maxPopulation > 0 &&
-                 agents.size() >= static_cast<std::size_t>(config.maxPopulation))
-        {
-            ++lastStats_.blockedByPopulation;
-            continue;
-        }
-
-        // Microfase 32.2: per-parent reproduction genetics. Copy the scalars
-        // BEFORE cloneFrom — the clone can realloc the genome record vector and
-        // dangle any GenomeRecord pointer (same hazard as Debt 7).
+        // Microfase 32.2 + Fase 34.3: per-parent reproduction genetics + STRATEGY.
+        // Copy the scalars BEFORE any cloneFrom — the clone can realloc the genome
+        // record vector and dangle a GenomeRecord pointer (same hazard as Debt 7).
         double effCooldown = config.reproductionCooldown;
         double childBodySize = config.bodySize;
         double effMutationRate = config.mutationRate;
         double effMutationStrength = config.mutationStrength;
+        double effInitialEnergy = config.initialEnergy;
+        simulation::ReproductionMode effMode = config.reproductionMode;
+        int offspring = config.offspringCount;
         if (config.honorGenome)
         {
             const simulation::GenomeId gid = agents.genomeIdAt(parentIndex);
@@ -241,66 +228,105 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
                 childBodySize = pg->bodySize;
                 effMutationRate = std::clamp(pg->mutationRate, 0.0, 1.0);
                 effMutationStrength = std::max(0.0, pg->mutationStrength);
+                effInitialEnergy = std::max(0.0, pg->initialEnergy);
+                effMode = pg->reproductionMode;
+                offspring = std::max(1, pg->offspringCount);
             }
         }
 
-        // Halve the parent's energy and give the same to the child.
-        const double parentEnergyBefore = agents.energyAt(parentIndex);
-        const double childEnergy = parentEnergyBefore * 0.5;
-        const double parentEnergyAfter = parentEnergyBefore - childEnergy;
-        agents.setEnergyAt(parentIndex, parentEnergyAfter);
-        agents.setReproductionCooldownAt(parentIndex, effCooldown);
-
-        // Genome inheritance (clone parent's genome record).
-        const simulation::GenomeId parentGenomeId = agents.genomeIdAt(parentIndex);
-        const simulation::GenomeHandle childGenomeHandle = genomes.cloneFrom(parentGenomeId);
-        if (!childGenomeHandle.isValid())
+        // Population cap -> how many children actually fit (PER LABEL with a species
+        // store; else the global total). Computing the slot count up front lets a whole
+        // litter respect the cap. With offspring=1 this reduces to the old single check.
+        const simulation::SpeciesId childSpecies = agents.speciesIdAt(parentIndex);
+        int slots = offspring;
+        if (species != nullptr)
         {
+            const auto* rec = species->find(childSpecies);
+            if (rec != nullptr && rec->maxPopulation > 0)
+                slots = std::min(slots, std::max(0, rec->maxPopulation -
+                                                        static_cast<int>(countBySpecies[childSpecies])));
+            else if (rec == nullptr && config.maxPopulation > 0)
+                slots = std::min(slots, std::max(0, config.maxPopulation - static_cast<int>(agents.size())));
+        }
+        else if (config.maxPopulation > 0)
+        {
+            slots = std::min(slots, std::max(0, config.maxPopulation - static_cast<int>(agents.size())));
+        }
+        if (slots <= 0)
+        {
+            ++lastStats_.blockedByPopulation;
             continue;
         }
+        const int actualChildren = slots;
 
-        // Compose child spawn.
-        simulation::AgentSpawn spawn;
+        // Energy per mode. ENERGY: split the parent's energy among it and the children
+        // (each gets 1/(N+1); for N=1 this is the legacy halve -> golden byte-identical).
+        // AGE: children get a fresh initialEnergy and the parent KEEPS its energy
+        // (reproduction has no energy cost), so reproduction is fully decoupled from food.
+        const double parentEnergyBefore = agents.energyAt(parentIndex);
+        double childEnergy = effInitialEnergy;
+        if (effMode == simulation::ReproductionMode::Energy)
+        {
+            childEnergy = parentEnergyBefore / static_cast<double>(actualChildren + 1);
+            agents.setEnergyAt(parentIndex,
+                               parentEnergyBefore - childEnergy * static_cast<double>(actualChildren));
+        }
+        agents.setReproductionCooldownAt(parentIndex, effCooldown);
+
+        // Parent attributes are stable across createAgent (it appends; indices keep).
         const simulation::Vec2 parentPos = agents.positionAt(parentIndex);
         const double parentRadius = agents.radiusAt(parentIndex);
+        const simulation::ColorRgb parentColor = agents.colorAt(parentIndex);
+        const simulation::AgentTypeCode parentType = agents.typeCodeAt(parentIndex);
+        const simulation::BodyShapeCode parentShape = agents.bodyShapeAt(parentIndex);
+        const simulation::GenomeId parentGenomeId = agents.genomeIdAt(parentIndex);
         const double childRadius = std::max(0.1, childBodySize > 0.0 ? childBodySize : parentRadius);
-        spawn.position = findChildPosition(world, parentPos, parentRadius, childRadius,
-                                            config.spawnRadiusOffset, rng_);
-        spawn.angle = std::uniform_real_distribution<double>(-kPi, kPi)(rng_);
-        spawn.radius = childRadius;
-        spawn.energy = childEnergy;
-        spawn.age = 0.0;
-        spawn.reproductionCooldown = effCooldown;
-        spawn.color = agents.colorAt(parentIndex);
-        spawn.speciesId = agents.speciesIdAt(parentIndex);
-        spawn.genomeId = childGenomeHandle.id;
-        spawn.typeCode = agents.typeCodeAt(parentIndex);
-        spawn.bodyShape = agents.bodyShapeAt(parentIndex);
 
-        const simulation::EntityId childId = agents.createAgent(spawn);
-        if (species != nullptr) ++countBySpecies[spawn.speciesId];
-
-        // Phase 15: build NeuralMutationConfig honoring brain-config overrides for
-        // gate / shortcut / recurrent mutation rates and strengths. -1 in the brain config
-        // means "fallback to base" (preserves Python semantics).
-        neural::NeuralMutationConfig mutCfg;
-        mutCfg.baseRate = effMutationRate;
-        mutCfg.baseStrength = effMutationStrength;
-        mutCfg.gateRate = brainSignatureConfig.future.gateMutationRate;
-        mutCfg.gateStrength = brainSignatureConfig.future.gateMutationStrength;
-        mutCfg.shortcutRate = brainSignatureConfig.future.shortcutMutationRate;
-        mutCfg.shortcutStrength = brainSignatureConfig.future.shortcutMutationStrength;
-        mutCfg.recurrentRate = brainSignatureConfig.future.rnnMutationRate;
-        mutCfg.recurrentStrength = brainSignatureConfig.future.rnnMutationStrength;
-        const bool inherited = neuralSystem.inheritBrain(
-            childId.value, parentId.value, brainSignatureConfig, mutCfg, rng_);
-        if (inherited && effMutationRate > 0.0 && effMutationStrength > 0.0)
+        for (int c = 0; c < actualChildren; ++c)
         {
-            ++lastStats_.mutationsApplied;
-        }
+            // Genome inheritance (clone parent's genome record) — per child.
+            const simulation::GenomeHandle childGenomeHandle = genomes.cloneFrom(parentGenomeId);
+            if (!childGenomeHandle.isValid())
+            {
+                continue;
+            }
+            simulation::AgentSpawn spawn;
+            spawn.position = findChildPosition(world, parentPos, parentRadius, childRadius,
+                                                config.spawnRadiusOffset, rng_);
+            spawn.angle = std::uniform_real_distribution<double>(-kPi, kPi)(rng_);
+            spawn.radius = childRadius;
+            spawn.energy = childEnergy;
+            spawn.age = 0.0;
+            spawn.reproductionCooldown = effCooldown;
+            spawn.color = parentColor;
+            spawn.speciesId = childSpecies;
+            spawn.genomeId = childGenomeHandle.id;
+            spawn.typeCode = parentType;
+            spawn.bodyShape = parentShape;
 
-        ++lastStats_.birthsThisStep;
-        ++totalBirths_;
+            const simulation::EntityId childId = agents.createAgent(spawn);
+            if (species != nullptr) ++countBySpecies[childSpecies];
+
+            // Phase 15: NeuralMutationConfig honoring brain-config overrides for gate /
+            // shortcut / recurrent mutation rates and strengths. -1 means "fallback".
+            neural::NeuralMutationConfig mutCfg;
+            mutCfg.baseRate = effMutationRate;
+            mutCfg.baseStrength = effMutationStrength;
+            mutCfg.gateRate = brainSignatureConfig.future.gateMutationRate;
+            mutCfg.gateStrength = brainSignatureConfig.future.gateMutationStrength;
+            mutCfg.shortcutRate = brainSignatureConfig.future.shortcutMutationRate;
+            mutCfg.shortcutStrength = brainSignatureConfig.future.shortcutMutationStrength;
+            mutCfg.recurrentRate = brainSignatureConfig.future.rnnMutationRate;
+            mutCfg.recurrentStrength = brainSignatureConfig.future.rnnMutationStrength;
+            const bool inherited = neuralSystem.inheritBrain(
+                childId.value, parentId.value, brainSignatureConfig, mutCfg, rng_);
+            if (inherited && effMutationRate > 0.0 && effMutationStrength > 0.0)
+            {
+                ++lastStats_.mutationsApplied;
+            }
+            ++lastStats_.birthsThisStep;
+            ++totalBirths_;
+        }
     }
 
     return lastStats_;

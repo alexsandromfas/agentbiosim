@@ -27,6 +27,18 @@ enum class BodyShapeCode : std::uint16_t
     Circle = 1
 };
 
+// Fase 34.3: how an organism decides to reproduce (per-individual genome trait).
+//  - Energy (default, legacy): reproduces once energy reaches split_energy (the
+//    parent splits its energy with the offspring).
+//  - Age: reproduces by age + cooldown ONLY, with no energy requirement and no
+//    energy cost (offspring get a fresh initialEnergy) — selective pressure moves
+//    entirely onto survival (e.g. fleeing predators), independent of food.
+enum class ReproductionMode : std::uint16_t
+{
+    Energy = 0,
+    Age = 1
+};
+
 struct ColorRgb
 {
     std::uint8_t r = 255;

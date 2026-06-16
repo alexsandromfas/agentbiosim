@@ -26,6 +26,11 @@ struct ReproductionConfig
     double initialEnergy = 100.0;
     double energyCap = 400.0;
     double bodySize = 9.0;
+    // Fase 34.3: reproduction strategy + litter size (fallback for agents without a
+    // genome record; the live path reads these from each parent's genome via
+    // honorGenome). Defaults = legacy: energy-gated, one child per event.
+    simulation::ReproductionMode reproductionMode = simulation::ReproductionMode::Energy;
+    int offspringCount = 1;
     int maxPopulation = 0;       // 0 means no limit.
     int minPopulation = 0;       // For documentation; rescue is deferred to species phase.
     bool populationMinRescue = true;

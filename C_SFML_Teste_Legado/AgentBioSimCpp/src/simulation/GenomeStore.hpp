@@ -35,6 +35,12 @@ struct GenomeRecord
     double mutationStrength = 0.08;
     double reproductionMinAge = 0.0;
     double reproductionCooldown = 0.0;
+    // Fase 34.3: reproduction strategy (per individual). Energy = legacy (reach
+    // split_energy, splits energy with the child). Age = by age+cooldown only, no
+    // energy gate/cost (child gets a fresh initialEnergy). offspringCount = how many
+    // children per reproduction event (default 1 = legacy "split in two").
+    ReproductionMode reproductionMode = ReproductionMode::Energy;
+    int offspringCount = 1;
     double splitEnergy = 150.0;
     double initialEnergy = 100.0;
     double energyCap = 400.0;
