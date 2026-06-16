@@ -211,14 +211,15 @@ de codigo.
   Perception/Neural inalterados. Bateria 7-34 PASS Debug+Release (predador inclusive — agora usa o
   proprio custo metab; antes usava o do bacteria por bug, e nenhum teste quebrou). `death_by_age`/
   `death_age` NAO migrados (nenhum sistema os consome — seria placeholder).
-- **PENDENTE — Fase 34.2 grupo 2 (decisao de risco do usuario):** geometria de visao
-  (retina_count/eye_count/canais/input_mode/fov/eye_angle) + `movement_mode` — mudam o TAMANHO da
+- **Fase 34.2 grupo 2 — ADIADO por decisao do usuario (2026-06-16):** geometria de visao
+  (retina_count/eye_count/canais/input_mode/fov/eye_angle) + `movement_mode` mudam o TAMANHO da
   entrada/saida da rede; tornar por-agente exige reescrever o layout flat do `PerceptionResult`
   (offsets por-agente) + o batching neural por assinatura (incluir geometria), mantendo o caso
-  uniforme byte-identico. E a parte de maior risco a determinismo/FPS. Ficam GLOBAIS (marcados no
-  editor) ate o usuario autorizar.
-- **Proxima fase:** decidir 34.2 grupo 2 (acima) OU Fase 33 (paridade/perf C++ vs Python, fecha
-  Divida 10; ver `PHASE_33.md`).
+  uniforme byte-identico — a parte de maior risco a determinismo/FPS. Ficam GLOBAIS (marcados no
+  editor). Fazer numa sub-fase focada (com benchmark antes/depois) SO quando o usuario quiser
+  especies com geometria de visao diferente (ex.: predador com mais retinas).
+- **Proxima fase:** Fase 33 — Campanha Final de Paridade + Prova de Performance C++ vs Python
+  (fecha a Divida 10; ver `PHASE_33.md`).
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 
