@@ -28,5 +28,10 @@ struct RenderOptions
     // Antes o item de menu so alternava um flag sem desenhar nada.
     bool showSpatialHashOverlay = false;
     double spatialHashCellSize = 36.0;
+
+    // Theme skin: when a visual theme is active, the theme draws the background and the
+    // substrate (dish) itself, so the renderer skips its own background + world boundary
+    // and only draws the entities (organisms/food/overlays) on top of the dish.
+    bool themeSkinActive = false;
 };
 } // namespace agentbiosim::render

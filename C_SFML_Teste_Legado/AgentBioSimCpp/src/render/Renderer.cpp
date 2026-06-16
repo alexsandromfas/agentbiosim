@@ -73,8 +73,13 @@ RenderStats Renderer::render(sf::RenderTarget& target,
         return stats;
     }
 
-    drawBackground(target, options);
-    drawWorldBoundary(target, camera, world, options);
+    // Theme skin: the active theme already painted the background and the substrate
+    // (dish) behind us, so skip them here and just draw the entities on the dish.
+    if (!options.themeSkinActive)
+    {
+        drawBackground(target, options);
+        drawWorldBoundary(target, camera, world, options);
+    }
     if (options.showSpatialHashOverlay)
     {
         drawSpatialGrid(target, camera, world, options);

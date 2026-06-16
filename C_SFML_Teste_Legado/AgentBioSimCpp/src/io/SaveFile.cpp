@@ -759,9 +759,20 @@ LoadResult loadFromFile(const std::string& path)
         result.error = "nao foi possivel abrir o arquivo: " + path;
         return result;
     }
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    const std::string text = ss.str();
+    // Microfase 32.6: read with explicit 64-bit sizes. The old `ss << in.rdbuf()`
+    // path truncated files at INT_MAX (2 GB) on MSVC, so a >2 GB save (e.g. the
+    // pre-GC overnight bloat) failed to load with "unexpected end at offset
+    // 2147483647". seekg/tellg/read all use std::streamoff/std::streamsize (64-bit).
+    in.seekg(0, std::ios::end);
+    const std::streamoff fileSize = in.tellg();
+    in.seekg(0, std::ios::beg);
+    std::string text;
+    if (fileSize > 0)
+    {
+        text.resize(static_cast<std::size_t>(fileSize));
+        in.read(text.data(), static_cast<std::streamsize>(fileSize));
+        text.resize(static_cast<std::size_t>(in.gcount()));
+    }
 
     Json root;
     std::string parseError;

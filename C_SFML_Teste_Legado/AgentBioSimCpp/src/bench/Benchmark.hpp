@@ -23,6 +23,7 @@ struct BenchmarkScenario
     int seed = 1234;
     std::string neuralType = "mlp";     // neural_network_type
     std::string visionMode = "single";  // retina_vision_mode
+    std::string foodMode = "instant";   // food_mode: instant | chunk
     bool predatorsEnabled = false;
 };
 

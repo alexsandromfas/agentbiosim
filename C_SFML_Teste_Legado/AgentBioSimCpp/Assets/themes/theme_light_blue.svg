@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1696 954" width="1696" height="954">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#35CFC2"></stop>
+      <stop offset="34%" stop-color="#45C3D2"></stop>
+      <stop offset="70%" stop-color="#5A93DD"></stop>
+      <stop offset="100%" stop-color="#6C84D8"></stop>
+    </linearGradient>
+    <radialGradient id="dishGrad" cx="48%" cy="42%" r="62%">
+      <stop offset="0%" stop-color="#D4EDF8" stop-opacity="0.52"></stop>
+      <stop offset="65%" stop-color="#BBDDF0" stop-opacity="0.44"></stop>
+      <stop offset="100%" stop-color="#A8D0EA" stop-opacity="0.38"></stop>
+    </radialGradient>
+    <radialGradient id="orbPurple" cx="42%" cy="36%" r="60%">
+      <stop offset="0%" stop-color="#BBA4EA" stop-opacity="0.62"></stop>
+      <stop offset="55%" stop-color="#9C86DE" stop-opacity="0.42"></stop>
+      <stop offset="86%" stop-color="#8474D4" stop-opacity="0.18"></stop>
+      <stop offset="100%" stop-color="#8474D4" stop-opacity="0"></stop>
+    </radialGradient>
+    <radialGradient id="orbBlue" cx="42%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#A7CBF2" stop-opacity="0.52"></stop>
+      <stop offset="55%" stop-color="#86A8E6" stop-opacity="0.34"></stop>
+      <stop offset="86%" stop-color="#6E8FE0" stop-opacity="0.14"></stop>
+      <stop offset="100%" stop-color="#6E8FE0" stop-opacity="0"></stop>
+    </radialGradient>
+    <radialGradient id="orbLavender" cx="42%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#DEC6EE" stop-opacity="0.6"></stop>
+      <stop offset="55%" stop-color="#CBA8E6" stop-opacity="0.38"></stop>
+      <stop offset="86%" stop-color="#B790DC" stop-opacity="0.14"></stop>
+      <stop offset="100%" stop-color="#B790DC" stop-opacity="0"></stop>
+    </radialGradient>
+    <radialGradient id="orbTeal" cx="42%" cy="38%" r="60%">
+      <stop offset="0%" stop-color="#9CF0E0" stop-opacity="0.78"></stop>
+      <stop offset="55%" stop-color="#54D2C6" stop-opacity="0.5"></stop>
+      <stop offset="86%" stop-color="#3CC4BE" stop-opacity="0.2"></stop>
+      <stop offset="100%" stop-color="#3CC4BE" stop-opacity="0"></stop>
+    </radialGradient>
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" result="n"></feTurbulence>
+      <feColorMatrix in="n" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.9 0"></feColorMatrix>
+    </filter>
+  </defs>
+
+  
+  <rect x="0" y="0" width="1696" height="954" fill="url(#bgGrad)"></rect>
+
+  
+  <circle cx="1565" cy="55" r="275" fill="url(#orbPurple)"></circle>
+  <circle cx="1420" cy="175" r="150" fill="url(#orbPurple)"></circle>
+  <circle cx="1665" cy="345" r="200" fill="url(#orbBlue)"></circle>
+  <circle cx="5" cy="475" r="215" fill="url(#orbLavender)"></circle>
+  <circle cx="150" cy="815" r="165" fill="url(#orbLavender)"></circle>
+  <circle cx="1585" cy="705" r="275" fill="url(#orbBlue)"></circle>
+  <circle cx="15" cy="5" r="250" fill="url(#orbLavender)"></circle>
+  <circle cx="200" cy="130" r="130" fill="url(#orbLavender)"></circle>
+
+  
+  <g stroke-linecap="round">
+    <g transform="rotate(-18 1500 150)">
+      <circle cx="1500" cy="150" r="138" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2.2" stroke-dasharray="2 9"></circle>
+      <circle cx="1500" cy="12" r="5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+      <circle cx="1500" cy="288" r="5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+    </g>
+    <g transform="rotate(12 35 600)">
+      <circle cx="35" cy="600" r="140" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2.2" stroke-dasharray="2 9"></circle>
+      <circle cx="35" cy="460" r="5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+      <circle cx="35" cy="740" r="5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+    </g>
+    <g transform="rotate(-8 105 828)">
+      <circle cx="105" cy="828" r="70" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2.2" stroke-dasharray="2 9"></circle>
+      <circle cx="105" cy="758" r="4.5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+      <circle cx="105" cy="898" r="4.5" fill="#FFFFFF" fill-opacity="0.95"></circle>
+    </g>
+    <path d="M1500 880 Q1560 800 1660 815" fill="none" stroke="#FFFFFF" stroke-opacity="0.5" stroke-width="2.2" stroke-dasharray="2 9"></path>
+  </g>
+
+  
+  <g>
+    <circle cx="858" cy="480" r="406" fill="url(#dishGrad)"></circle>
+    <circle cx="858" cy="480" r="406" fill="none" stroke="#FFFFFF" stroke-opacity="0.9" stroke-width="3"></circle>
+    <circle cx="858" cy="480" r="396" fill="none" stroke="#FFFFFF" stroke-opacity="0.45" stroke-width="1.6"></circle>
+  </g>
+
+  
+  <g fill="#FFFFFF">
+    <circle cx="210" cy="300" r="3" fill-opacity="0.85"></circle>
+    <circle cx="95" cy="380" r="2.4" fill-opacity="0.7"></circle>
+    <circle cx="175" cy="510" r="4" fill-opacity="0.9"></circle>
+    <circle cx="1320" cy="170" r="3" fill-opacity="0.8"></circle>
+    <circle cx="1580" cy="90" r="2.6" fill-opacity="0.7"></circle>
+    <circle cx="1505" cy="360" r="3" fill-opacity="0.85"></circle>
+    <circle cx="1655" cy="425" r="2.4" fill-opacity="0.7"></circle>
+    <circle cx="1490" cy="930" r="2.6" fill-opacity="0.7"></circle>
+  </g>
+
+  
+  <rect x="0" y="0" width="1696" height="954" filter="url(#grain)" opacity="0.14" style="mix-blend-mode:overlay"></rect>
+</svg>

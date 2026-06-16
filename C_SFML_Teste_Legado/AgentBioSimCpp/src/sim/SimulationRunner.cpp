@@ -9,6 +9,7 @@
 #include <cmath>
 #include <random>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace agentbiosim::sim
 {
@@ -348,6 +349,18 @@ void SimulationRunner::runOneStep(const double dt)
     // as an explicit opt-in; when off this call returns immediately.
     applyPopulationRescue();
 
+    // Microfase 32.6: reclaim leaked genomes. Reproduction clones a genome per birth
+    // and nothing freed it when the organism died, so the GenomeStore grew without
+    // bound (a single overnight run reached ~2.8M genomes for ~870 live agents -> GBs
+    // of RAM and save). Sweep only when the store has grown well past the live set, so
+    // steady-state cost is ~zero. It runs OUTSIDE the parallel region and touches only
+    // genomes_ by id, so it cannot change a per-agent value or the FP order the Phase
+    // 32 optimization relies on.
+    if (genomes_.size() > 2U * (agents_.size() + species_.records().size()) + 64U)
+    {
+        collectGenomeGarbage();
+    }
+
     if (devOn(core::ProfileSection::SpatialHash))
     {
         core::ScopedTimer t(profiler_, core::ProfileSection::SpatialHash);
@@ -428,6 +441,107 @@ void SimulationRunner::reset()
     paused_ = false;
     stepOnce_ = false;
     spawnInitial();
+    rebuildSpatial();
+}
+
+void SimulationRunner::resetKeepingLabels()
+{
+    using config::parameterDouble;
+    using config::parameterString;
+    // Same world reconfigure as reset(), but KEEP species_ + genomes_ (the labels
+    // and their genome templates). Only agents/food/brains are cleared, and the
+    // population is respawned from each enabled label's default genome. Brains are
+    // recreated by syncBrains on the next step.
+    const std::string shape = parameterString(parameters_, "substrate_shape", "rectangular");
+    simulation::WorldConfig wcfg;
+    wcfg.width = parameterDouble(parameters_, "world_w", 1000.0);
+    wcfg.height = parameterDouble(parameters_, "world_h", 700.0);
+    wcfg.radius = parameterDouble(parameters_, "substrate_radius", 400.0);
+    wcfg.center = {wcfg.width * 0.5, wcfg.height * 0.5};
+    wcfg.shape = shape == "circular" ? simulation::WorldShape::Circular
+                                      : simulation::WorldShape::Rectangular;
+    world_.configure(wcfg);
+
+    stats_ = {};
+    paused_ = false;
+    stepOnce_ = false;
+
+    // Preserve each label's CURRENT population: count the living agents per species
+    // before clearing, then respawn that many (or initialCount, whichever is larger).
+    // Without this a label whose initialCount is 0 (e.g. a predator that only spawns by
+    // reproduction) would come back empty when "keep labels" is chosen.
+    std::unordered_map<simulation::SpeciesId, int> aliveBySpecies;
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (agents_.aliveAt(i)) ++aliveBySpecies[agents_.speciesIdAt(i)];
+    }
+
+    agents_.clear();
+    foods_.clear();
+    neuralSystem_.clear();
+    neuralSystem_.clearTraceTarget();
+    visionDebug_.clear();
+    visionDebugTargetId_ = 0;
+
+    std::mt19937 rng(static_cast<std::uint32_t>(seed_));
+    const auto* obstaclePtr = obstacles_.empty() ? nullptr : &obstacles_;
+    auto sampleFree = [&](const double r) {
+        constexpr int kMax = 32;
+        for (int t = 0; t < kMax; ++t)
+        {
+            const auto candidate = world_.clampPosition(randomPointInsideWorld(world_, r, rng), r);
+            if (obstaclePtr == nullptr || !obstaclePtr->overlapsCircle(candidate, r)) return candidate;
+        }
+        return world_.clampPosition(world_.center(), r);
+    };
+    std::uniform_real_distribution<double> angleDist(0.0, 2.0 * kPi);
+
+    for (const auto& rec : species_.records())
+    {
+        if (!rec.enabled) continue;
+        const auto itAlive = aliveBySpecies.find(rec.id);
+        const int aliveCount = itAlive != aliveBySpecies.end() ? itAlive->second : 0;
+        const int count = std::max(rec.initialCount, aliveCount);
+        if (count <= 0) continue;
+        const auto* genome = genomes_.find(rec.defaultGenomeId);
+        const double radius = std::max(0.1, genome != nullptr ? genome->bodySize : 9.0);
+        const double energy = std::max(0.0, genome != nullptr ? genome->initialEnergy : 100.0);
+        for (int i = 0; i < count; ++i)
+        {
+            simulation::AgentSpawn s;
+            s.position = sampleFree(radius);
+            s.angle = angleDist(rng);
+            s.radius = radius;
+            s.energy = energy;
+            s.color = rec.color;
+            s.speciesId = rec.id;
+            s.genomeId = rec.defaultGenomeId;
+            s.typeCode = rec.typeCode;
+            s.bodyShape = rec.bodyShape;
+            static_cast<void>(agents_.createAgent(s));
+        }
+    }
+
+    // Initial food spawn (same bootstrap as spawnInitial()): the RNG is reseeded so a
+    // keep-labels reset starts from the same food layout as a fresh run.
+    foodSystem_.reseed(seed_);
+    const systems::FoodSystemConfig foodCfg = systems::FoodSystem::fromRegistry(parameters_);
+    if (foodCfg.mode == simulation::FoodKind::Instant)
+    {
+        for (int i = 0; i < foodCfg.target && static_cast<int>(foods_.size()) < foodCfg.target; ++i)
+        {
+            static_cast<void>(foodSystem_.spawnInstant(foods_, world_, foodCfg, obstaclePtr));
+        }
+    }
+    else
+    {
+        while (static_cast<int>(foods_.size()) < foodCfg.target)
+        {
+            const std::size_t before = foods_.size();
+            static_cast<void>(foodSystem_.spawnCluster(foods_, world_, foodCfg, obstaclePtr));
+            if (foods_.size() == before) break;
+        }
+    }
     rebuildSpatial();
 }
 
@@ -534,6 +648,29 @@ void SimulationRunner::applyPopulationRescue()
             static_cast<void>(agents_.createAgent(s));
         }
     }
+}
+
+void SimulationRunner::collectGenomeGarbage()
+{
+    // Keep = every living agent's genome + each label/species template (the templates
+    // must survive even with nobody alive, for rescue/respawn and the editor).
+    std::unordered_set<simulation::GenomeId> keep;
+    keep.reserve(agents_.size() + species_.records().size() + 8U);
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (agents_.aliveAt(i))
+        {
+            keep.insert(agents_.genomeIdAt(i));
+        }
+    }
+    for (const auto& rec : species_.records())
+    {
+        if (rec.defaultGenomeId != simulation::kInvalidGenomeId)
+        {
+            keep.insert(rec.defaultGenomeId);
+        }
+    }
+    static_cast<void>(genomes_.retain(keep));
 }
 
 simulation::EntityId SimulationRunner::pickAgentAt(const simulation::Vec2 worldPoint,
@@ -773,6 +910,13 @@ void SimulationRunner::restore(const SimulationSnapshot& s)
     stats_.foodEaten = s.foodEaten;
     stats_.deaths = s.deaths;
     stats_.births = s.births;
+
+    // Microfase 32.6: old saves (made before the genome GC) carry millions of
+    // orphan genomes from dead organisms. Prune them once on load so the in-memory
+    // store and any re-save reflect only the live population + templates. This is
+    // also what makes "abrir um save antigo e salvar de novo" shrink a 4.5 GB file
+    // to a couple of MB.
+    collectGenomeGarbage();
 
     // Reseed the food RNG to a known point (simple mode does not restore RNG
     // generator state) and rebuild spatial structures for the loaded world.
@@ -1163,6 +1307,7 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
         if constexpr (std::is_same_v<T, core::CmdPauseToggle>)        { togglePaused(); return true; }
         else if constexpr (std::is_same_v<T, core::CmdSetPaused>)     { setPaused(c.paused); return true; }
         else if constexpr (std::is_same_v<T, core::CmdResetSimulation>) { reset(); return true; }
+        else if constexpr (std::is_same_v<T, core::CmdResetKeepLabels>) { resetKeepingLabels(); return true; }
         else if constexpr (std::is_same_v<T, core::CmdStepOnce>)      { requestStepOnce(); return true; }
         else if constexpr (std::is_same_v<T, core::CmdSetTimeScale>)  { timeScale_ = std::max(0.0, c.timeScale); return true; }
         else if constexpr (std::is_same_v<T, core::CmdFitWorldCamera>) { return true; /* handled by AppController */ }

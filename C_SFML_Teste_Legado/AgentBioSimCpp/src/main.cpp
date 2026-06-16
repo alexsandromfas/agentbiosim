@@ -1,5 +1,7 @@
 #include "app/App.hpp"
 #include "config/ParameterDefaults.hpp"
+#include "io/SaveFile.hpp"
+#include "sim/SimulationRunner.hpp"
 #include "neural/Phase9Diagnostics.hpp"
 #include "perception/Phase10Diagnostics.hpp"
 #include "perception/Phase11Diagnostics.hpp"
@@ -105,6 +107,49 @@ int main(const int argc, char* argv[])
             {
                 const auto registry = agentbiosim::config::createDefaultParameterRegistry();
                 registry.dump(std::cout);
+                return 0;
+            }
+            if (argument == "--compact-save")
+            {
+                // Microfase 32.6: shrink an existing .agentbiosim by dropping the
+                // orphan genomes of dead organisms (load -> GC on restore -> save).
+                // Lets the user recover a bloated overnight save without the UI.
+                if (index + 2 >= argc)
+                {
+                    std::cerr << "Uso: --compact-save <entrada.agentbiosim> <saida.agentbiosim>\n";
+                    return 2;
+                }
+                const std::string inPath = argv[index + 1];
+                const std::string outPath = argv[index + 2];
+                std::cout << "Compactando '" << inPath << "' (removendo genomas orfaos)...\n";
+                agentbiosim::io::LoadResult load = agentbiosim::io::loadFromFile(inPath);
+                if (!load.ok)
+                {
+                    std::cerr << "Falha ao abrir: " << load.error << '\n';
+                    return 1;
+                }
+                const std::size_t genomesBefore = load.bundle.snapshot.genomes.size();
+                auto registry = agentbiosim::config::createDefaultParameterRegistry();
+                for (const auto& p : load.bundle.params)
+                {
+                    static_cast<void>(registry.setValue(p.first, p.second));
+                }
+                agentbiosim::sim::SimulationRunner runner(registry);
+                runner.restore(load.bundle.snapshot);  // restore() GCs orphan genomes
+                agentbiosim::io::SaveBundle out;
+                out.snapshot = runner.snapshot();
+                out.params = load.bundle.params;
+                out.camera = load.bundle.camera;
+                const std::size_t genomesAfter = out.snapshot.genomes.size();
+                std::string error;
+                if (!agentbiosim::io::saveToFile(outPath, out, error))
+                {
+                    std::cerr << "Falha ao gravar: " << error << '\n';
+                    return 1;
+                }
+                std::cout << "OK. Genomas " << genomesBefore << " -> " << genomesAfter
+                          << " (agentes vivos: " << out.snapshot.agents.size() << ").\n"
+                          << "Arquivo: " << outPath << '\n';
                 return 0;
             }
             if (argument == "--spatial-selftest")

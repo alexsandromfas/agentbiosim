@@ -10,6 +10,7 @@
 #include "i18n/Locale.hpp"
 #include "io/FileDialog.hpp"
 #include "io/SaveFile.hpp"
+#include "render/ThemeBackdrop.hpp"
 #include "ui/ImGuiTheme.hpp"
 #include "ui/UiPreferencesPanel.hpp"  // prefs* model free functions (prefsApplyPending, etc.)
 
@@ -33,6 +34,15 @@
 #include <sstream>
 #include <variant>
 
+// Windows: maximize the window on startup. NOMINMAX keeps <windows.h> from defining
+// min/max macros that would clobber std::min/std::max used throughout this file.
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace agentbiosim
 {
 namespace
@@ -55,6 +65,55 @@ sf::ContextSettings makeContextSettings()
 sf::Vector2f toSfml(const simulation::Vec2 value)
 {
     return {static_cast<float>(value.x), static_cast<float>(value.y)};
+}
+
+// Teste de tema: the "home" framing of the theme, anchored to the REAL world substrate.
+// The composition (frameHalfExtent, in dish radii) is sized in world units from the
+// substrate radius, so it scales with the substrate; homeZoom fits it into the visible
+// canvas (window minus dock/toolbar) with a small margin and is also the minimum zoom.
+// The camera is scene-centric (homeCenter = substrate centre) so there is no
+// zoom-dependent dock offset (which used to slide the scene sideways during zoom).
+// The visible canvas region (pixels) = window minus the left dock and the top
+// menu/toolbar, where the theme composition should be centred.
+constexpr float kThemeTopStrip = 96.0F; // approx menu + toolbar height
+// Max zoom-in for the theme camera, as a multiple of the fit (home) zoom. Generous so
+// you can get right up to individual organisms even when the substrate is large (a big
+// substrate makes the fit zoom tiny, so a small multiple would barely zoom in).
+constexpr float kThemeMaxZoomFactor = 60.0F;
+struct VisibleRegion { float left, right, top, bottom, centerX, centerY; };
+VisibleRegion themeVisibleRegion(const sf::Vector2u vp, float dockW)
+{
+    if (dockW > static_cast<float>(vp.x) * 0.6F) dockW = 0.0F;
+    VisibleRegion r;
+    r.left = dockW;
+    r.right = static_cast<float>(vp.x);
+    r.top = kThemeTopStrip;
+    r.bottom = static_cast<float>(vp.y);
+    r.centerX = (r.left + r.right) * 0.5F;
+    r.centerY = (r.top + r.bottom) * 0.5F;
+    return r;
+}
+
+render::ThemeFrame computeThemeFrame(const render::Theme& theme, const simulation::World& world,
+                                     const sf::Vector2u vp, const float dockW)
+{
+    const VisibleRegion vr = themeVisibleRegion(vp, dockW);
+    render::ThemeFrame f;
+    f.substrateCenter = {static_cast<float>(world.center().x), static_cast<float>(world.center().y)};
+    f.substrateRadius = std::max(1.0F, static_cast<float>(world.radius()));
+    const float halfWx = std::max(1.0F, theme.frameHalfExtent.x * f.substrateRadius);
+    const float halfWy = std::max(1.0F, theme.frameHalfExtent.y * f.substrateRadius);
+    const float visW = std::max(1.0F, vr.right - vr.left);
+    const float visH = std::max(1.0F, vr.bottom - vr.top);
+    // Fit the composition into the VISIBLE region with a small margin (a bit more zoom
+    // than before, per request).
+    f.homeZoom = 0.92F * std::min(visW / (2.0F * halfWx), visH / (2.0F * halfWy));
+    // Camera rest centre so the substrate maps to the centre of the VISIBLE region (not
+    // the whole window) at homeZoom — accounts for the dock/toolbar. The camera uses the
+    // window centre (vp/2), so the offset is (visibleCentre - vp/2) in world units.
+    f.homeCenter = {f.substrateCenter.x - (vr.centerX - static_cast<float>(vp.x) * 0.5F) / f.homeZoom,
+                    f.substrateCenter.y - (vr.centerY - static_cast<float>(vp.y) * 0.5F) / f.homeZoom};
+    return f;
 }
 
 std::uint8_t colorChannel(const int value)
@@ -87,10 +146,30 @@ App::App()
     window_.setView(sf::View(sf::FloatRect(0.0F, 0.0F,
                                               static_cast<float>(kWindowWidth),
                                               static_cast<float>(kWindowHeight))));
+    // Open maximized so the simulation/theme has the whole screen by default. The
+    // following getSize()/setView pick up the maximized client area; the OS also
+    // posts a Resized event that processEvents() handles symmetrically.
+#ifdef _WIN32
+    ShowWindow(window_.getSystemHandle(), SW_MAXIMIZE);
+    {
+        const sf::Vector2u sz = window_.getSize();
+        window_.setView(sf::View(sf::FloatRect(0.0F, 0.0F,
+                                                 static_cast<float>(sz.x),
+                                                 static_cast<float>(sz.y))));
+    }
+#endif
     runner_.initialize();
     configureFromParameters();
     configureRenderOptions();
     fitCameraToWorld();
+    // Default scene: start from the bundled "basic" save (prey + predator genomes),
+    // respawned fresh. Then apply the visual theme (themed by default, per request).
+    loadBasicDefaultScene();
+    {
+        std::string th = config::parameterString(parameters_, "ui_theme", "orange");
+        if (th == "none") th = "orange";  // startup default is always themed
+        setTheme(th == "dark_blue" ? 2 : th == "light_blue" ? 3 : 1);
+    }
     // Phase 27: crash hook + session log (level driven by the log_level param,
     // set in configureFromParameters). Off by default -> the file just records
     // session start/end and crashes.
@@ -204,7 +283,21 @@ void App::handleResize(const unsigned int width, const unsigned int height)
     window_.setView(sf::View(sf::FloatRect(0.0F, 0.0F,
                                               static_cast<float>(width),
                                               static_cast<float>(height))));
-    fitCameraToWorld();
+    if (theme_.active)
+    {
+        // Teste de tema: re-frame the composition around the substrate for the new size.
+        const float dockW = uiState_.preferences.dockVisible ? ui::ImGuiUi::kDockW : 0.0F;
+        const render::ThemeFrame f = computeThemeFrame(theme_, runner_.world(), {width, height}, dockW);
+        camera_.setZoomLimits(f.homeZoom, f.homeZoom * kThemeMaxZoomFactor);
+        camera_.setCenter(f.homeCenter);
+        camera_.setZoom(f.homeZoom);
+        themeTargetZoom_ = f.homeZoom;
+        themeZoomAnchor_ = {static_cast<float>(width) * 0.5F, static_cast<float>(height) * 0.5F};
+    }
+    else
+    {
+        fitCameraToWorld();
+    }
 }
 
 void App::configureFromParameters()
@@ -276,6 +369,86 @@ void App::fitCameraToWorld()
     {
         camera_.pan({dockW * 0.5F, 0.0F});
     }
+}
+
+void App::setTheme(const int themeId)
+{
+    // themeId: 0 = none, 1 = orange, 2 = dark blue, 3 = light blue.
+    const std::string id = themeId == 1   ? "orange"
+                           : themeId == 2 ? "dark_blue"
+                           : themeId == 3 ? "light_blue"
+                                          : "none";
+    // Persist the choice so it is saved with the simulation and restored on startup.
+    static_cast<void>(parameters_.setValue("ui_theme", config::ParameterValue{id}));
+    if (themeId >= 1)
+    {
+        // The theme's dish IS the world boundary, so make the world circular (the
+        // organisms are clamped to it) and reshape live (pushes them inside).
+        static_cast<void>(parameters_.setValue(
+            "substrate_shape", config::ParameterValue{std::string("circular")}));
+        runner_.applyWorldConfigLive();
+        theme_ = render::themeById(id);
+        theme_.active = true;
+        themeClock_.restart();
+        // Frame the composition around the substrate and clamp zoom-out to that framing.
+        const sf::Vector2u vp = window_.getSize();
+        const float dockW = uiState_.preferences.dockVisible ? ui::ImGuiUi::kDockW : 0.0F;
+        const render::ThemeFrame f = computeThemeFrame(theme_, runner_.world(), vp, dockW);
+        camera_.setZoomLimits(f.homeZoom, f.homeZoom * kThemeMaxZoomFactor);
+        camera_.setCenter(f.homeCenter);
+        camera_.setZoom(f.homeZoom);
+        themeTargetZoom_ = f.homeZoom;
+        themeZoomAnchor_ = {static_cast<float>(vp.x) * 0.5F, static_cast<float>(vp.y) * 0.5F};
+    }
+    else
+    {
+        theme_.active = false;
+        renderOptions_.themeSkinActive = false;
+        // Restore the simulation camera (default zoom limits + fit to the world).
+        camera_.setZoomLimits(0.01F, 20.0F);
+        fitCameraToWorld();
+    }
+}
+
+void App::loadBasicDefaultScene()
+{
+    // Find the bundled "basic" save. Try locations relative to the executable and the
+    // working dir; loadFromFile reports ok=false when a path can't be opened, so we just
+    // try each until one loads. If none is found, keep the engine's default bootstrap.
+    const std::string exeDir = core::executableDir();
+    const std::string rel = "saves/simulacao-basic.agentbiosim";
+    const std::string candidates[] = {exeDir + rel, exeDir + "../../" + rel, rel,
+                                       std::string("../../") + rel};
+    io::LoadResult result;
+    for (const auto& path : candidates)
+    {
+        result = io::loadFromFile(path);
+        if (result.ok) break;
+    }
+    if (!result.ok) return;
+
+    // Apply the saved parameters + engine state AS-IS (so every label opens with its
+    // saved population — e.g. the predator label, whose initialCount is 0 in the save,
+    // would respawn empty if we re-spawned from initialCount). The brains come along but
+    // are not required; the user can reset the networks if desired.
+    for (const auto& p : result.bundle.params)
+    {
+        static_cast<void>(parameters_.setValue(p.first, p.second));
+    }
+    runner_.restore(result.bundle.snapshot);
+    configureFromParameters();
+    configureRenderOptions();
+    fitCameraToWorld();
+}
+
+void App::resetToDefaultScene()
+{
+    // "Reset / New" return to the DEFAULT scene = the bundled basic save (prey +
+    // predator), keeping the currently-active theme. This replaces the engine's old
+    // hardcoded bootstrap (bacteria/predator, rectangular) for the user-facing reset.
+    const std::string th = config::parameterString(parameters_, "ui_theme", "orange");
+    loadBasicDefaultScene();
+    setTheme(th == "dark_blue" ? 2 : th == "light_blue" ? 3 : th == "none" ? 0 : 1);
 }
 
 void App::captureRenderPrevPositions()
@@ -490,9 +663,19 @@ void App::drainCommandsAndApply()
     uiState_.commandsProcessed += commands.size();
     for (const auto& cmd : commands)
     {
+        // App-consumed commands skip the engine's generic applyCommand below.
+        bool consumedByApp = false;
         std::visit([&](auto&& c) {
             using T = std::decay_t<decltype(c)>;
-            if constexpr (std::is_same_v<T, ui::CmdFitWorldCamera>)
+            // Reset / New go to the DEFAULT scene (basic save + theme), NOT the engine's
+            // old hardcoded bootstrap. Consumed here so the runner's reset() does not run.
+            if constexpr (std::is_same_v<T, ui::CmdResetSimulation> ||
+                          std::is_same_v<T, ui::CmdNewSimulation>)
+            {
+                resetToDefaultScene();
+                consumedByApp = true;
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdFitWorldCamera>)
             {
                 fitCameraToWorld();
             }
@@ -501,6 +684,10 @@ void App::drainCommandsAndApply()
                 // Phase 22.1: distinct from Fit — explicitly recentre on the
                 // world centre at the default zoom that fits everything.
                 fitCameraToWorld();
+            }
+            else if constexpr (std::is_same_v<T, ui::CmdSetTheme>)
+            {
+                setTheme(c.themeId);
             }
             else if constexpr (std::is_same_v<T, ui::CmdSaveSimulation>)
             {
@@ -533,9 +720,22 @@ void App::drainCommandsAndApply()
             }
             else if constexpr (std::is_same_v<T, ui::CmdZoomCameraAt>)
             {
-                camera_.zoomAt(static_cast<float>(c.factor),
-                                 {static_cast<float>(c.screenX), static_cast<float>(c.screenY)},
-                                 window_.getSize());
+                if (theme_.active)
+                {
+                    // Smooth zoom: accumulate into a target the camera eases toward each
+                    // frame (anchored at the cursor). Feels fluid instead of snapping
+                    // per scroll step.
+                    if (themeTargetZoom_ <= 0.0F) themeTargetZoom_ = camera_.zoom();
+                    themeTargetZoom_ = std::clamp(themeTargetZoom_ * static_cast<float>(c.factor),
+                                                  camera_.minZoom(), camera_.maxZoom());
+                    themeZoomAnchor_ = {static_cast<float>(c.screenX), static_cast<float>(c.screenY)};
+                }
+                else
+                {
+                    camera_.zoomAt(static_cast<float>(c.factor),
+                                     {static_cast<float>(c.screenX), static_cast<float>(c.screenY)},
+                                     window_.getSize());
+                }
             }
             else if constexpr (std::is_same_v<T, ui::CmdSetCanvasTool>)
             {
@@ -1096,7 +1296,10 @@ void App::drainCommandsAndApply()
                 static_cast<void>(c);
             }
         }, cmd);
-        static_cast<void>(runner_.applyCommand(cmd));
+        if (!consumedByApp)
+        {
+            static_cast<void>(runner_.applyCommand(cmd));
+        }
     }
 }
 
@@ -1212,7 +1415,7 @@ void App::render()
         imguiUi_.draw(parameters_, runner_, uiState_, commandQueue_, info);
     }
 
-    if (renderOptions_.renderEnabled)
+    if (theme_.active || renderOptions_.renderEnabled)
     {
         const auto* obstaclePtr = runner_.obstacles().empty() ? nullptr : &runner_.obstacles();
 
@@ -1246,8 +1449,7 @@ void App::render()
         const auto* visionDebugPtr =
             (uiState_.selectedVisionOverlay && visionData.active) ? &visionData : nullptr;
 
-        // Fase 32.1 (auditoria): spatial-hash grid overlay (menu Exibir) — toggled
-        // at runtime via CmdToggleSpatialHashOverlay, so refresh it every frame.
+        // Fase 32.1 (auditoria): spatial-hash grid overlay (menu Exibir).
         renderOptions_.showSpatialHashOverlay = runner_.spatialHashOverlay();
         renderOptions_.spatialHashCellSize = runner_.spatialHashCellSize();
 
@@ -1259,10 +1461,80 @@ void App::render()
         interp.prevPositions = &renderPrevPos_;
 
         core::ScopedTimer renderTimer(runner_.profilerMutable(), core::ProfileSection::Render);
-        lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
-                                              runner_.agents(), runner_.foods(),
-                                              renderOptions_, visionDebugPtr, obstaclePtr,
-                                              &selInput, &interp);
+        window_.clear();
+
+        if (theme_.active)
+        {
+            // Theme skin over the LIVE simulation. The composition is anchored to the
+            // real world substrate (scales with it). Camera: eased zoom + pan clamp,
+            // both derived from the substrate so they adapt to its size.
+            const sf::Vector2u vp = window_.getSize();
+            const float dockW = uiState_.preferences.dockVisible ? ui::ImGuiUi::kDockW : 0.0F;
+            const render::ThemeFrame frame = computeThemeFrame(theme_, runner_.world(), vp, dockW);
+            camera_.setZoomLimits(frame.homeZoom, frame.homeZoom * kThemeMaxZoomFactor);
+            // Smooth (eased) zoom toward the scroll target, anchored at the cursor.
+            {
+                if (themeTargetZoom_ <= 0.0F) themeTargetZoom_ = camera_.zoom();
+                const float target =
+                    std::clamp(themeTargetZoom_, camera_.minZoom(), camera_.maxZoom());
+                const float cur = camera_.zoom();
+                if (std::abs(target - cur) > cur * 0.0015F)
+                {
+                    const float eased = cur + (target - cur) * 0.22F;
+                    const sf::Vector2f wBefore = camera_.screenToWorld(themeZoomAnchor_, vp);
+                    camera_.setZoom(eased);
+                    const sf::Vector2f wAfter = camera_.screenToWorld(themeZoomAnchor_, vp);
+                    sf::Vector2f cc = camera_.center();
+                    cc.x += wBefore.x - wAfter.x;
+                    cc.y += wBefore.y - wAfter.y;
+                    camera_.setCenter(cc);
+                }
+                else if (cur != target)
+                {
+                    camera_.setZoom(target);
+                }
+            }
+            // Pan clamp anchored to the VISIBLE region (window minus dock/toolbar):
+            // when the composition fits, it is centred in the visible region; when
+            // zoomed in, the visible region is kept inside the composition (you can
+            // bring the dish edges to centre, never panning into empty space). The two
+            // regimes meet continuously, so there is no sideways slide while zooming.
+            {
+                const VisibleRegion vr = themeVisibleRegion(vp, dockW);
+                const float z = std::max(0.0001F, camera_.zoom());
+                const float halfVpX = static_cast<float>(vp.x) * 0.5F;
+                const float halfVpY = static_cast<float>(vp.y) * 0.5F;
+                const float hx = theme_.frameHalfExtent.x * frame.substrateRadius;
+                const float hy = theme_.frameHalfExtent.y * frame.substrateRadius;
+                sf::Vector2f cc = camera_.center();
+                const float loX = frame.substrateCenter.x - hx - (vr.left - halfVpX) / z;
+                const float hiX = frame.substrateCenter.x + hx - (vr.right - halfVpX) / z;
+                const float loY = frame.substrateCenter.y - hy - (vr.top - halfVpY) / z;
+                const float hiY = frame.substrateCenter.y + hy - (vr.bottom - halfVpY) / z;
+                cc.x = (loX > hiX) ? frame.substrateCenter.x - (vr.centerX - halfVpX) / z
+                                   : std::clamp(cc.x, loX, hiX);
+                cc.y = (loY > hiY) ? frame.substrateCenter.y - (vr.centerY - halfVpY) / z
+                                   : std::clamp(cc.y, loY, hiY);
+                camera_.setCenter(cc);
+            }
+
+            render::drawThemeBehind(window_, camera_, theme_,
+                                    themeClock_.getElapsedTime().asSeconds(), frame);
+            renderOptions_.themeSkinActive = true;
+            lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
+                                                  runner_.agents(), runner_.foods(),
+                                                  renderOptions_, visionDebugPtr, obstaclePtr,
+                                                  &selInput, &interp);
+            renderOptions_.themeSkinActive = false;
+            render::drawThemeFront(window_, camera_, theme_, frame);
+        }
+        else
+        {
+            lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
+                                                  runner_.agents(), runner_.foods(),
+                                                  renderOptions_, visionDebugPtr, obstaclePtr,
+                                                  &selInput, &interp);
+        }
     }
     else
     {

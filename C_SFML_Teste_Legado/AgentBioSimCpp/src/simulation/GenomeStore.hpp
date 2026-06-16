@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace agentbiosim::simulation
@@ -56,6 +57,16 @@ public:
     [[nodiscard]] GenomeHandle cloneFrom(GenomeId parentId);
 
     void clear();
+
+    // Garbage-collect genomes (Microfase 32.6): keep only the records whose id is in
+    // `keep` (the live agents' genomes + each label/species template), dropping the
+    // rest. Offspring clone a fresh genome per birth (ReproductionSystem) and nothing
+    // frees it when the organism dies, so without this the store grows unbounded
+    // (a real RAM + save-size leak). Removal is by value/id only: `nextId_` is never
+    // rewound (ids are never reused) and all access is by id, so pruning unreferenced
+    // genomes cannot change any living organism's genome or the simulation result.
+    // Returns how many records were removed.
+    std::size_t retain(const std::unordered_set<GenomeId>& keep);
 
     [[nodiscard]] std::size_t size() const noexcept;
     [[nodiscard]] bool empty() const noexcept;

@@ -196,8 +196,10 @@ Phase24ValidationSummary runPhase24Validation()
         addCheck(s, "(76) Substrato lists food_bite_seconds", std::find(names.begin(), names.end(), std::string("food_bite_seconds")) != names.end());
         addCheck(s, "(77) Substrato lists food_piece_particle_radius", std::find(names.begin(), names.end(), std::string("food_piece_particle_radius")) != names.end());
         addCheck(s, "(78) Substrato lists food_piece_cluster_radius", std::find(names.begin(), names.end(), std::string("food_piece_cluster_radius")) != names.end());
-        addCheck(s, "(79) Substrato lists food_piece_particle_spacing", std::find(names.begin(), names.end(), std::string("food_piece_particle_spacing")) != names.end());
-        addCheck(s, "(80) Substrato lists food_piece_replenish_mode", std::find(names.begin(), names.end(), std::string("food_piece_replenish_mode")) != names.end());
+        // Food rework: particle spacing + replenish-mode options were removed (chunks
+        // are always glued, replenish is always growth). They must NOT be listed.
+        addCheck(s, "(79) Substrato no longer lists food_piece_particle_spacing", std::find(names.begin(), names.end(), std::string("food_piece_particle_spacing")) == names.end());
+        addCheck(s, "(80) Substrato no longer lists food_piece_replenish_mode", std::find(names.begin(), names.end(), std::string("food_piece_replenish_mode")) == names.end());
         addCheck(s, "(81) Substrato lists food_trim_max_per_step", std::find(names.begin(), names.end(), std::string("food_trim_max_per_step")) != names.end());
 
         // CmdClearAllFood actually clears the food store via applyCommand path.

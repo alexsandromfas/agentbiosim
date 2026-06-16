@@ -102,6 +102,13 @@ struct UiState
     // skips canvas tools while preferences is open and captures the click).
     PreferencesState preferences;
 
+    // Feedback de "aplicado": um visto verde transitório no centro da tela, mostrado
+    // quando o usuário aplica alterações (Preferências / editor de genoma). Quando a
+    // aplicação envolveu a rede neural, um aviso de "cérebros reiniciados" acompanha.
+    // applyFeedbackAt é o ImGui::GetTime() do clique; <0 = nada para mostrar.
+    double applyFeedbackAt = -1000.0;
+    bool applyFeedbackNeural = false;
+
     // Phase 23.2: toolbar velocity slider drag state. UiPanel sets the track
     // geometry every frame so the App can map mouse-move events to time_scale
     // on a log scale.

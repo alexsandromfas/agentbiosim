@@ -357,8 +357,6 @@ const std::vector<LabelEntry> kFriendlyLabels{
     {"food_bite_seconds",            "Tempo para consumir uma particula (s)", "Time to consume a particle (s)"},
     {"food_piece_particle_radius",   "Raio da particula de comida", "Food particle radius"},
     {"food_piece_cluster_radius",    "Raio do cluster (pedaco)", "Cluster radius (chunk)"},
-    {"food_piece_particle_spacing",  "Espacamento entre particulas", "Particle spacing"},
-    {"food_piece_replenish_mode",    "Modo de reposicao (pedacos)", "Replenish mode (chunks)"},
     {"food_trim_max_per_step",       "Maximo de particulas removidas por passo", "Max particles trimmed per step"},
 };
 } // namespace
@@ -475,8 +473,6 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
 
     // Phase 25.1: food/substrate enums.
     if (name == "food_mode")          return {"instant", "chunk"};
-    if (name == "food_piece_replenish_mode")
-        return {"spawn_cluster", "grow_existing", "grow_particles"};
 
     if (name == "substrate_shape")    return {"rectangular", "circular"};
     if (name == "neural_network_type") return {
@@ -536,12 +532,6 @@ std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
     {
         if (is("instant")) return tr::tr("Instantanea", "Instant");
         if (is("chunk"))   return tr::tr("Em pedacos", "Chunks");
-    }
-    if (name == "food_piece_replenish_mode")
-    {
-        if (is("spawn_cluster"))  return tr::tr("Novo cluster", "New cluster");
-        if (is("grow_existing"))  return tr::tr("Crescer existentes", "Grow existing");
-        if (is("grow_particles")) return tr::tr("Crescer particulas", "Grow particles");
     }
     if (name == "body_shape" || nameEndsWith(name, "_body_shape"))
     {
@@ -866,8 +856,7 @@ int prefsDecimalsFor(const std::string& name) noexcept
 {
     // Integer-like doubles: whole numbers make sense, decimals do not.
     if (name == "world_w" || name == "world_h" || name == "substrate_radius") return 0;
-    if (name == "food_piece_particle_radius" || name == "food_piece_cluster_radius" ||
-        name == "food_piece_particle_spacing") return 0;
+    if (name == "food_piece_particle_radius" || name == "food_piece_cluster_radius") return 0;
     if (nameEndsWith(name, "_body_size") || nameEndsWith(name, "_vision_radius") ||
         nameEndsWith(name, "_max_speed") || nameEndsWith(name, "_retina_fov_degrees") ||
         nameEndsWith(name, "_eye_angle_degrees")) return 0;
@@ -923,6 +912,7 @@ bool prefsShouldHideParameter(const std::string& name) noexcept
     if (name == "numba_brain_forward_min_batch")  return true;
     if (name == "use_native_brain_forward")       return true;
     if (name == "autosave_enabled")               return true;  // alias of auto_export_substrate
+    if (name == "ui_theme")                       return true;  // chosen via the thumbnail picker
     // Hide knobs that the SFML-native panel cannot edit safely yet (raw strings
     // without domains) and species/food per-prefix params (Fase 24).
     if (name.rfind("herbivore_", 0) == 0)         return true;

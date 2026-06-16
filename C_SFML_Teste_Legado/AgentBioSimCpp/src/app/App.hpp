@@ -4,6 +4,7 @@
 #include "perception/VisionDebug.hpp"
 #include "render/Camera2D.hpp"
 #include "render/Renderer.hpp"
+#include "render/Theme.hpp"
 #include "sim/SimulationRunner.hpp"
 #include "simulation/FixedTimestep.hpp"
 #include "simulation/SpatialHash.hpp"
@@ -45,6 +46,15 @@ private:
     void captureRenderPrevPositions();
     void update();
     void render();
+    // Teste de tema: enter/leave the theme-backdrop preview. Entering fits the
+    // camera to the theme scene and clamps zoom-out so you cannot go past the SVG
+    // framing; leaving restores the simulation camera.
+    void setTheme(int themeId);
+    // Startup default scene: load the bundled "basic" save (prey + predator genome
+    // defaults). No-op if the file is not found.
+    void loadBasicDefaultScene();
+    // User-facing Reset / New: return to the default scene (basic save) + active theme.
+    void resetToDefaultScene();
     void updateFpsTitle();
     void drainCommandsAndApply();
 
@@ -71,6 +81,14 @@ private:
     render::Renderer renderer_;
     render::RenderOptions renderOptions_;
     render::RenderStats lastRenderStats_;
+    // Teste de tema: when active, the view shows only this theme backdrop (parallax
+    // preview), not the simulation. theme_.active == false is the normal sim view.
+    render::Theme theme_{};
+    sf::Clock themeClock_; // drives the backdrop's gentle drift animation
+    // Smooth (eased) zoom in theme mode: scroll sets a target; the camera zoom eases
+    // toward it each frame, anchored at the cursor. <=0 means "not initialized".
+    float themeTargetZoom_ = 0.0F;
+    sf::Vector2f themeZoomAnchor_{0.0F, 0.0F};
     sf::RenderWindow window_;
     sf::Clock frameClock_;
     sf::Clock fpsClock_;

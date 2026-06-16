@@ -69,6 +69,12 @@ public:
     // store. Does not change registry/world configuration.
     void reset();
 
+    // Reset overhaul: reset that KEEPS the user's labels and their genome
+    // templates (species_ + genomes_). Clears agents/food/brains and respawns the
+    // population from each enabled label's default genome. Used by the Stop dialog's
+    // "manter labels e genomas" option.
+    void resetKeepingLabels();
+
     // Microfase 31.1: apply the world geometry from the registry LIVE — no
     // reset. When the substrate shrinks, agents and food are pushed back inside
     // the new bounds (clamped); the spatial hash is rebuilt for the new grid.
@@ -217,6 +223,11 @@ private:
     // Microfase 31.1: per-label population floor. When the rescue knob is on,
     // every enabled species below its minPopulation gets respawned up to it.
     void applyPopulationRescue();
+    // Microfase 32.6: reclaim genomes of dead organisms (offspring clone a genome
+    // each birth; nothing freed it on death -> unbounded leak). Keeps the live
+    // agents' genomes + each label/species template. Touches only genomes_ (by id),
+    // so it never changes a living organism or the simulation result.
+    void collectGenomeGarbage();
 
     const config::ParameterRegistry& parameters_;
 

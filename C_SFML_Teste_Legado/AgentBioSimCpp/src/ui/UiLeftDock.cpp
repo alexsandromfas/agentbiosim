@@ -180,7 +180,7 @@ std::vector<PanelRow> substratoRows(const config::ParameterRegistry& reg)
     p("food_replenish_interval"); p("food_color");
     sec("Comida em pedacos (chunk)");
     p("food_bite_seconds"); p("food_piece_particle_radius"); p("food_piece_cluster_radius");
-    p("food_piece_particle_spacing"); p("food_piece_replenish_mode"); p("food_trim_max_per_step");
+    p("food_trim_max_per_step");
     sec("Substrato");
     p("substrate_shape"); p("world_w"); p("world_h"); p("substrate_radius");
     return rows;
@@ -374,7 +374,6 @@ std::vector<std::string> UiLeftDock::substratoParameters()
             "food_mode", "food_target", "food_piece_particle_radius",
             "food_color", "food_bite_seconds",
             "food_piece_cluster_radius",
-            "food_piece_particle_spacing", "food_piece_replenish_mode",
             "food_trim_max_per_step"};
 }
 

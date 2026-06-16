@@ -44,6 +44,42 @@ void GenomeStore::clear()
     nextId_ = 1;
 }
 
+std::size_t GenomeStore::retain(const std::unordered_set<GenomeId>& keep)
+{
+    // Cheap first pass: when there is no garbage (steady state) touch nothing.
+    std::size_t toRemove = 0;
+    for (const auto& r : records_)
+    {
+        if (keep.find(r.id) == keep.end())
+        {
+            ++toRemove;
+        }
+    }
+    if (toRemove == 0)
+    {
+        return 0;
+    }
+
+    std::vector<GenomeRecord> kept;
+    kept.reserve(records_.size() - toRemove);
+    for (auto& r : records_)
+    {
+        if (keep.find(r.id) != keep.end())
+        {
+            kept.push_back(std::move(r));
+        }
+    }
+    records_ = std::move(kept);
+    indexById_.clear();
+    indexById_.reserve(records_.size());
+    for (std::size_t i = 0; i < records_.size(); ++i)
+    {
+        indexById_[records_[i].id] = i;
+    }
+    // nextId_ is intentionally left untouched: ids are never reused.
+    return toRemove;
+}
+
 std::size_t GenomeStore::size() const noexcept
 {
     return records_.size();

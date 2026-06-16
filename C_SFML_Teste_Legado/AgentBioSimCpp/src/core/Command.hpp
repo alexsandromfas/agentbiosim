@@ -25,8 +25,16 @@ namespace agentbiosim::core
 struct CmdPauseToggle {};
 struct CmdSetPaused { bool paused = true; };
 struct CmdResetSimulation {};
+// Reset overhaul: full reset that KEEPS the user's labels and each label's genome
+// templates, respawning the population from those genomes (brains recreated fresh by
+// syncBrains). The Stop dialog offers this as "manter labels e genomas".
+struct CmdResetKeepLabels {};
 struct CmdStepOnce {};
 struct CmdSetTimeScale { double timeScale = 1.0; };
+// Appearance theme preview (teste de tema): 0 = none (normal simulation view),
+// 1 = orange theme backdrop. Handled by AppController (switches to a backdrop-only
+// preview with parallax + clamped zoom-out). Render/preview only — no engine state.
+struct CmdSetTheme { int themeId = 0; };
 
 struct CmdFitWorldCamera {};
 struct CmdSetCameraCenter { simulation::Vec2 worldCenter{}; };
@@ -199,6 +207,8 @@ using Command = std::variant<
     CmdPauseToggle,
     CmdSetPaused,
     CmdResetSimulation,
+    CmdResetKeepLabels,
+    CmdSetTheme,
     CmdStepOnce,
     CmdSetTimeScale,
     CmdFitWorldCamera,

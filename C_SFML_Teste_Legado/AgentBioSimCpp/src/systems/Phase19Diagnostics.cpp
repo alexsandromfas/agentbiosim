@@ -532,31 +532,30 @@ Phase19ValidationSummary runPhase19Validation()
     addCheck(summary, "grow_existing respects target (smoke)", true);
     addCheck(summary, "grow_existing counters correct (smoke)", true);
 
-    // 63-69: grow_particles.
+    // 63-69: chunk replenish keeps the field at the target by COUNT (particles are
+    // eaten whole and respawned into chunks; there is no per-particle energy refill).
     {
         simulation::FoodStore f;
         FoodSystem fs;
         FoodSystemConfig cfg = baseCfg;
         cfg.mode = simulation::FoodKind::Chunk;
-        cfg.replenishMode = FoodReplenishMode::GrowParticles;
         cfg.target = 3;
-        static_cast<void>(fs.spawnCluster(f, worldRect, cfg));
-        // Drain one particle.
-        f.setEnergyAt(0, f.energyAt(0) * 0.1);
+        static_cast<void>(fs.replenishToTarget(f, worldRect, cfg));
+        // Eat one particle, then replenish: the field returns to the target.
+        if (f.size() > 0U) static_cast<void>(f.removeFood(f.idAt(0)));
         const auto stats = fs.replenishToTarget(f, worldRect, cfg);
-        addCheck(summary, "grow_particles refills depleted particles",
-                 stats.particlesGrown >= 1U);
+        addCheck(summary, "chunk replenish refills eaten particles to target",
+                 stats.spawnedChunkParticles >= 1U && static_cast<int>(f.size()) == cfg.target);
     }
     {
         simulation::FoodStore f;
         FoodSystem fs;
         FoodSystemConfig cfg = baseCfg;
         cfg.mode = simulation::FoodKind::Chunk;
-        cfg.replenishMode = FoodReplenishMode::GrowParticles;
         cfg.target = 3;
         const auto stats = fs.replenishToTarget(f, worldRect, cfg);
-        addCheck(summary, "grow_particles fallback spawns cluster when empty",
-                 (stats.clustersCreated >= 1U) && f.size() > 0U);
+        addCheck(summary, "chunk replenish fills from empty",
+                 stats.spawnedChunkParticles >= 1U && f.size() > 0U);
     }
     addCheck(summary, "grow_particles respects safe limits (smoke)", true);
     addCheck(summary, "grow_particles deterministic (smoke)", true);

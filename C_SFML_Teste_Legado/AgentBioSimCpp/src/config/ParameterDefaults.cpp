@@ -243,6 +243,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     // UI scale (acessibilidade): tamanho de fontes/menus/botoes. Default medio (um
     // pouco maior que o original "small", que ficava pequeno em telas menores).
     addString(registry, "ui_scale", "medium", "appearance", "UI text/widget size: small, medium or large.", {}, {"runtime", "ui"});
+    // Visual theme (appearance skin): "none" = plain simulation, or a theme id such as
+    // "orange". Chosen via the thumbnail picker in the Appearance tab.
+    addString(registry, "ui_theme", "orange", "appearance", "Visual theme id: none, orange, dark_blue, light_blue.", {}, {"runtime", "ui"});
     // Phase 27: observability toggles (off by default; near-zero cost when off).
     addBool(registry, "profiler_enabled", false, "performance.observability", "Enable the per-system profiler.", {}, {"runtime", "performance", "ui"});
     addBool(registry, "metrics_enabled", false, "performance.observability", "Enable time-series metrics collection.", {}, {"runtime", "performance", "ui"});
@@ -335,8 +338,6 @@ void registerDefaultParameters(ParameterRegistry& registry)
     addDouble(registry, "food_bite_seconds", 6.0, "food.chunk", "Seconds required to consume a chunk particle.", 0.05, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_piece_particle_radius", 5.0, "food.chunk", "Chunk food particle radius.", 0.1, std::nullopt, {}, {"runtime", "food"});
     addDouble(registry, "food_piece_cluster_radius", 36.0, "food.chunk", "Chunk food cluster radius.", 0.1, std::nullopt, {}, {"runtime", "food"});
-    addDouble(registry, "food_piece_particle_spacing", 0.0, "food.chunk", "Spacing between food particles.", 0.0, std::nullopt, {}, {"runtime", "food"});
-    addString(registry, "food_piece_replenish_mode", "spawn_cluster", "food.chunk", "Chunk food replenish mode.", {}, {"runtime", "food"});
     addBool(registry, "food_trim_excess_enabled", true, "food", "Trim excess food above target.", {}, {"runtime", "food"});
     addInt(registry, "food_trim_max_per_step", 5, "food", "Maximum food particles trimmed per step.", 0.0, std::nullopt, {}, {"runtime", "food"});
 

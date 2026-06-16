@@ -59,6 +59,26 @@ const char* toolLabel(const core::CanvasTool t) noexcept
     }
     return core::canvasToolLabel(t);
 }
+// Reset overhaul: true when a brain-architecture change (network type / topology /
+// hidden layers) is sitting unapplied in the preferences edit buffer. The neural
+// warning and the "brains rebuilt" apply-feedback only appear when one of these is
+// dirty — never just because the user opened the tab.
+bool hasPendingNeuralArchChange(const PreferencesState& prefs)
+{
+    static constexpr const char* kKeys[] = {
+        "neural_network_type",
+        "neural_neat_initial_topology",
+        "neural_proto_neat_initial_topology",
+        "neural_recurrent_neat_initial_topology",
+        "bacteria_hidden_layers",
+    };
+    for (const char* k : kKeys)
+    {
+        if (prefs.pendingValues.count(k) > 0U) return true;
+    }
+    return false;
+}
+
 // --- value extraction from the effective ParameterValue ----------------------
 bool asBool(const config::ParameterValue& v)
 {
@@ -569,6 +589,7 @@ void ImGuiUi::loadIcons()
             }
         }
     }
+
 }
 
 const sf::Texture* ImGuiUi::icon(const char* key) const
@@ -971,7 +992,49 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
         if (iconButton(icon("reset"), "reset", tr("Resetar simulacao", "Reset simulation"),
                        false, "Reset"))
         {
-            queue.push(core::CmdResetSimulation{});
+            ImGui::OpenPopup("##resetconfirm");
+        }
+        // Reset overhaul: this is the ONLY full-reset entry point in the toolbar, and it
+        // asks first. "Manter labels e genomas" preserves the user's labels and each
+        // label's genome template (population respawned from those genomes, brains fresh);
+        // "Resetar tudo" returns to the default initial state.
+        ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                                ImVec2(0.5F, 0.5F));
+        if (ImGui::BeginPopupModal("##resetconfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextUnformatted(tr("Resetar a simulacao. O que deseja fazer?",
+                                      "Reset the simulation. What do you want to do?"));
+            ImGui::Spacing();
+            ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 460.0F);
+            ImGui::TextUnformatted(tr(
+                "\"Manter labels e genomas\" preserva suas labels e o genoma de cada uma; a "
+                "populacao renasce a partir desses genomas (os cerebros recomecam do zero). "
+                "\"Resetar tudo\" volta ao estado inicial padrao.",
+                "\"Keep labels and genomes\" preserves your labels and each label's genome; the "
+                "population is respawned from those genomes (brains start over). "
+                "\"Reset everything\" returns to the default initial state."));
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            ImGui::Separator();
+            ImGui::Spacing();
+            if (ImGui::Button(tr("Manter labels e genomas", "Keep labels and genomes"),
+                              ImVec2(240.0F, 0.0F)))
+            {
+                queue.push(core::CmdResetKeepLabels{});
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Resetar tudo", "Reset everything"), ImVec2(150.0F, 0.0F)))
+            {
+                queue.push(core::CmdResetSimulation{});
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Cancelar", "Cancel"), ImVec2(120.0F, 0.0F)))
+            {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
         ImGui::SameLine();
         if (ImGui::Button(tr("Passo", "Step"))) queue.push(core::CmdStepOnce{});
@@ -1121,6 +1184,22 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                         }
                         if (present.empty()) continue;
                         ImGui::SeparatorText(tr(g.titlePt, g.titleEn));
+                        // Reset overhaul: warn ONLY when a brain-architecture change is
+                        // actually pending (here: the hidden layers). Applying it rebuilds
+                        // the brains and the learning is lost; labels/organisms are kept.
+                        if (std::string(g.id) == "grp_neural" &&
+                            prefs.pendingValues.count("bacteria_hidden_layers") > 0U)
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.78F, 0.30F, 1.0F));
+                            ImGui::PushTextWrapPos(0.0F);
+                            ImGui::TextUnformatted(tr(
+                                "Aviso: aplicar a mudanca de camadas reconstroi os cerebros — o "
+                                "aprendizado sera perdido. As labels e os organismos sao mantidos.",
+                                "Warning: applying the layer change rebuilds the brains — learning "
+                                "will be lost. Labels and organisms are kept."));
+                            ImGui::PopTextWrapPos();
+                            ImGui::PopStyleColor();
+                        }
                         drawParamTable(g.id, registry, prefs, present, queue);
                     }
                     ImGui::EndChild();
@@ -1148,7 +1227,12 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                     ImGui::TextDisabled(tr("Label alvo: %s", "Target label: %s"),
                                         applyTarget != nullptr ? applyTarget->label.c_str()
                                                                : "-");
-                    if (ImGui::Button(tr("Aplicar a especie", "Apply to species"))) queue.push(core::CmdApplyGenomeToSpecies{});
+                    if (ImGui::Button(tr("Aplicar a especie", "Apply to species")))
+                    {
+                        state.applyFeedbackNeural = prefs.pendingValues.count("bacteria_hidden_layers") > 0U;
+                        state.applyFeedbackAt = ImGui::GetTime();
+                        queue.push(core::CmdApplyGenomeToSpecies{});
+                    }
                     ImGui::SetItemTooltip("%s", tr(
                         "Aplica os valores do editor AO VIVO a todos os organismos vivos da "
                         "label alvo e ao genoma-template dela (novos resgates ja nascem assim). "
@@ -1157,7 +1241,12 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                         "label and to its template genome (future rescues inherit it). Nothing "
                         "is deleted and the simulation does NOT restart. Brains are preserved."));
                     ImGui::SameLine();
-                    if (ImGui::Button(tr("Aplicar selecionados", "Apply to selected"))) queue.push(core::CmdApplyGenomeToSelected{});
+                    if (ImGui::Button(tr("Aplicar selecionados", "Apply to selected")))
+                    {
+                        state.applyFeedbackNeural = prefs.pendingValues.count("bacteria_hidden_layers") > 0U;
+                        state.applyFeedbackAt = ImGui::GetTime();
+                        queue.push(core::CmdApplyGenomeToSelected{});
+                    }
                     ImGui::SetItemTooltip("%s", tr(
                         "Aplica os valores do editor AO VIVO apenas aos organismos selecionados, "
                         "mantendo a label, posicao, energia e cerebro de cada um.",
@@ -1221,6 +1310,66 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
         if (ImGui::Begin(title.c_str(), &open))
         {
             ImGui::InputTextWithHint("##search", tr("Buscar parametro...", "Search parameter..."), &prefs.searchQuery);
+            // Aparencia: presets de tema (teste de tema). Aplica um cenario visual com
+            // efeito de profundidade no zoom; por enquanto mostra so o cenario.
+            if (tab == config::PrefsTab::Appearance)
+            {
+                ImGui::SeparatorText(tr("Temas", "Themes"));
+                ImGui::PushTextWrapPos(0.0F);
+                ImGui::TextUnformatted(tr("Escolha a aparencia da simulacao.",
+                                          "Choose the simulation's appearance."));
+                ImGui::PopTextWrapPos();
+                const std::string activeTheme = config::parameterString(registry, "ui_theme", "orange");
+                const ImVec2 thumb(92.0F, 56.0F);
+                // Each theme is a gradient swatch (bg + dish hint), green-framed when
+                // active. No PNG dependency, so all themes preview consistently.
+                const auto swatch = [&](const char* widgetId, const char* label,
+                                        const char* themeId, int cmdId, ImU32 cTop, ImU32 cBot,
+                                        ImU32 cDish) {
+                    const bool sel = activeTheme == themeId;
+                    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+                    const bool clicked = ImGui::InvisibleButton(widgetId, thumb);
+                    const ImVec2 p1(p0.x + thumb.x, p0.y + thumb.y);
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    dl->AddRectFilledMultiColor(p0, p1, cTop, cTop, cBot, cBot);
+                    const ImVec2 c{(p0.x + p1.x) * 0.5F, (p0.y + p1.y) * 0.5F};
+                    dl->AddCircleFilled(c, 15.0F, cDish, 32);
+                    dl->AddCircle(c, 15.0F, IM_COL32(255, 255, 255, 200), 32, 1.5F);
+                    dl->AddRect(p0, p1, sel ? IM_COL32(60, 210, 110, 255) : IM_COL32(150, 150, 150, 150),
+                                4.0F, 0, sel ? 3.0F : 1.0F);
+                    const ImVec2 ts = ImGui::CalcTextSize(label);
+                    dl->AddText({c.x - ts.x * 0.5F, p1.y - ts.y - 3.0F}, IM_COL32(255, 255, 255, 235), label);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label);
+                    if (clicked) queue.push(core::CmdSetTheme{cmdId});
+                };
+                swatch("##th_none", tr("Nenhum", "None"), "none", 0,
+                       IM_COL32(44, 44, 52, 255), IM_COL32(22, 22, 28, 255), IM_COL32(64, 64, 74, 255));
+                ImGui::SameLine();
+                swatch("##th_orange", tr("Laranja", "Orange"), "orange", 1,
+                       IM_COL32(246, 144, 73, 255), IM_COL32(237, 74, 87, 255), IM_COL32(251, 183, 140, 255));
+                ImGui::SameLine();
+                swatch("##th_dblue", tr("Azul escuro", "Dark blue"), "dark_blue", 2,
+                       IM_COL32(12, 30, 72, 255), IM_COL32(6, 15, 40, 255), IM_COL32(31, 65, 128, 255));
+                ImGui::SameLine();
+                swatch("##th_lblue", tr("Azul claro", "Light blue"), "light_blue", 3,
+                       IM_COL32(53, 207, 194, 255), IM_COL32(90, 147, 221, 255), IM_COL32(212, 237, 248, 255));
+                ImGui::Spacing();
+            }
+            // Reset overhaul: the neural warning appears ONLY when a brain-architecture
+            // change is pending (not just for opening the tab). No "applies live" notice
+            // anywhere; physics has no warning at all.
+            else if (tab == config::PrefsTab::Neural && hasPendingNeuralArchChange(prefs))
+            {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.78F, 0.30F, 1.0F));
+                ImGui::PushTextWrapPos(0.0F);
+                ImGui::TextUnformatted(tr(
+                    "Aviso: aplicar esta mudanca reconstroi os cerebros — o aprendizado sera "
+                    "perdido. As labels e os organismos sao mantidos.",
+                    "Warning: applying this change rebuilds the brains — learning will be lost. "
+                    "Labels and organisms are kept."));
+                ImGui::PopTextWrapPos();
+                ImGui::PopStyleColor();
+            }
             ImGui::Separator();
             ImGui::BeginChild("##prefsscroll", ImVec2(0.0F, -44.0F));
             const auto names = prefsParametersForTabFiltered(registry, prefs, tab);
@@ -1231,7 +1380,14 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
             drawParamTable("##prefstbl", registry, prefs, names, queue);
             ImGui::EndChild();
             ImGui::Separator();
-            if (ImGui::Button(tr("Aplicar", "Apply"))) queue.push(core::CmdApplyPreferences{});
+            if (ImGui::Button(tr("Aplicar", "Apply")))
+            {
+                // Feedback: capture whether this apply rebuilds brains BEFORE the
+                // pending buffer is cleared, then fire the centered green check.
+                state.applyFeedbackNeural = hasPendingNeuralArchChange(prefs);
+                state.applyFeedbackAt = ImGui::GetTime();
+                queue.push(core::CmdApplyPreferences{});
+            }
             ImGui::SameLine();
             if (ImGui::Button(tr("Reverter", "Revert"))) queue.push(core::CmdRevertPreferences{});
             ImGui::SameLine();
@@ -1310,6 +1466,45 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
         }
         ImGui::End();
         if (!open) queue.push(core::CmdToggleAboutPanel{});
+    }
+
+    // Feedback de "Aplicado": um visto verde transitório no centro da tela após
+    // aplicar (Preferências ou editor de genoma). Limpo e discreto; some sozinho.
+    // Quando a aplicação reconstruiu os cérebros, uma nota âmbar acompanha (o aviso
+    // "sobre apagar o cérebro" só aparece no momento da aplicação, como pedido).
+    {
+        const double elapsed = ImGui::GetTime() - state.applyFeedbackAt;
+        constexpr double kDuration = 1.6;
+        if (state.applyFeedbackAt > 0.0 && elapsed >= 0.0 && elapsed <= kDuration)
+        {
+            float a = static_cast<float>((1.0 - elapsed / kDuration) / 0.4); // hold then fade
+            if (a > 1.0F) a = 1.0F;
+            if (a < 0.0F) a = 0.0F;
+            ImDrawList* dl = ImGui::GetForegroundDrawList();
+            const ImVec2 disp = ImGui::GetIO().DisplaySize;
+            const ImVec2 c{disp.x * 0.5F, disp.y * 0.42F};
+            const float R = 48.0F;
+            const ImU32 green = ImGui::GetColorU32(ImVec4(0.20F, 0.82F, 0.42F, a));
+            const ImU32 fill = ImGui::GetColorU32(ImVec4(0.08F, 0.45F, 0.24F, a * 0.35F));
+            dl->AddCircleFilled(c, R, fill, 64);
+            dl->AddCircle(c, R, green, 64, 4.0F);
+            dl->AddLine(ImVec2(c.x - R * 0.42F, c.y + R * 0.02F),
+                        ImVec2(c.x - R * 0.08F, c.y + R * 0.34F), green, 5.0F);
+            dl->AddLine(ImVec2(c.x - R * 0.08F, c.y + R * 0.34F),
+                        ImVec2(c.x + R * 0.46F, c.y - R * 0.32F), green, 5.0F);
+            const char* label = tr("Aplicado", "Applied");
+            const ImVec2 ts = ImGui::CalcTextSize(label);
+            dl->AddText(ImVec2(c.x - ts.x * 0.5F, c.y + R + 8.0F),
+                        ImGui::GetColorU32(ImVec4(0.86F, 0.93F, 0.86F, a)), label);
+            if (state.applyFeedbackNeural)
+            {
+                const char* note = tr("Cerebros reiniciados — aprendizado perdido",
+                                      "Brains reset — learning lost");
+                const ImVec2 ns = ImGui::CalcTextSize(note);
+                dl->AddText(ImVec2(c.x - ns.x * 0.5F, c.y + R + 12.0F + ts.y),
+                            ImGui::GetColorU32(ImVec4(1.0F, 0.78F, 0.30F, a)), note);
+            }
+        }
     }
 }
 } // namespace agentbiosim::ui

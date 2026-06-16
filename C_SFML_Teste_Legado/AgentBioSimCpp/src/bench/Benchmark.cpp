@@ -90,6 +90,21 @@ std::vector<BenchmarkScenario> defaultScenarios()
         s.neuralType = nt;
         out.push_back(s);
     }
+    // Chunk-food scenarios: same sizes as the scale ladder but mode=chunk, to measure
+    // the FoodSystem's share with the chunk (sites) replenishment.
+    const std::tuple<int, int, int, int> chunkScales[] = {
+        {600, 300, 300, 3}, {1000, 500, 300, 3}, {2000, 1000, 150, 2}};
+    for (const auto& [agents, foods, steps, repeats] : chunkScales)
+    {
+        BenchmarkScenario s;
+        s.name = "chunk_" + std::to_string(agents);
+        s.agents = agents;
+        s.foods = foods;
+        s.steps = steps;
+        s.repeats = repeats;
+        s.foodMode = "chunk";
+        out.push_back(s);
+    }
     return out;
 }
 
@@ -112,6 +127,7 @@ BenchmarkResult runScenario(const BenchmarkScenario& sc)
         static_cast<void>(reg.setValue("food_target", sc.foods));
         static_cast<void>(reg.setValue("neural_network_type", std::string(sc.neuralType)));
         static_cast<void>(reg.setValue("retina_vision_mode", std::string(sc.visionMode)));
+        static_cast<void>(reg.setValue("food_mode", std::string(sc.foodMode)));
         static_cast<void>(reg.setValue("predators_enabled", sc.predatorsEnabled));
         static_cast<void>(reg.setValue("auto_export_substrate", false));
         // The runner enables the profiler from this knob each step; metrics stay
