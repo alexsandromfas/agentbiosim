@@ -8,6 +8,7 @@
 #include <SFML/Graphics/Texture.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <unordered_map>
 
@@ -81,7 +82,32 @@ private:
                            UiState& state,
                            core::CommandQueue& queue);
 
+    // Fase 34.1: the left dock is now ONE tab per species (color-tinted ear,
+    // editable name <=10 chars, a trailing "+" tab, retractable). Each tab is the
+    // genome editor of THAT species, bound to its genome: per-species fields edit
+    // live (orange while diverging, Enter applies just that field via
+    // CmdSetSpeciesGenomeField); global fields are shown marked. drawSpeciesEditor
+    // renders the body of the active species tab; the neural-reset confirmation
+    // modal lives here (it erases the species' learning).
+    void drawSpeciesDock(const config::ParameterRegistry& registry,
+                         const sim::SimulationRunner& runner,
+                         UiState& state,
+                         core::CommandQueue& queue);
+    void drawSpeciesEditor(const config::ParameterRegistry& registry,
+                           const sim::SimulationRunner& runner,
+                           UiState& state,
+                           core::CommandQueue& queue,
+                           std::uint32_t speciesId);
+    // Fase 34.1: the Substrate controls moved out of the dock into a window
+    // opened from the top menu bar (between Agente and Ajuda).
+    void drawSubstrateWindow(const config::ParameterRegistry& registry,
+                             const sim::SimulationRunner& runner,
+                             UiState& state,
+                             core::CommandQueue& queue);
+
     float topStripHeight_ = 0.0F;
+    // Fase 34.1: species whose "Resetar rede" confirmation modal is open (0 = none).
+    std::uint32_t pendingNeuralResetSpecies_ = 0;
     std::unordered_map<std::string, sf::Texture> icons_;
     bool iconsLoaded_ = false;
 

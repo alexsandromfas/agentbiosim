@@ -172,8 +172,32 @@ de codigo.
   mais barato na percepcao (581->345us). Golden byte-identico; `--phase31-selftest` = 107
   checks (bloco K). LEMBRETE: o CMakeLists lista fontes EXPLICITAMENTE — arquivo .cpp novo
   exige adiciona-lo la + `cmake -S . -B build`.
-- **Proxima fase (apos autorizacao):** Fase 33 — Campanha Final de Paridade + Prova de Performance
-  C++ vs Python (ver `PHASE_33.md`; fecha a Divida 10).
+- **Fase 34.1 (editor de genoma POR ESPECIE + apply granular ao vivo + Substrato em janela)**
+  CONCLUIDA (ver `MIGRACAO_C++SFML/PHASE_34_1_SPECIES_EDITOR_STATUS.md`; prompt em `PHASE_34_1.md`).
+  MUDANCA DE PARADIGMA: a "label" virou **especie**; o dock deixou de ter abas Editor/Substrato/
+  Labels e passou a ter **uma aba por especie** (orelha tingida com a cor da especie, nome <=10,
+  aba "+" ao final, retratil), cada aba sendo o editor daquela especie VINCULADO ao genoma dela.
+  Editar um campo deixa a caixa LARANJA e o Enter aplica SO aquele campo ao vivo (resolve a dor de
+  "mexer num campo e baguncar os outros"). Nucleo: `simulation/GenomeFields.{hpp,cpp}` (bridge unico
+  campo<->genoma por chave-sufixo: `setGenomeField`/`genomeFieldValue`/`isGenomeField`) +
+  `core::CmdSetSpeciesGenomeField` + `SimulationRunner::setSpeciesGenomeField` (escreve 1 campo no
+  template + membros vivos, clone-on-write, atualiza raio/forma/clamp + dietSnapshot; rebuildSpatial
+  so se body_size). Aba "+": com selecao = `CmdCreateSpeciesFromSelected`; sem selecao =
+  `CmdCreateSpeciesDefault` (`SimulationRunner::createSpeciesDefault` -> genoma padrao + spawna 5).
+  Por-especie AO VIVO = campos ja no GenomeRecord (corpo/energia/reproducao/dieta/flags-de-visao/
+  mutacao); GLOBAIS (velocidade/morte/custos/geometria-de-visao/`hidden_layers`) ficam read-only
+  marcados "(global)" e migram na 34.2. Modal de confirmacao no "Resetar rede neural" (apaga
+  aprendizado) — gancho que a 34.2 reusa p/ geometria de visao. Substrato saiu do dock -> item no
+  menu superior (entre Agente e Ajuda) abre janela (`UiState.showSubstrateWindow`); `population_min_
+  rescue_enabled` virou knob IMEDIATO (dock sem botao Aplicar). Botoes "Aplicar a especie/
+  selecionados" REMOVIDOS. GOLDEN `--phase32-checksum` BYTE-IDENTICO (engine inerte ate ser chamado
+  por comando; UI nao toca no caminho deterministico). `--phase34-selftest` = 15 checks (PASS).
+  Bateria 7-34 verde Debug+Release. `--phase31-selftest` = 112 checks. CMakeLists: +GenomeFields.cpp
+  +Phase34Diagnostics.cpp.
+- **Proxima fase (apos autorizacao):** Fase 34.2 — genoma completo (mover os traços globais —
+  velocidade/morte/custos/geometria de visao — para o `GenomeRecord` por indivíduo, sistemas lendo
+  por-genoma; reusa GenomeFields + o modal; golden byte-identico se defaults=globais). Ver
+  `PHASE_34_2.md`. (Fase 33 — paridade/perf C++ vs Python — segue pendente, ver `PHASE_33.md`.)
 
 ## Build e testes (Windows, MSVC, SFML 2.6.2)
 
@@ -199,6 +223,8 @@ Selftests headless (rodar TODOS como regressao; devem dar PASS):
 build/Release/AgentBioSimCpp.exe --phase7-selftest
 ... ate ...
 build/Release/AgentBioSimCpp.exe --phase32-selftest
+build/Release/AgentBioSimCpp.exe --phase34-selftest   # Fase 34.1 (editor por especie)
+build/Release/AgentBioSimCpp.exe --phase32-checksum    # GOLDEN: deve bater byte-a-byte
 ```
 Diagnostics extras: `--phase26-diagnostics` (viewer neural), `--phase27-diagnostics`
 (metricas/profiler), `--phase28-diagnostics` (save/load), `--phase29-bench` (suite de benchmark +

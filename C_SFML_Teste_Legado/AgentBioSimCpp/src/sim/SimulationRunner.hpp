@@ -161,6 +161,22 @@ public:
     // Both return the number of living agents updated.
     std::size_t applyEditorGenomeToSpecies(simulation::SpeciesId speciesId);
     std::size_t applyEditorGenomeToAgents(const std::vector<simulation::EntityId>& ids);
+    // Fase 34.1: granular per-species genome edit (the paradigm of the new
+    // per-species editor). Writes ONLY `field` into the species' template genome
+    // AND every living member (clone-on-write for shared genomes), refreshing
+    // derived agent state (radius/body shape/energy clamp) and the diet snapshot
+    // when relevant, so editing one trait never clobbers the others. O(members of
+    // the species); rebuilds the spatial hash only when the body radius changed.
+    // `field` is the canonical genome key (registry suffix; see
+    // simulation::setGenomeField); a global/unknown field is a safe no-op.
+    // Returns the number of living agents updated.
+    std::size_t setSpeciesGenomeField(simulation::SpeciesId speciesId,
+                                       const std::string& field,
+                                       const config::ParameterValue& value);
+    // Fase 34.1: create a new species from the default (bacteria) genome template
+    // and spawn its initialCount members (default 5). Used by the dock's "+" tab
+    // when nothing is selected. Returns the new species id.
+    simulation::SpeciesId createSpeciesDefault();
     // Mutable species access so the UI can read records for the Labels list.
     [[nodiscard]] simulation::SpeciesStore& speciesMutable() noexcept { return species_; }
 
@@ -220,6 +236,9 @@ private:
     void spawnInitial();
     void rebuildSpatial();
     void runOneStep(double dt);
+    // Fase 34.1: spawn `count` agents of `speciesId` at free positions (local RNG,
+    // reproducible per species). Used by createSpeciesDefault.
+    std::size_t spawnAgentsOfSpecies(simulation::SpeciesId speciesId, int count);
     // Microfase 31.1: per-label population floor. When the rescue knob is on,
     // every enabled species below its minPopulation gets respawned up to it.
     void applyPopulationRescue();

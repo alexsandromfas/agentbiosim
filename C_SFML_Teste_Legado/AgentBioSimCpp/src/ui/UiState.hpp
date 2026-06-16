@@ -93,6 +93,10 @@ struct UiState
     // Phase 27: metrics/profiler window toggle.
     bool showMetricsWindow = false;
 
+    // Fase 34.1: Substrate window toggle. The substrate/food controls moved out of
+    // the left dock (now species-only) into a window opened from the top menu bar.
+    bool showSubstrateWindow = false;
+
     // Phase 30: developer (performance) window toggle. While open, App forces
     // the engine profiler on (without touching the user's profiler_enabled).
     bool showDevWindow = false;

@@ -841,7 +841,10 @@ void App::drainCommandsAndApply()
                 const bool immediate =
                     c.name == "ui_language" || c.name == "log_level" ||
                     c.name == "profiler_enabled" || c.name == "metrics_enabled" ||
-                    c.name == "metrics_max_samples" || c.name == "metrics_sample_interval";
+                    c.name == "metrics_max_samples" || c.name == "metrics_sample_interval" ||
+                    // Fase 34.1: the species dock has no Apply button, so its global
+                    // population-rescue toggle applies live like the other engine knobs.
+                    c.name == "population_min_rescue_enabled";
                 if (immediate)
                 {
                     if (parameters_.setValue(c.name, c.value))

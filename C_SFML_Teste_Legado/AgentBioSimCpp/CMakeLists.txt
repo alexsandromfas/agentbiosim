@@ -96,6 +96,7 @@ add_executable(AgentBioSimCpp
     src/simulation/AgentStore.cpp
     src/simulation/FixedTimestep.cpp
     src/simulation/FoodStore.cpp
+    src/simulation/GenomeFields.cpp
     src/simulation/GenomeStore.cpp
     src/simulation/ObstacleStore.cpp
     src/simulation/Phase17Diagnostics.cpp
@@ -123,6 +124,7 @@ add_executable(AgentBioSimCpp
     src/systems/Phase30Diagnostics.cpp
     src/systems/Phase31Diagnostics.cpp
     src/systems/Phase32Diagnostics.cpp
+    src/systems/Phase34Diagnostics.cpp
     src/systems/MetricsSystem.cpp
     src/ui/DevWindow.cpp
     src/ui/InputRouter.cpp

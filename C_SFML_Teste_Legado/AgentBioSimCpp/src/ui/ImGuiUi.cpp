@@ -9,6 +9,7 @@
 #include "neural/BrainType.hpp"
 #include "neural/NeuralView.hpp"
 #include "sim/SimulationRunner.hpp"
+#include "simulation/GenomeFields.hpp"
 #include "simulation/GenomeStore.hpp"
 #include "simulation/SpeciesStore.hpp"
 #include "systems/MetricsSystem.hpp"
@@ -302,101 +303,188 @@ bool iconButton(const sf::Texture* tex, const char* id, const char* tooltip,
     return clicked;
 }
 
-// Labels tab: one block per enabled species — swatch, editable name, count,
-// graph toggle, min/max/initial spinners and action buttons.
-void drawLabelsTab(const config::ParameterRegistry& reg, const sim::SimulationRunner& runner,
-                   const PreferencesState& prefs, core::CommandQueue& queue)
+// Fase 34.1: tint a dock tab's "ear" with the species color (dimmer when
+// inactive, brighter when active). Push before BeginTabItem, pop after.
+void pushSpeciesTabColors(const simulation::ColorRgb c)
 {
-    ImGui::BeginChild("##labelsscroll", ImVec2(0.0F, -84.0F));
-    const auto& records = runner.species().records();
-    for (const auto& rec : records)
+    const ImVec4 base(static_cast<float>(c.r) / 255.0F, static_cast<float>(c.g) / 255.0F,
+                      static_cast<float>(c.b) / 255.0F, 1.0F);
+    const auto shade = [&](float k, float a) { return ImVec4(base.x * k, base.y * k, base.z * k, a); };
+    ImGui::PushStyleColor(ImGuiCol_Tab, shade(0.55F, 0.85F));
+    ImGui::PushStyleColor(ImGuiCol_TabHovered, shade(0.85F, 1.0F));
+    ImGui::PushStyleColor(ImGuiCol_TabActive, shade(1.0F, 1.0F));
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocused, shade(0.40F, 0.80F));
+    ImGui::PushStyleColor(ImGuiCol_TabUnfocusedActive, shade(0.75F, 1.0F));
+}
+void popSpeciesTabColors() { ImGui::PopStyleColor(5); }
+
+// Fase 34.1: one row of the per-species genome editor. PER-SPECIES fields are
+// bound to the SPECIES' genome (not the global bacteria_* buffer): numeric boxes
+// glow ORANGE while the typed value differs from the genome and commit just that
+// field on Enter (CmdSetSpeciesGenomeField); bools/enums commit on change. GLOBAL
+// fields (not yet on the genome — they migrate in Fase 34.2) render read-only and
+// marked "(global)", reading the shared registry value.
+void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
+                            const simulation::GenomeRecord& genome, const std::uint32_t sid,
+                            const char* suffix, UiState& state, core::CommandQueue& queue)
+{
+    const std::string full = std::string("bacteria_") + suffix;
+    const auto* def = reg.find(full);
+    if (def == nullptr) return;
+
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(friendlyLabelFor(full).c_str());
+    if (ImGui::IsItemHovered())
     {
-        if (!rec.enabled) continue;
-        const std::uint32_t sid = static_cast<std::uint32_t>(rec.id);
-        ImGui::PushID(static_cast<int>(sid));
+        const char* help = config::prefsParameterHelp(full);
+        const char* tip = help != nullptr
+            ? help
+            : (def->description.empty() ? nullptr : def->description.c_str());
+        if (tip != nullptr) ImGui::SetTooltip("%s", tip);
+    }
 
-        float col[3] = {static_cast<float>(rec.color.r) / 255.0F,
-                        static_cast<float>(rec.color.g) / 255.0F,
-                        static_cast<float>(rec.color.b) / 255.0F};
-        if (ImGui::ColorEdit3("##color", col, ImGuiColorEditFlags_NoInputs))
+    ImGui::TableSetColumnIndex(1);
+    ImGui::PushID(suffix);
+    ImGui::SetNextItemWidth(-1.0F);
+
+    const std::string field = suffix;
+    if (!simulation::isGenomeField(field))
+    {
+        // Global field: read-only display + "(global)" badge.
+        const config::ParameterValue eff = prefsEffectiveValue(reg, state.preferences, full);
+        std::string shown;
+        switch (def->type)
         {
-            queue.push(core::CmdSetSpeciesColor{sid,
-                static_cast<int>(col[0] * 255.0F + 0.5F),
-                static_cast<int>(col[1] * 255.0F + 0.5F),
-                static_cast<int>(col[2] * 255.0F + 0.5F)});
-        }
-        ImGui::SameLine();
-        std::string nameBuf = rec.label.empty() ? rec.name : rec.label;
-        ImGui::SetNextItemWidth(-1.0F);
-        ImGui::InputText("##name", &nameBuf);
-        if (ImGui::IsItemDeactivatedAfterEdit() && !nameBuf.empty())
+        case config::ParameterType::Boolean: shown = asBool(eff) ? tr("sim", "yes") : tr("nao", "no"); break;
+        case config::ParameterType::Integer: shown = std::to_string(asInt(eff)); break;
+        case config::ParameterType::Floating:
         {
-            queue.push(core::CmdSetSpeciesLabel{sid, nameBuf});
+            char b[40];
+            std::snprintf(b, sizeof(b), "%.*f", config::prefsDecimalsFor(full), asDouble(eff));
+            shown = b;
+            break;
         }
-
-        ImGui::TextDisabled(tr("%zu individuos", "%zu individuals"),
-                            runner.countAgentsOfSpecies(rec.id));
-
-        bool sg = rec.showGraph;
-        if (ImGui::Checkbox(tr("Grafico", "Graph"), &sg))
+        case config::ParameterType::String: shown = config::prefsEnumDisplayLabel(full, asString(eff)); break;
+        case config::ParameterType::ColorRgb:
         {
-            queue.push(core::CmdSetSpeciesShowGraph{sid, sg});
+            const auto c = asColor(eff);
+            shown = std::to_string(c.r) + "," + std::to_string(c.g) + "," + std::to_string(c.b);
+            break;
         }
-
-        // Phase 25.1: Min / Max / Inicial as plain text boxes (no +/- buttons).
-        // The runner command takes a delta, so commit new-minus-current.
-        const auto popField = [&](const char* lbl, int field, int value) {
-            ImGui::PushID(field);
-            ImGui::SetNextItemWidth(64.0F);
-            int v = value;
-            ImGui::InputInt(lbl, &v, 0, 0);
-            if (ImGui::IsItemDeactivatedAfterEdit() && v != value)
-            {
-                queue.push(core::CmdAdjustSpeciesPop{sid, field, v - value});
-            }
-            ImGui::PopID();
-        };
-        popField(tr("Min", "Min"), 0, rec.minPopulation);
-        ImGui::SameLine();
-        popField(tr("Max", "Max"), 1, rec.maxPopulation);
-        ImGui::SameLine();
-        popField(tr("Ini", "Init"), 2, rec.initialCount);
-
-        if (ImGui::Button(tr("Selecionar", "Select"))) queue.push(core::CmdSelectAllOfSpecies{sid});
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Atribuir selecao", "Assign selection"))) queue.push(core::CmdAssignSelectedToSpecies{sid});
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Remover selecao", "Remove selection"))) queue.push(core::CmdRemoveSelectedFromSpecies{sid});
-
-        // Phase 31: per-species neural reset is live (drops the species' brains;
-        // fresh ones are recreated deterministically on the next step).
-        if (ImGui::Button(tr("Resetar rede", "Reset network")))
+        }
+        ImGui::TextDisabled("%s  %s", shown.c_str(), tr("(global)", "(global)"));
+        if (ImGui::IsItemHovered())
         {
-            queue.push(core::CmdResetNeuralForSpecies{sid});
+            ImGui::SetTooltip("%s", tr(
+                "Global: vale para todas as especies. Edite em Preferencias; vira por-especie na Fase 34.2.",
+                "Global: applies to all species. Edit in Preferences; becomes per-species in Phase 34.2."));
         }
-        ImGui::SetItemTooltip("%s", tr("Substitui os cerebros desta especie por redes novas aleatorias.",
-                                       "Replaces this species' brains with fresh random networks."));
-        ImGui::SameLine();
-        if (ImGui::Button(tr("Excluir", "Delete"))) queue.push(core::CmdRemoveSpecies{sid});
-
-        ImGui::Separator();
         ImGui::PopID();
+        return;
     }
-    ImGui::EndChild();
 
-    ImGui::Separator();
+    // Per-species genome field, seeded from the species' genome.
+    const config::ParameterValue gv =
+        simulation::genomeFieldValue(genome, field).value_or(config::ParameterValue{0.0});
+    const auto apply = [&](config::ParameterValue v) {
+        queue.push(core::CmdSetSpeciesGenomeField{sid, field, std::move(v)});
+        state.applyFeedbackNeural = false;
+        state.applyFeedbackAt = ImGui::GetTime();
+    };
+    const auto markOrange = []() {
+        ImGui::GetWindowDrawList()->AddRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax(),
+                                            IM_COL32(245, 160, 70, 255), 3.0F, 0, 2.0F);
+    };
+
+    switch (def->type)
     {
-        const auto eff = prefsEffectiveValue(reg, prefs, "population_min_rescue_enabled");
-        bool resc = asBool(eff);
-        if (ImGui::Checkbox(tr("Resgate de populacao minima", "Minimum population rescue"), &resc))
+    case config::ParameterType::Boolean:
+    {
+        bool b = asBool(gv);
+        if (ImGui::Checkbox("##v", &b)) apply(config::ParameterValue{b});
+        break;
+    }
+    case config::ParameterType::String:
+    {
+        const auto options = config::prefsEnumValuesFor(full);
+        const std::string c = asString(gv);
+        if (!options.empty() && ImGui::BeginCombo("##v", config::prefsEnumDisplayLabel(full, c).c_str()))
         {
-            queue.push(core::CmdSetParameterValue{"population_min_rescue_enabled", resc});
+            for (const auto& opt : options)
+            {
+                const bool sel = (opt == c);
+                if (ImGui::Selectable(config::prefsEnumDisplayLabel(full, opt).c_str(), sel))
+                    apply(config::ParameterValue{opt});
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
         }
+        break;
     }
-    if (ImGui::Button(tr("+ Nova label com os selecionados", "+ New label from selected")))
+    case config::ParameterType::Integer:
     {
-        queue.push(core::CmdCreateSpeciesFromSelected{});
+        const int g = asInt(gv);
+        int v = g;
+        ImGui::InputInt("##v", &v, 0, 0);
+        if (ImGui::IsItemActive() && v != g) markOrange();
+        if (ImGui::IsItemDeactivatedAfterEdit() && v != g) apply(config::ParameterValue{v});
+        break;
     }
+    case config::ParameterType::Floating:
+    {
+        // Compare against the genome value cast to float (the seed): the box starts
+        // equal to it and only diverges on a real edit. Comparing the float to the
+        // double would glow orange forever for values float cannot represent (0.05).
+        const float gf = static_cast<float>(asDouble(gv));
+        float f = gf;
+        char fmt[8];
+        std::snprintf(fmt, sizeof(fmt), "%%.%df", config::prefsDecimalsFor(full));
+        ImGui::InputFloat("##v", &f, 0.0F, 0.0F, fmt);
+        if (ImGui::IsItemActive() && f != gf) markOrange();
+        if (ImGui::IsItemDeactivatedAfterEdit() && f != gf)
+            apply(config::ParameterValue{static_cast<double>(f)});
+        break;
+    }
+    case config::ParameterType::ColorRgb:
+        break;  // color is edited via the top color picker (CmdSetSpeciesColor)
+    }
+    ImGui::PopID();
+}
+
+// Fase 34.1: the genome editor groups (Gestalt). Each entry is a registry SUFFIX;
+// per-species ones edit live, global ones render marked (see drawSpeciesGenomeField).
+struct GenomeEditorGroup
+{
+    const char* titlePt;
+    const char* titleEn;
+    const char* tableId;
+    std::vector<const char*> suffixes;
+};
+const std::vector<GenomeEditorGroup>& genomeEditorGroups()
+{
+    static const std::vector<GenomeEditorGroup> kGroups = {
+        {"Corpo e locomocao", "Body & locomotion", "##grp_body",
+            {"body_size", "body_shape", "max_speed", "max_turn",
+             "allow_reverse_locomotion", "movement_mode"}},
+        {"Energia e reproducao", "Energy & reproduction", "##grp_energy",
+            {"initial_energy", "death_energy", "split_energy", "v0_cost", "vmax_cost",
+             "energy_cap", "death_by_age_enabled", "death_age",
+             "reproduction_min_age", "reproduction_cooldown"}},
+        {"Visao", "Vision", "##grp_vision",
+            {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",
+             "eye_angle_degrees", "retina_see_food", "retina_see_bacteria",
+             "retina_see_predators", "retina_see_obstacles", "retina_see_all",
+             "retina_see_through_walls", "retina_channel_r", "retina_channel_g",
+             "retina_channel_b", "retina_channel_d", "retina_input_mode"}},
+        {"Dieta", "Diet", "##grp_diet",
+            {"diet_food", "diet_agents", "diet_same_label", "diet_food_efficiency",
+             "diet_agent_efficiency", "corpse_to_food"}},
+        {"Rede neural", "Neural network", "##grp_neural",
+            {"hidden_layers", "mutation_rate", "mutation_strength"}},
+    };
+    return kGroups;
 }
 // --- Phase 26: neural viewer rendering -------------------------------------
 // Diverging fill for a node's activation: dark when ~0, green for positive,
@@ -872,6 +960,262 @@ void ImGuiUi::drawMetricsWindow(const config::ParameterRegistry& registry,
     if (!open) state.showMetricsWindow = false;
 }
 
+void ImGuiUi::drawSpeciesEditor(const config::ParameterRegistry& registry,
+                                const sim::SimulationRunner& runner,
+                                UiState& state,
+                                core::CommandQueue& queue,
+                                const std::uint32_t sid)
+{
+    const auto* rec = runner.species().find(static_cast<simulation::SpeciesId>(sid));
+    if (rec == nullptr) return;
+    const bool isBacteria = (rec->name == "bacteria");
+    const auto* genome = runner.genomes().find(rec->defaultGenomeId);
+
+    // Anchor for the mini specimen viewer (drawn via the draw list at the top-right
+    // corner; it does not consume layout, so it floats regardless of the controls).
+    const ImVec2 top = ImGui::GetCursorScreenPos();
+    const float wAvail = ImGui::GetContentRegionAvail().x;
+
+    // Color + name (name hard-capped at 10 characters by the buffer size).
+    float col[3] = {static_cast<float>(rec->color.r) / 255.0F,
+                    static_cast<float>(rec->color.g) / 255.0F,
+                    static_cast<float>(rec->color.b) / 255.0F};
+    if (ImGui::ColorEdit3("##spcolor", col, ImGuiColorEditFlags_NoInputs))
+    {
+        queue.push(core::CmdSetSpeciesColor{sid, static_cast<int>(col[0] * 255.0F + 0.5F),
+                                            static_cast<int>(col[1] * 255.0F + 0.5F),
+                                            static_cast<int>(col[2] * 255.0F + 0.5F)});
+    }
+    ImGui::SameLine();
+    char nameBuf[11];
+    std::snprintf(nameBuf, sizeof(nameBuf), "%s",
+                  (rec->label.empty() ? rec->name : rec->label).c_str());
+    ImGui::SetNextItemWidth(150.0F);
+    ImGui::InputText("##spname", nameBuf, sizeof(nameBuf));
+    if (ImGui::IsItemDeactivatedAfterEdit() && nameBuf[0] != '\0')
+        queue.push(core::CmdSetSpeciesLabel{sid, nameBuf});
+    ImGui::SetItemTooltip("%s", tr("Nome da especie (ate 10 letras).",
+                                   "Species name (up to 10 letters)."));
+
+    // Mini specimen viewer (one organism of the species: body shape + color).
+    {
+        const float vs = 38.0F;
+        const ImVec2 c{top.x + wAvail - vs * 0.5F, top.y + vs * 0.5F};
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const ImU32 fill = IM_COL32(rec->color.r, rec->color.g, rec->color.b, 255);
+        const ImU32 ring = IM_COL32(235, 238, 245, 210);
+        if (genome != nullptr && genome->bodyShape == simulation::BodyShapeCode::Circle)
+        {
+            dl->AddCircleFilled(c, vs * 0.42F, fill, 28);
+            dl->AddCircle(c, vs * 0.42F, ring, 28, 1.5F);
+        }
+        else
+        {
+            const ImVec2 r(vs * 0.46F, vs * 0.34F);
+            dl->AddEllipseFilled(c, r, fill, 0.0F, 32);
+            dl->AddEllipse(c, r, ring, 0.0F, 32, 1.5F);
+        }
+    }
+
+    ImGui::TextDisabled(tr("%zu vivos", "%zu alive"), runner.countAgentsOfSpecies(rec->id));
+    ImGui::SameLine();
+    bool sg = rec->showGraph;
+    if (ImGui::Checkbox(tr("Grafico", "Graph"), &sg)) queue.push(core::CmdSetSpeciesShowGraph{sid, sg});
+
+    // Population Min / Max / Inicial (plain text boxes; command takes a delta).
+    const auto popField = [&](const char* lbl, int field, int value) {
+        ImGui::PushID(field);
+        ImGui::SetNextItemWidth(58.0F);
+        int v = value;
+        ImGui::InputInt(lbl, &v, 0, 0);
+        if (ImGui::IsItemDeactivatedAfterEdit() && v != value)
+            queue.push(core::CmdAdjustSpeciesPop{sid, field, v - value});
+        ImGui::PopID();
+    };
+    popField(tr("Min", "Min"), 0, rec->minPopulation);
+    ImGui::SameLine();
+    popField(tr("Max", "Max"), 1, rec->maxPopulation);
+    ImGui::SameLine();
+    popField(tr("Ini", "Init"), 2, rec->initialCount);
+
+    if (ImGui::Button(tr("Selecionar", "Select"))) queue.push(core::CmdSelectAllOfSpecies{sid});
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Atribuir selecao", "Assign selection")))
+        queue.push(core::CmdAssignSelectedToSpecies{sid});
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Remover selecao", "Remove selection")))
+        queue.push(core::CmdRemoveSelectedFromSpecies{sid});
+
+    // Resetar rede neural -> confirmation modal (it erases this species' learning).
+    if (ImGui::Button(tr("Resetar rede neural", "Reset neural network")))
+    {
+        pendingNeuralResetSpecies_ = sid;
+        ImGui::OpenPopup("##confirmreset");
+    }
+    ImGui::SetItemTooltip("%s", tr("Substitui os cerebros desta especie por redes novas (pede confirmacao).",
+                                   "Replaces this species' brains with fresh networks (asks first)."));
+    ImGui::SameLine();
+    ImGui::BeginDisabled(isBacteria);
+    if (ImGui::Button(tr("Excluir especie", "Delete species"))) queue.push(core::CmdRemoveSpecies{sid});
+    ImGui::EndDisabled();
+
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing,
+                            ImVec2(0.5F, 0.5F));
+    if (ImGui::BeginPopupModal("##confirmreset", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 380.0F);
+        ImGui::TextUnformatted(tr(
+            "Isto vai reconstruir os cerebros desta especie. O aprendizado acumulado sera "
+            "perdido. Deseja realmente fazer isso?",
+            "This will rebuild this species' brains. The learning accumulated so far will be "
+            "lost. Do you really want to do this?"));
+        ImGui::PopTextWrapPos();
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+        if (ImGui::Button(tr("Resetar (apagar aprendizado)", "Reset (erase learning)"),
+                          ImVec2(240.0F, 0.0F)))
+        {
+            queue.push(core::CmdResetNeuralForSpecies{pendingNeuralResetSpecies_});
+            state.applyFeedbackNeural = true;
+            state.applyFeedbackAt = ImGui::GetTime();
+            pendingNeuralResetSpecies_ = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Cancelar", "Cancel"), ImVec2(120.0F, 0.0F)))
+        {
+            pendingNeuralResetSpecies_ = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::Separator();
+    if (genome == nullptr)
+    {
+        ImGui::TextDisabled("%s", tr("Sem genoma para esta especie.", "No genome for this species."));
+        return;
+    }
+
+    // Genome groups: per-species fields edit live; global fields render marked.
+    ImGui::BeginChild("##speditorscroll");
+    for (const auto& g : genomeEditorGroups())
+    {
+        ImGui::SeparatorText(tr(g.titlePt, g.titleEn));
+        if (ImGui::BeginTable(g.tableId, 2, ImGuiTableFlags_PadOuterX))
+        {
+            ImGui::TableSetupColumn("p", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("v", ImGuiTableColumnFlags_WidthFixed, 148.0F);
+            for (const char* suf : g.suffixes)
+                drawSpeciesGenomeField(registry, *genome, sid, suf, state, queue);
+            ImGui::EndTable();
+        }
+    }
+    ImGui::EndChild();
+}
+
+void ImGuiUi::drawSpeciesDock(const config::ParameterRegistry& registry,
+                              const sim::SimulationRunner& runner,
+                              UiState& state,
+                              core::CommandQueue& queue)
+{
+    PreferencesState& prefs = state.preferences;
+    if (!prefs.dockVisible) return;
+    const ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(0.0F, topStripHeight_));
+    ImGui::SetNextWindowSize(ImVec2(kDockW, io.DisplaySize.y - topStripHeight_));
+    const ImGuiWindowFlags dockFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoBringToFrontOnFocus;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
+    if (ImGui::Begin("##leftdock", nullptr, dockFlags))
+    {
+        // Footer (rescue toggle) reserved; tabs scroll, plus a trailing "+" tab.
+        ImGui::BeginChild("##dockbody", ImVec2(0.0F, -32.0F));
+        if (ImGui::BeginTabBar("##speciestabs",
+                               ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_TabListPopupButton))
+        {
+            for (const auto& rec : runner.species().records())
+            {
+                if (!rec.enabled) continue;
+                const std::uint32_t sid = static_cast<std::uint32_t>(rec.id);
+                std::string name = rec.label.empty() ? rec.name : rec.label;
+                if (name.size() > 10) name = name.substr(0, 10);
+                const std::string lbl = name + "###sp" + std::to_string(sid);
+                pushSpeciesTabColors(rec.color);
+                const bool open = ImGui::BeginTabItem(lbl.c_str());
+                popSpeciesTabColors();
+                if (open)
+                {
+                    drawSpeciesEditor(registry, runner, state, queue, sid);
+                    ImGui::EndTabItem();
+                }
+            }
+            // Trailing "+" tab: create a new species (from selection, or default+spawn 5).
+            if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoReorder))
+            {
+                if (!state.selection.empty()) queue.push(core::CmdCreateSpeciesFromSelected{});
+                else queue.push(core::CmdCreateSpeciesDefault{});
+            }
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("%s", state.selection.empty()
+                    ? tr("Nova especie (genoma padrao + 5 organismos).",
+                         "New species (default genome + 5 organisms).")
+                    : tr("Nova especie a partir dos organismos selecionados.",
+                         "New species from the selected organisms."));
+            }
+            ImGui::EndTabBar();
+        }
+        ImGui::EndChild();
+
+        ImGui::Separator();
+        bool resc = asBool(prefsEffectiveValue(registry, prefs, "population_min_rescue_enabled"));
+        if (ImGui::Checkbox(tr("Resgate de populacao minima", "Minimum population rescue"), &resc))
+            queue.push(core::CmdSetParameterValue{"population_min_rescue_enabled", resc});
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void ImGuiUi::drawSubstrateWindow(const config::ParameterRegistry& registry,
+                                  const sim::SimulationRunner& runner,
+                                  UiState& state,
+                                  core::CommandQueue& queue)
+{
+    if (!state.showSubstrateWindow) return;
+    static_cast<void>(runner);
+    PreferencesState& prefs = state.preferences;
+    ImGui::SetNextWindowSize(ImVec2(440.0F, 420.0F), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.40F, 120.0F),
+                            ImGuiCond_FirstUseEver);
+    bool open = true;
+    const std::string title = std::string(tr("Substrato", "Substrate")) + "###substratewin";
+    if (ImGui::Begin(title.c_str(), &open))
+    {
+        std::vector<std::string> worldParams;
+        std::vector<std::string> foodParams;
+        for (const auto& n : UiLeftDock::substratoParameters())
+        {
+            const bool isWorld = (n == "substrate_shape" || n == "world_w" ||
+                                  n == "world_h" || n == "substrate_radius");
+            (isWorld ? worldParams : foodParams).push_back(n);
+        }
+        ImGui::SeparatorText(tr("Substrato", "Substrate"));
+        drawParamTable("##subworld", registry, prefs, worldParams, queue);
+        ImGui::SeparatorText(tr("Comida", "Food"));
+        drawParamTable("##subfood", registry, prefs, foodParams, queue);
+        ImGui::Separator();
+        if (ImGui::Button(tr("Aplicar ambiente", "Apply environment")))
+            queue.push(core::CmdApplyEnvironment{});
+        ImGui::SameLine();
+        if (ImGui::Button(tr("Limpar comida", "Clear food"))) queue.push(core::CmdClearAllFood{});
+    }
+    ImGui::End();
+    if (!open) state.showSubstrateWindow = false;
+}
+
 void ImGuiUi::draw(const config::ParameterRegistry& registry,
                    const sim::SimulationRunner& runner,
                    UiState& state,
@@ -882,7 +1226,6 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
     PreferencesState& prefs = state.preferences;
     const ImGuiIO& io = ImGui::GetIO();
     const float vpW = io.DisplaySize.x;
-    const float vpH = io.DisplaySize.y;
 
     // ---------------------------------------------------------------- menu bar
     float menuBarH = 0.0F;
@@ -959,6 +1302,12 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
             if (ImGui::MenuItem(tr("Importar organismo...", "Import organism...")))
                 queue.push(core::CmdImportAgent{});
             ImGui::EndMenu();
+        }
+        // Fase 34.1: Substrato is a top-level toggle between Agente and Ajuda; it
+        // opens the substrate/food window (the dock is species-only now).
+        if (ImGui::MenuItem(tr("Substrato", "Substrate"), nullptr, state.showSubstrateWindow))
+        {
+            state.showSubstrateWindow = !state.showSubstrateWindow;
         }
         if (ImGui::BeginMenu(tr("Ajuda", "Help")))
         {
@@ -1116,185 +1465,10 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
     topStripHeight_ = menuBarH + toolbarH;
 
     // --------------------------------------------------------------- left dock
-    if (prefs.dockVisible)
-    {
-        ImGui::SetNextWindowPos(ImVec2(0.0F, topStripHeight_));
-        ImGui::SetNextWindowSize(ImVec2(kDockW, vpH - topStripHeight_));
-        const ImGuiWindowFlags dockFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings |
-            ImGuiWindowFlags_NoBringToFrontOnFocus;
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0F);
-        if (ImGui::Begin("##leftdock", nullptr, dockFlags))
-        {
-            if (ImGui::BeginTabBar("##docktabs"))
-            {
-                if (ImGui::BeginTabItem(tr("Editor Genetico", "Genetic Editor")))
-                {
-                    ImGui::BeginChild("##editorscroll", ImVec2(0.0F, -52.0F));
-                    // Phase 25.1: Gestalt grouping — params split into labeled
-                    // sections (thin separator + small title), mirroring the
-                    // Python genetic editor. The editor edits the "bacteria"
-                    // species. (Per-group Aplicar + reset-network message: Fase 25.2.)
-                    // `id` is a stable, language-independent ImGui table id; the
-                    // displayed section title is localized at the call site so a
-                    // language flip does not reset table state (Phase 25.2).
-                    struct EditorGroup
-                    {
-                        const char* id;
-                        const char* titlePt;
-                        const char* titleEn;
-                        std::vector<const char*> suffixes;
-                    };
-                    static const std::vector<EditorGroup> kGroups = {
-                        {"grp_body", "Corpo e locomocao", "Body & locomotion",
-                            {"body_size", "body_shape", "max_speed", "max_turn",
-                             "allow_reverse_locomotion", "movement_mode"}},
-                        {"grp_energy", "Energia e reproducao", "Energy & reproduction",
-                            {"initial_energy", "death_energy", "split_energy", "v0_cost",
-                             "vmax_cost", "energy_cap", "death_by_age_enabled", "death_age",
-                             "corpse_to_food", "reproduction_min_age", "reproduction_cooldown"}},
-                        {"grp_vision", "Visao", "Vision",
-                            // Microfase 32.5/Fase 32.1: nomes com o infixo retina_ (casam
-                            // o registry e o editorParameters() corrigido). Sem isso os
-                            // checkboxes de "o que enxergar" nao apareciam na secao Visao.
-                            {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",
-                             "eye_angle_degrees", "retina_see_food", "retina_see_bacteria",
-                             "retina_see_predators", "retina_see_obstacles", "retina_see_all",
-                             "retina_see_through_walls", "retina_channel_r",
-                             "retina_channel_g", "retina_channel_b", "retina_channel_d",
-                             "retina_input_mode"}},
-                        {"grp_diet", "Dieta", "Diet",
-                            {"diet_food", "diet_agents", "diet_same_label", "food_efficiency",
-                             "agent_efficiency"}},
-                        {"grp_neural", "Rede neural", "Neural network",
-                            {"hidden_layers", "mutation_rate", "mutation_strength"}},
-                    };
-                    const auto editorNames = UiLeftDock::editorParameters();
-                    for (const auto& g : kGroups)
-                    {
-                        std::vector<std::string> present;
-                        for (const char* suf : g.suffixes)
-                        {
-                            const std::string full = std::string("bacteria_") + suf;
-                            if (std::find(editorNames.begin(), editorNames.end(), full) !=
-                                editorNames.end())
-                            {
-                                present.push_back(full);
-                            }
-                        }
-                        if (present.empty()) continue;
-                        ImGui::SeparatorText(tr(g.titlePt, g.titleEn));
-                        // Reset overhaul: warn ONLY when a brain-architecture change is
-                        // actually pending (here: the hidden layers). Applying it rebuilds
-                        // the brains and the learning is lost; labels/organisms are kept.
-                        if (std::string(g.id) == "grp_neural" &&
-                            prefs.pendingValues.count("bacteria_hidden_layers") > 0U)
-                        {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0F, 0.78F, 0.30F, 1.0F));
-                            ImGui::PushTextWrapPos(0.0F);
-                            ImGui::TextUnformatted(tr(
-                                "Aviso: aplicar a mudanca de camadas reconstroi os cerebros — o "
-                                "aprendizado sera perdido. As labels e os organismos sao mantidos.",
-                                "Warning: applying the layer change rebuilds the brains — learning "
-                                "will be lost. Labels and organisms are kept."));
-                            ImGui::PopTextWrapPos();
-                            ImGui::PopStyleColor();
-                        }
-                        drawParamTable(g.id, registry, prefs, present, queue);
-                    }
-                    ImGui::EndChild();
-                    ImGui::Separator();
-                    // Microfase 32.2: live apply targets the label of the first
-                    // selected organism (fallback: the default bacteria label).
-                    // Show the target so the user always knows who receives it.
-                    const simulation::SpeciesRecord* applyTarget = nullptr;
-                    {
-                        const auto& ag = runner.agents();
-                        for (const auto selId : state.selection.ids())
-                        {
-                            const auto idx = ag.indexOf(selId);
-                            if (idx.has_value() && ag.aliveAt(*idx))
-                            {
-                                applyTarget = runner.species().find(ag.speciesIdAt(*idx));
-                                break;
-                            }
-                        }
-                        if (applyTarget == nullptr)
-                        {
-                            applyTarget = runner.species().findByName("bacteria");
-                        }
-                    }
-                    ImGui::TextDisabled(tr("Label alvo: %s", "Target label: %s"),
-                                        applyTarget != nullptr ? applyTarget->label.c_str()
-                                                               : "-");
-                    if (ImGui::Button(tr("Aplicar a especie", "Apply to species")))
-                    {
-                        state.applyFeedbackNeural = prefs.pendingValues.count("bacteria_hidden_layers") > 0U;
-                        state.applyFeedbackAt = ImGui::GetTime();
-                        queue.push(core::CmdApplyGenomeToSpecies{});
-                    }
-                    ImGui::SetItemTooltip("%s", tr(
-                        "Aplica os valores do editor AO VIVO a todos os organismos vivos da "
-                        "label alvo e ao genoma-template dela (novos resgates ja nascem assim). "
-                        "Nada e deletado e a simulacao NAO reinicia. Cerebros sao preservados.",
-                        "Applies the editor values LIVE to every living organism of the target "
-                        "label and to its template genome (future rescues inherit it). Nothing "
-                        "is deleted and the simulation does NOT restart. Brains are preserved."));
-                    ImGui::SameLine();
-                    if (ImGui::Button(tr("Aplicar selecionados", "Apply to selected")))
-                    {
-                        state.applyFeedbackNeural = prefs.pendingValues.count("bacteria_hidden_layers") > 0U;
-                        state.applyFeedbackAt = ImGui::GetTime();
-                        queue.push(core::CmdApplyGenomeToSelected{});
-                    }
-                    ImGui::SetItemTooltip("%s", tr(
-                        "Aplica os valores do editor AO VIVO apenas aos organismos selecionados, "
-                        "mantendo a label, posicao, energia e cerebro de cada um.",
-                        "Applies the editor values LIVE to the selected organisms only, keeping "
-                        "each one's label, position, energy and brain."));
-                    ImGui::SameLine();
-                    if (ImGui::Button(tr("Reverter", "Revert"))) queue.push(core::CmdRevertPreferences{});
-                    ImGui::SameLine();
-                    if (ImGui::Button(tr("Padroes", "Defaults")))
-                    {
-                        for (const auto& n : UiLeftDock::editorParameters())
-                            queue.push(core::CmdRestoreParameterDefault{n});
-                    }
-                    ImGui::EndTabItem();
-                }
-                if (ImGui::BeginTabItem(tr("Substrato", "Substrate")))
-                {
-                    ImGui::BeginChild("##substratoscroll", ImVec2(0.0F, -52.0F));
-                    std::vector<std::string> worldParams;
-                    std::vector<std::string> foodParams;
-                    for (const auto& n : UiLeftDock::substratoParameters())
-                    {
-                        const bool isWorld = (n == "substrate_shape" || n == "world_w" ||
-                                              n == "world_h" || n == "substrate_radius");
-                        (isWorld ? worldParams : foodParams).push_back(n);
-                    }
-                    ImGui::SeparatorText(tr("Substrato", "Substrate"));
-                    drawParamTable("##subworld", registry, prefs, worldParams, queue);
-                    ImGui::SeparatorText(tr("Comida", "Food"));
-                    drawParamTable("##subfood", registry, prefs, foodParams, queue);
-                    ImGui::EndChild();
-                    ImGui::Separator();
-                    if (ImGui::Button(tr("Aplicar ambiente", "Apply environment"))) queue.push(core::CmdApplyEnvironment{});
-                    ImGui::SameLine();
-                    if (ImGui::Button(tr("Limpar comida", "Clear food"))) queue.push(core::CmdClearAllFood{});
-                    ImGui::EndTabItem();
-                }
-                if (ImGui::BeginTabItem("Labels"))
-                {
-                    drawLabelsTab(registry, runner, prefs, queue);
-                    ImGui::EndTabItem();
-                }
-                ImGui::EndTabBar();
-            }
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
-    }
+    // Fase 34.1: the dock is now ONE tab per species (color-tinted ear, name up to
+    // 10 chars, a trailing "+" tab), each tab bound to that species' genome.
+    // Substrato moved to a window opened from the top menu bar.
+    drawSpeciesDock(registry, runner, state, queue);
 
     // ----------------------------------------------------- preferences windows
     for (int t = 0; t < static_cast<int>(config::PrefsTab::Count); ++t)
@@ -1408,6 +1582,9 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
 
     // ------------------------------------------------------- metrics window
     drawMetricsWindow(registry, runner, state, queue);
+
+    // -------------------------------------------------- substrate window (34.1)
+    drawSubstrateWindow(registry, runner, state, queue);
 
     // ----------------------------------------------- developer window (Fase 30)
     devWindow_.draw(registry, runner, state, queue, info.fps);

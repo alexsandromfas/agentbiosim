@@ -2,6 +2,7 @@
 
 #include "config/ParameterHelpers.hpp"
 #include "neural/BrainFactory.hpp"
+#include "simulation/GenomeFields.hpp"
 #include "simulation/SpeciesBootstrap.hpp"
 
 #include <algorithm>
@@ -1215,6 +1216,169 @@ std::size_t SimulationRunner::applyEditorGenomeToAgents(
     return applied;
 }
 
+std::size_t SimulationRunner::setSpeciesGenomeField(const simulation::SpeciesId speciesId,
+                                                    const std::string& field,
+                                                    const config::ParameterValue& value)
+{
+    auto* rec = species_.find(speciesId);
+    if (rec == nullptr) return 0;
+    // Global / unknown field: not a per-individual genome trait in 34.1 -> no-op.
+    if (!simulation::isGenomeField(field)) return 0;
+
+    // Default genome ids of OTHER species are shared templates — never overwrite
+    // those records in place (old saves / pre-32.2 labels pointed at bacteria).
+    const auto isForeignDefault = [&](const simulation::GenomeId gid) {
+        for (const auto& other : species_.records())
+        {
+            if (other.id != speciesId && other.defaultGenomeId == gid) return true;
+        }
+        return false;
+    };
+
+    // 1) The species' own template genome (clone-on-write when shared/missing):
+    //    rescue spawns and "atribuir sem genoma" use it from now on.
+    simulation::GenomeId defaultId = rec->defaultGenomeId;
+    if (genomes_.find(defaultId) == nullptr || isForeignDefault(defaultId))
+    {
+        const simulation::GenomeHandle h = genomes_.find(defaultId) != nullptr
+            ? genomes_.cloneFrom(defaultId)
+            : genomes_.createGenome(simulation::GenomeRecord{});
+        if (!h.isValid()) return 0;
+        defaultId = h.id;
+        species_.setDefaultGenome(speciesId, defaultId);
+    }
+    if (auto* def = genomes_.find(defaultId))
+    {
+        simulation::setGenomeField(*def, field, value);
+        def->speciesId = speciesId;
+        species_.setDietSnapshot(speciesId, def->diet);
+    }
+
+    // 2) Every living member: write the SAME single field into its personal
+    //    genome (clone-on-write when it sits on another species' template), then
+    //    refresh derived state from its genome. Position, age and brain weights
+    //    survive; NOTHING is deleted and the world does NOT reset.
+    std::size_t applied = 0;
+    for (std::size_t i = 0; i < agents_.size(); ++i)
+    {
+        if (!agents_.aliveAt(i) || agents_.speciesIdAt(i) != speciesId) continue;
+        simulation::GenomeId gid = agents_.genomeIdAt(i);
+        if (gid == defaultId)
+        {
+            // shares the template already edited above — nothing more to write
+        }
+        else if (genomes_.find(gid) == nullptr)
+        {
+            agents_.setGenomeIdAt(i, defaultId);  // template already carries the edit
+        }
+        else
+        {
+            if (isForeignDefault(gid))
+            {
+                const simulation::GenomeHandle h = genomes_.cloneFrom(gid);
+                if (!h.isValid()) continue;
+                agents_.setGenomeIdAt(i, h.id);
+                gid = h.id;
+            }
+            if (auto* g = genomes_.find(gid)) simulation::setGenomeField(*g, field, value);
+        }
+        if (const auto* g = genomes_.find(agents_.genomeIdAt(i)))
+        {
+            agents_.setRadiusAt(i, g->bodySize);
+            agents_.setBodyShapeAt(i, g->bodyShape);
+            if (agents_.energyAt(i) > g->energyCap) agents_.setEnergyAt(i, g->energyCap);
+        }
+        ++applied;
+    }
+    // Only the body radius feeds the spatial hash; rebuild solely for that field.
+    if (applied > 0 && field == "body_size") rebuildSpatial();
+    return applied;
+}
+
+simulation::SpeciesId SimulationRunner::createSpeciesDefault()
+{
+    // Start from the bacteria record (prefix/type/body), give it a fresh name,
+    // color and explicit population limits (min 5 / max 150 / initial 5).
+    const auto* base = species_.findByName("bacteria");
+    simulation::SpeciesRecord rec;
+    if (base != nullptr) rec = *base;
+    rec.id = simulation::kInvalidSpeciesId;
+    int n = static_cast<int>(species_.size()) + 1;
+    std::string name = "Especie " + std::to_string(n);
+    while (species_.findByName(name) != nullptr) { ++n; name = "Especie " + std::to_string(n); }
+    rec.name = name;
+    rec.label = name;
+    rec.legacyAliases.clear();
+    rec.enabled = true;
+    rec.minPopulation = 5;
+    rec.maxPopulation = 150;
+    rec.initialCount = 5;
+    rec.color = kLabelPalette[species_.size() % kLabelPalette.size()];
+    rec.defaultGenomeId = simulation::kInvalidGenomeId;
+
+    const simulation::SpeciesId id = species_.registerSpecies(rec);
+    const simulation::GenomeId source = base != nullptr ? base->defaultGenomeId
+                                                        : simulation::kInvalidGenomeId;
+    const simulation::GenomeHandle clone = genomes_.find(source) != nullptr
+        ? genomes_.cloneFrom(source)
+        : genomes_.createGenome(simulation::GenomeRecord{});
+    if (clone.isValid())
+    {
+        if (auto* g = genomes_.find(clone.id))
+        {
+            g->speciesId = id;
+            g->color = rec.color;
+        }
+        species_.setDefaultGenome(id, clone.id);
+        if (const auto* g = genomes_.find(clone.id)) species_.setDietSnapshot(id, g->diet);
+    }
+    static_cast<void>(spawnAgentsOfSpecies(id, rec.initialCount));
+    return id;
+}
+
+std::size_t SimulationRunner::spawnAgentsOfSpecies(const simulation::SpeciesId speciesId,
+                                                   const int count)
+{
+    const auto* sp = species_.find(speciesId);
+    if (sp == nullptr || count <= 0) return 0;
+    const auto* g = genomes_.find(sp->defaultGenomeId);
+    const double radius = g != nullptr ? std::max(0.1, g->bodySize) : 9.0;
+    const double energy = g != nullptr ? std::max(0.0, g->initialEnergy) : 100.0;
+
+    // Reproducible-but-varying local RNG. This is a UI action, never part of the
+    // determinism/golden scenarios, so placement need not match any baseline.
+    std::mt19937 rng(static_cast<std::uint32_t>(
+        seed_ + 0x9E3779B9U * static_cast<std::uint32_t>(speciesId)));
+    const auto* obs = obstacles_.empty() ? nullptr : &obstacles_;
+    auto sampleFree = [&](const double r) {
+        for (int t = 0; t < 32; ++t)
+        {
+            const auto cand = world_.clampPosition(randomPointInsideWorld(world_, r, rng), r);
+            if (obs == nullptr || !obs->overlapsCircle(cand, r)) return cand;
+        }
+        return world_.clampPosition(world_.center(), r);
+    };
+    std::uniform_real_distribution<double> angleDist(0.0, 2.0 * kPi);
+
+    std::size_t spawned = 0;
+    for (int i = 0; i < count; ++i)
+    {
+        simulation::AgentSpawn s;
+        s.position = sampleFree(radius);
+        s.angle = angleDist(rng);
+        s.radius = radius;
+        s.energy = energy;
+        s.color = sp->color;
+        s.speciesId = sp->id;
+        s.genomeId = sp->defaultGenomeId;
+        s.typeCode = sp->typeCode;
+        s.bodyShape = sp->bodyShape;
+        if (agents_.createAgent(s).isValid()) ++spawned;
+    }
+    if (spawned > 0) rebuildSpatial();
+    return spawned;
+}
+
 bool SimulationRunner::setSpeciesColorAndRecolor(const simulation::SpeciesId speciesId,
                                                    const simulation::ColorRgb color)
 {
@@ -1479,6 +1643,17 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
         else if constexpr (std::is_same_v<T, core::CmdBeginEditSpeciesName>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdCommitEditSpeciesName>) { return true; }
         else if constexpr (std::is_same_v<T, core::CmdCancelEditSpeciesName>) { return true; }
+        // Fase 34.1: granular per-species genome edit + create-default-species are
+        // engine-owned (no selection needed), so they run here directly.
+        else if constexpr (std::is_same_v<T, core::CmdSetSpeciesGenomeField>) {
+            static_cast<void>(setSpeciesGenomeField(
+                static_cast<simulation::SpeciesId>(c.speciesId), c.field, c.value));
+            return true;
+        }
+        else if constexpr (std::is_same_v<T, core::CmdCreateSpeciesDefault>) {
+            static_cast<void>(createSpeciesDefault());
+            return true;
+        }
         else { return false; }
     }, cmd);
 }

@@ -187,6 +187,24 @@ struct CmdCancelEditSpeciesName {};
 struct CmdSetSpeciesLabel  { std::uint32_t speciesId = 0; std::string label; };
 struct CmdSetSpeciesColor  { std::uint32_t speciesId = 0; int r = 0; int g = 0; int b = 0; };
 
+// Fase 34.1: granular per-species genome edit. The per-species editor emits this
+// when the user presses Enter on a single field; the engine writes ONLY that
+// field into the species' template genome AND every living member of the
+// species (clone-on-write for shared genomes), so editing one trait never
+// clobbers the others. `field` is the canonical genome key (registry suffix,
+// e.g. "body_size", "diet_food", "retina_see_food"); see simulation::setGenomeField.
+struct CmdSetSpeciesGenomeField
+{
+    std::uint32_t speciesId = 0;
+    std::string field;
+    config::ParameterValue value;
+};
+// Fase 34.1: the dock's "+" tab with NOTHING selected — create a brand new
+// species from the default (bacteria) genome template and spawn its initial
+// population (the species' initialCount, default 5). With a selection the dock
+// emits CmdCreateSpeciesFromSelected instead (those agents become the species).
+struct CmdCreateSpeciesDefault {};
+
 // Phase 28: save/load. App-level handlers (open a file dialog + do file I/O);
 // the engine treats them as no-ops. Save uses the current path (prompting once
 // if none); Save As always prompts; Load prompts to open a .agentbiosim.
@@ -300,6 +318,8 @@ using Command = std::variant<
     CmdCancelEditSpeciesName,
     CmdSetSpeciesLabel,
     CmdSetSpeciesColor,
+    CmdSetSpeciesGenomeField,
+    CmdCreateSpeciesDefault,
     CmdSaveSimulation,
     CmdSaveSimulationAs,
     CmdLoadSimulation,
