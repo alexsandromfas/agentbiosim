@@ -6,7 +6,6 @@
 #include <cmath>
 #include <map>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace agentbiosim::systems
@@ -268,39 +267,60 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
     }
 
     // Chunk mode — two behaviours selected by food_chunk_mode:
-    // ROAMING ("itinerante"): chunks are FINITE and never refilled in place. Keep
-    // ~`needed` whole chunks alive; when organisms eat one to nothing it vanishes and a
-    // FRESH chunk is spawned at a NEW random centre, so food relocates and organisms must
-    // search (no camping). New chunks obey particleRadius + clusterRadius (spawnCluster).
-    // spawnCluster uses the persistent rng_ -> deterministic. O(food) scan per call, but
-    // food is cheap and this mode is opt-in.
+    // ROAMING ("itinerante"): fill the field UP TO the target every step (so the food
+    // count tracks the target, exactly like the fixed mode), BUT route every refilled
+    // particle into a BRAND-NEW chunk at a FRESH random centre instead of topping up
+    // fixed sites. So the food an organism just ate reappears ELSEWHERE, not where it was
+    // camping — the field keeps ~target particles but they relocate. O(deficit) per step.
+    // Old piles are never refilled: they shrink as eaten and vanish; fresh piles appear
+    // at new spots. New chunks obey particleRadius + clusterRadius. Deterministic (rng_).
     if (config.chunkRoaming)
     {
-        const double pr = std::max(0.1, config.particleRadius);
-        const double cr = std::max(pr, config.clusterRadius);
-        const double capacity = std::max(1.0, (cr * cr) / (pr * pr));
-        const int needed =
-            std::max(1, static_cast<int>(std::ceil(static_cast<double>(config.target) / capacity)));
-        std::unordered_set<std::uint32_t> aliveChunks;
-        for (std::size_t i = 0; i < foods.size(); ++i)
-        {
-            if (foods.kindAt(i) == simulation::FoodKind::Chunk)
-            {
-                aliveChunks.insert(foods.clusterIdAt(i));
-            }
-        }
-        int toSpawn = needed - static_cast<int>(aliveChunks.size());
+        const double prR = std::max(0.1, config.particleRadius);
+        const double crR = std::max(prR, config.clusterRadius);
+        const double capacity = std::max(1.0, (crR * crR) / (prR * prR));
+        std::uniform_real_distribution<double> angR(0.0, kTwoPi);
+        std::uniform_real_distribution<double> uniR(0.0, 1.0);
         int rejected = 0;
-        while (toSpawn > 0)
+        while (static_cast<int>(foods.size()) < config.target)
         {
-            const std::uint32_t cid = spawnCluster(foods, world, config, obstacles);
-            if (cid == 0U)
+            // Fresh random centre for this chunk (never a reused site -> relocation).
+            simulation::Vec2 center = world.clampPosition(randomPointInsideWorld(world, crR), crR);
+            if (obstacles != nullptr && !obstacles->empty())
             {
-                if (++rejected >= 16) break;  // world too crowded — avoid an infinite spin
-                continue;
+                int attempts = 0;
+                while (obstacles->containsPoint(center) && attempts < 16)
+                {
+                    center = world.clampPosition(randomPointInsideWorld(world, crR), crR);
+                    ++attempts;
+                }
+                if (obstacles->containsPoint(center))
+                {
+                    ++stats.spawnsRejectedByObstacle;
+                    if (++rejected >= 64) break;  // crowded world — avoid an infinite spin
+                    continue;
+                }
             }
-            ++stats.clustersCreated;
-            --toSpawn;
+            const std::uint32_t cid = foods.allocateClusterId();
+            const int batch = std::min(static_cast<int>(capacity),
+                                       config.target - static_cast<int>(foods.size()));
+            const std::size_t before = foods.size();
+            for (int k = 0; k < batch && static_cast<int>(foods.size()) < config.target; ++k)
+            {
+                const double rr = std::sqrt(uniR(rng_)) * crR;
+                const double aa = angR(rng_);
+                const simulation::Vec2 pos = world.clampPosition(
+                    {center.x + std::cos(aa) * rr, center.y + std::sin(aa) * rr}, prR);
+                if (obstacles != nullptr && !obstacles->empty() && obstacles->overlapsCircle(pos, prR))
+                {
+                    ++stats.spawnsRejectedByObstacle;
+                    continue;
+                }
+                static_cast<void>(spawnChunkParticleAt(foods, pos, config, cid));
+                ++stats.spawnedChunkParticles;
+            }
+            if (foods.size() > before) { ++stats.clustersCreated; rejected = 0; }
+            else if (++rejected >= 64) break;  // no particle placed (all blocked) — stop
         }
         return stats;
     }

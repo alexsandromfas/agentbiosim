@@ -1026,23 +1026,25 @@ Phase31ValidationSummary runPhase31Validation()
             for (const auto id : doomed) static_cast<void>(f.removeFood(id));
         };
 
-        // Roaming: a fully-eaten chunk does NOT come back with the same id; a new one
-        // (new id) appears elsewhere, and the chunk count is restored.
+        // Roaming: the field fills UP TO the target (the bug fix — it used to stall far
+        // below), and a fully-eaten chunk does NOT come back with the same id — the
+        // deficit is refilled by NEW chunks (new ids) at fresh spots, so food relocates.
         systems::FoodSystem fsR;
         cfg.chunkRoaming = true;
         simulation::FoodStore foodsR;
         static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
+        check(static_cast<int>(foodsR.size()) == cfg.target,
+              "O: roaming enche ate o target (" + std::to_string(foodsR.size()) + "/" +
+                  std::to_string(cfg.target) + ")");
         const auto idsR0 = clusterIdSet(foodsR);
-        check(idsR0.size() >= 2, "O: roaming criou multiplos chunks (" +
-                                     std::to_string(idsR0.size()) + ")");
         const std::uint32_t victimR = *idsR0.begin();
         removeCluster(foodsR, victimR);
         static_cast<void>(fsR.replenishToTarget(foodsR, world, cfg));
-        const auto idsR1 = clusterIdSet(foodsR);
-        check(idsR1.count(victimR) == 0,
+        check(static_cast<int>(foodsR.size()) == cfg.target,
+              "O: roaming REENCHE ate o target apos consumo (" + std::to_string(foodsR.size()) +
+                  "/" + std::to_string(cfg.target) + ")");
+        check(clusterIdSet(foodsR).count(victimR) == 0,
               "O: chunk esgotado NAO reaparece com o mesmo id (itinerante)");
-        check(idsR1.size() >= idsR0.size(),
-              "O: contagem de chunks restaurada por um chunk NOVO em outro lugar");
 
         // Fixed (legacy): refills the SAME sites in place -> the eaten site id returns.
         systems::FoodSystem fsF;
