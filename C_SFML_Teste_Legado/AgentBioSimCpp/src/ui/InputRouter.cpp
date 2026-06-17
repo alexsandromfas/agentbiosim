@@ -76,8 +76,11 @@ void InputRouter::handleEvent(const sf::Event& ev,
         // brush draws a continuous trail rather than a single stamp.
         if (paintActive_ && uiState.activeTool == CanvasTool::PaintObstacle)
         {
-            queue.push(CmdPaintObstacleStroke{lastStampWorld_, worldPos,
-                                                uiState.brushRadius});
+            const auto to8 = [](float c) { return static_cast<int>(c * 255.0F + 0.5F); };
+            queue.push(CmdPaintObstacleStroke{lastStampWorld_, worldPos, uiState.brushRadius,
+                                                to8(uiState.obstacleColor[0]),
+                                                to8(uiState.obstacleColor[1]),
+                                                to8(uiState.obstacleColor[2])});
             lastStampWorld_ = worldPos;
         }
         if (eraserActive_ && uiState.activeTool == CanvasTool::EraseObstacle)
@@ -134,10 +137,16 @@ void InputRouter::handleEvent(const sf::Event& ev,
                 queue.push(CmdSpawnAgentAt{worldPos, 9.0});
                 break;
             case CanvasTool::PaintObstacle:
+            {
                 paintActive_ = true;
                 lastStampWorld_ = worldPos;
-                queue.push(CmdPaintObstacleAt{worldPos, uiState.brushRadius});
+                const auto to8 = [](float c) { return static_cast<int>(c * 255.0F + 0.5F); };
+                queue.push(CmdPaintObstacleAt{worldPos, uiState.brushRadius,
+                                                to8(uiState.obstacleColor[0]),
+                                                to8(uiState.obstacleColor[1]),
+                                                to8(uiState.obstacleColor[2])});
                 break;
+            }
             case CanvasTool::EraseObstacle:
                 eraserActive_ = true;
                 lastStampWorld_ = worldPos;

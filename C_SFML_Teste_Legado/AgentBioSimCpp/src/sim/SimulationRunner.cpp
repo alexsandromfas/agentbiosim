@@ -783,6 +783,20 @@ void SimulationRunner::deleteAgents(const std::vector<simulation::EntityId>& ids
     }
 }
 
+void SimulationRunner::removeFoodInDisc(const simulation::Vec2 center, const double radius)
+{
+    const double r2 = radius * radius;
+    std::vector<simulation::EntityId> doomed;
+    for (std::size_t i = 0; i < foods_.size(); ++i)
+    {
+        const auto p = foods_.positionAt(i);
+        const double dx = p.x - center.x;
+        const double dy = p.y - center.y;
+        if (dx * dx + dy * dy <= r2) doomed.push_back(foods_.idAt(i));
+    }
+    for (const auto id : doomed) static_cast<void>(foods_.removeFood(id));
+}
+
 SimulationSnapshot SimulationRunner::snapshot() const
 {
     SimulationSnapshot s;
@@ -1496,7 +1510,12 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
         }
         else if constexpr (std::is_same_v<T, core::CmdPaintObstacleAt>)
         {
-            static_cast<void>(obstacles_.paint(c.world, c.brushRadius)); return true;
+            static_cast<void>(obstacles_.paint(c.world, c.brushRadius,
+                simulation::ColorRgb{static_cast<std::uint8_t>(c.r),
+                                       static_cast<std::uint8_t>(c.g),
+                                       static_cast<std::uint8_t>(c.b)}));
+            removeFoodInDisc(c.world, c.brushRadius);  // no food trapped under the obstacle
+            return true;
         }
         else if constexpr (std::is_same_v<T, core::CmdEraseObstacleAt>)
         {
@@ -1513,11 +1532,15 @@ bool SimulationRunner::applyCommand(const core::Command& cmd)
             const std::size_t stamps =
                 dist <= spacing ? 1U
                                 : static_cast<std::size_t>(std::ceil(dist / spacing));
+            const simulation::ColorRgb col{static_cast<std::uint8_t>(c.r),
+                                             static_cast<std::uint8_t>(c.g),
+                                             static_cast<std::uint8_t>(c.b)};
             for (std::size_t i = 1; i <= stamps; ++i)
             {
                 const double t = static_cast<double>(i) / static_cast<double>(stamps);
                 const simulation::Vec2 p{c.worldFrom.x + dx * t, c.worldFrom.y + dy * t};
-                static_cast<void>(obstacles_.paint(p, c.brushRadius));
+                static_cast<void>(obstacles_.paint(p, c.brushRadius, col));
+                removeFoodInDisc(p, c.brushRadius);
             }
             return true;
         }

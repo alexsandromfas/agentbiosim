@@ -473,10 +473,13 @@ const std::vector<GenomeEditorGroup>& genomeEditorGroups()
              "reproduction_mode", "offspring_count",
              "reproduction_min_age", "reproduction_cooldown"}},
         {"Visao", "Vision", "##grp_vision",
+            // "Enxergar atraves de paredes" removido (redundante): ao ligar "ver
+            // obstaculo" o organismo ja deixa de ver o que esta atras (o obstaculo
+            // oclui). A oclusao agora segue seeObstacles (ver PerceptionSystem).
             {"vision_radius", "retina_count", "retina_fov_degrees", "eye_count",
              "eye_angle_degrees", "retina_see_food", "retina_see_bacteria",
              "retina_see_predators", "retina_see_obstacles", "retina_see_all",
-             "retina_see_through_walls", "retina_channel_r", "retina_channel_g",
+             "retina_channel_r", "retina_channel_g",
              "retina_channel_b", "retina_channel_d", "retina_input_mode"}},
         {"Dieta", "Diet", "##grp_diet",
             {"diet_food", "diet_agents", "diet_same_label", "diet_food_efficiency",
@@ -1432,6 +1435,13 @@ void ImGuiUi::draw(const config::ParameterRegistry& registry,
                 queue.push(core::CmdSetCanvasTool{core::CanvasTool::EraseObstacle});
                 ImGui::CloseCurrentPopup();
             }
+            // Fase 34.x: cor do obstaculo a ser pintado (lida pelo InputRouter ao pintar).
+            ImGui::Separator();
+            ImGui::TextUnformatted(tr("Cor", "Color"));
+            ImGui::SameLine();
+            ImGui::ColorEdit3("##obscolor", state.obstacleColor, ImGuiColorEditFlags_NoInputs);
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", tr("(cor do obstaculo)", "(obstacle color)"));
             ImGui::EndPopup();
         }
         ImGui::SameLine();

@@ -134,7 +134,8 @@ private:
     // round-robin — so chunks stay bounded by the radius, never fragment, and the work
     // is O(deficit) per step instead of scanning all food. Regenerated when the needed
     // count changes or after reseed/clear.
-    void ensureChunkSites(const simulation::World& world, const FoodSystemConfig& config);
+    void ensureChunkSites(const simulation::World& world, const FoodSystemConfig& config,
+                          const simulation::ObstacleStore* obstacles = nullptr);
 
     std::mt19937_64 rng_{20260530ULL};
     std::vector<simulation::Vec2> chunkSites_;

@@ -73,6 +73,9 @@ struct UiState
 
     // Painter knob (brush radius for PaintObstacle/EraseObstacle).
     double brushRadius = 20.0;
+    // Fase 34.x: chosen obstacle paint color (RGB 0..1 for the ImGui color picker in
+    // the obstacle toolbar dropdown). Default = the legacy obstacle gray (60,60,70).
+    float obstacleColor[3] = {60.0F / 255.0F, 60.0F / 255.0F, 70.0F / 255.0F};
 
     // Phase 26: selected-agent inspector + neural viewer.
     // `agentPanelOpen` is the retractable panel toggle (menu Agente). The panel

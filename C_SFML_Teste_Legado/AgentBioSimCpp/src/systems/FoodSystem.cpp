@@ -211,7 +211,8 @@ std::size_t FoodSystem::growExistingParticles(simulation::FoodStore& foods,
     return 0U; // chunk particles are eaten whole; nothing to refill
 }
 
-void FoodSystem::ensureChunkSites(const simulation::World& world, const FoodSystemConfig& config)
+void FoodSystem::ensureChunkSites(const simulation::World& world, const FoodSystemConfig& config,
+                                  const simulation::ObstacleStore* obstacles)
 {
     const double pr = std::max(0.1, config.particleRadius);
     const double cr = std::max(pr, config.clusterRadius);
@@ -222,11 +223,19 @@ void FoodSystem::ensureChunkSites(const simulation::World& world, const FoodSyst
     const int needed =
         std::max(1, static_cast<int>(std::ceil(static_cast<double>(config.target) / capacity)));
     if (static_cast<int>(chunkSites_.size()) == needed) return;
+    const bool avoidObstacles = obstacles != nullptr && !obstacles->empty();
     chunkSites_.clear();
     chunkSites_.reserve(static_cast<std::size_t>(needed));
     for (int i = 0; i < needed; ++i)
     {
-        chunkSites_.push_back(world.clampPosition(randomPointInsideWorld(world, cr), cr));
+        simulation::Vec2 site = world.clampPosition(randomPointInsideWorld(world, cr), cr);
+        // Keep chunk sites off obstacles so food does not pile on top of one. When
+        // there are no obstacles this branch never runs -> identical RNG draws (golden).
+        for (int a = 0; avoidObstacles && a < 8 && obstacles->overlapsCircle(site, cr); ++a)
+        {
+            site = world.clampPosition(randomPointInsideWorld(world, cr), cr);
+        }
+        chunkSites_.push_back(site);
     }
     chunkCursor_ = 0;
 }
@@ -340,7 +349,7 @@ FoodSystemStats FoodSystem::replenishToTarget(simulation::FoodStore& foods,
     // MISSING particle into a fixed chunk site (round-robin), at a random spot within
     // clusterRadius. The chunk is bounded by its radius (never fragments past it) and the
     // work is O(deficit) per step — no full-food scan, no per-call cluster map.
-    ensureChunkSites(world, config);
+    ensureChunkSites(world, config, obstacles);
     if (chunkSites_.empty()) return stats;
     const double pr = std::max(0.1, config.particleRadius);
     const double cr = std::max(pr, config.clusterRadius);

@@ -239,6 +239,9 @@ private:
     // Fase 34.1: spawn `count` agents of `speciesId` at free positions (local RNG,
     // reproducible per species). Used by createSpeciesDefault.
     std::size_t spawnAgentsOfSpecies(simulation::SpeciesId speciesId, int count);
+    // Fase 34.x: remove every food whose center is inside the disc (used when an
+    // obstacle is painted, so food is not trapped under a freshly-painted obstacle).
+    void removeFoodInDisc(simulation::Vec2 center, double radius);
     // Microfase 31.1: per-label population floor. When the rescue knob is on,
     // every enabled species below its minPopulation gets respawned up to it.
     void applyPopulationRescue();

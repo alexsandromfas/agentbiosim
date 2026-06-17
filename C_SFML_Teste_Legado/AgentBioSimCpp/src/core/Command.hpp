@@ -51,7 +51,9 @@ struct CmdMoveSelectedBy { double dx = 0.0; double dy = 0.0; };
 
 struct CmdSpawnFoodAt { simulation::Vec2 world{}; double radius = 5.0; double energy = 25.0; };
 struct CmdSpawnAgentAt { simulation::Vec2 world{}; double radius = 9.0; };
-struct CmdPaintObstacleAt { simulation::Vec2 world{}; double brushRadius = 20.0; };
+// Fase 34.x: obstacle paint carries the chosen color (from the toolbar's obstacle
+// color picker). Defaults match the legacy obstacle color so old call sites are unchanged.
+struct CmdPaintObstacleAt { simulation::Vec2 world{}; double brushRadius = 20.0; int r = 60; int g = 60; int b = 70; };
 struct CmdEraseObstacleAt { simulation::Vec2 world{}; double eraseRadius = 30.0; };
 struct CmdClearObstacles {};
 struct CmdClearFood {};
@@ -85,6 +87,9 @@ struct CmdPaintObstacleStroke
     simulation::Vec2 worldFrom{};
     simulation::Vec2 worldTo{};
     double brushRadius = 20.0;
+    int r = 60;
+    int g = 60;
+    int b = 70;
 };
 struct CmdEraseObstacleStroke
 {

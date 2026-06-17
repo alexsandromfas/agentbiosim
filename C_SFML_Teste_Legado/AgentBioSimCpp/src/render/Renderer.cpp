@@ -289,11 +289,7 @@ std::size_t Renderer::drawFoods(sf::RenderTarget& target,
         food.setOrigin(radius, radius);
         food.setPosition(position);
         food.setFillColor(base);
-        if (foods.kindAt(i) == simulation::FoodKind::Chunk && radius >= 3.0F)
-        {
-            food.setOutlineThickness(std::max(1.0F, camera.zoom() * 0.6F));
-            food.setOutlineColor(options.chunkFoodOutlineColor);
-        }
+        // Sem bordas (a pedido): comida e um disco liso, so a forma flat.
         target.draw(food);
         // (Brilho interno removido a pedido: a comida e um disco liso.)
         ++drawn;
@@ -319,8 +315,7 @@ std::size_t Renderer::drawObstacles(sf::RenderTarget& target,
         disc.setOrigin(radius, radius);
         disc.setPosition(pos);
         disc.setFillColor(base);
-        disc.setOutlineThickness(std::max(0.7F, camera.zoom() * 0.4F));
-        disc.setOutlineColor(darken(base, 0.45F));
+        // Sem bordas (a pedido): obstaculo e um disco liso na cor escolhida.
         target.draw(disc);
         ++drawn;
     }
@@ -373,8 +368,7 @@ std::size_t Renderer::drawAgents(sf::RenderTarget& target,
         body.setOrigin(radius, radius);
         body.setPosition(position);
         body.setFillColor(base);
-        body.setOutlineThickness(std::max(0.8F, camera.zoom() * 0.35F));
-        body.setOutlineColor(darken(base, 0.55F));
+        // Sem bordas (a pedido): corpo liso, so a forma flat.
         if (agents.bodyShapeAt(i) == simulation::BodyShapeCode::Ellipse)
         {
             body.setRotation(static_cast<float>(angle * 180.0 / 3.14159265358979));
@@ -409,8 +403,8 @@ std::size_t Renderer::drawAgents(sf::RenderTarget& target,
         head.setPoint(2, {position.x + c * radius * 0.30F + s * headWidth,
                             position.y + s * radius * 0.30F - c * headWidth});
         head.setFillColor(darken(base, 0.65F));
-        head.setOutlineThickness(0.6F);
-        head.setOutlineColor(sf::Color(10, 14, 18, 220));
+        // Sem bordas (a pedido): a "cabeca" (indicador de direcao) e um triangulo
+        // flat na cor do corpo (mais escura), sem contorno preto.
         target.draw(head);
 
         ++drawn;

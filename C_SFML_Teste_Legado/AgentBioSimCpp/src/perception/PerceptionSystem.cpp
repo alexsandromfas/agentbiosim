@@ -1092,10 +1092,15 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
                                              std::memory_order_relaxed);
         }
 
-        // Phase 20: pre-filter occluded candidates so the vision strategies see
-        // a clean buffer. Obstacle candidates are kept (an obstacle never
-        // occludes itself). Microfase 32.5: seeThroughWalls is per-agent.
-        const bool occForThis = obstaclesActive && (!vis.seeThroughWalls || sectorBlocksVision);
+        // Phase 20 + Fase 34.x: pre-filter occluded candidates so the vision
+        // strategies see a clean buffer. Obstacle candidates are kept (an obstacle
+        // never occludes itself). An obstacle BLOCKS the line of sight to objects
+        // behind it whenever the agent PERCEIVES obstacles (seeObstacles) — i.e.
+        // "se enxerga o obstaculo, nao ve o que esta atras". The old seeThroughWalls
+        // term is kept only as an internal engine default for the occlusion selftests
+        // (it is no longer editable in the genome editor).
+        const bool occForThis =
+            obstaclesActive && (vis.seeObstacles || !vis.seeThroughWalls || sectorBlocksVision);
         if (occForThis)
         {
             std::size_t localChecks = 0;
