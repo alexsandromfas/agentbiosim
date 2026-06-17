@@ -318,12 +318,27 @@ void pushSpeciesTabColors(const simulation::ColorRgb c)
 }
 void popSpeciesTabColors() { ImGui::PopStyleColor(5); }
 
-// Fase 34.1: one row of the per-species genome editor. PER-SPECIES fields are
-// bound to the SPECIES' genome (not the global bacteria_* buffer): numeric boxes
-// glow ORANGE while the typed value differs from the genome and commit just that
-// field on Enter (CmdSetSpeciesGenomeField); bools/enums commit on change. GLOBAL
-// fields (not yet on the genome — they migrate in Fase 34.2) render read-only and
-// marked "(global)", reading the shared registry value.
+// Fase 34.3: global genome-editor fields that change the neural I/O size (input via
+// retina/eye/channel geometry; output via movement_mode) or the architecture
+// (hidden_layers). Editing one rebuilds every brain on the next step (learning is
+// lost), so the apply feedback shows the "brains reset" note for these.
+bool globalFieldResetsBrains(const std::string& field) noexcept
+{
+    return field == "retina_count" || field == "eye_count" ||
+           field == "retina_channel_r" || field == "retina_channel_g" ||
+           field == "retina_channel_b" || field == "retina_channel_d" ||
+           field == "retina_input_mode" || field == "movement_mode" ||
+           field == "hidden_layers";
+}
+
+// Fase 34.1/34.3: one row of the per-species genome editor.
+//  - PER-SPECIES fields are bound to the species' GENOME (CmdSetSpeciesGenomeField).
+//  - GLOBAL fields (traits not yet per-species: vision geometry, movement_mode,
+//    hidden_layers, death age) are ALSO editable here, but write the shared registry
+//    value (CmdSetGlobalGenomeParam) so editing one changes the trait for ALL species
+//    at once; they are marked "(global)" in the label.
+// Numeric boxes glow ORANGE while the typed value differs and commit on Enter;
+// bools/enums commit on change.
 void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
                             const simulation::GenomeRecord& genome, const std::uint32_t sid,
                             const char* suffix, UiState& state, core::CommandQueue& queue)
@@ -332,65 +347,49 @@ void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
     const auto* def = reg.find(full);
     if (def == nullptr) return;
 
+    const std::string field = suffix;
+    const bool perSpecies = simulation::isGenomeField(field);
+    const bool resetsBrains = !perSpecies && globalFieldResetsBrains(field);
+
     ImGui::TableNextRow();
     ImGui::TableSetColumnIndex(0);
     ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(friendlyLabelFor(full).c_str());
+    std::string label = friendlyLabelFor(full);
+    if (!perSpecies) label += tr(" (global)", " (global)");
+    ImGui::TextUnformatted(label.c_str());
     if (ImGui::IsItemHovered())
     {
-        const char* help = config::prefsParameterHelp(full);
-        const char* tip = help != nullptr
-            ? help
-            : (def->description.empty() ? nullptr : def->description.c_str());
-        if (tip != nullptr) ImGui::SetTooltip("%s", tip);
+        if (!perSpecies)
+        {
+            ImGui::SetTooltip("%s", resetsBrains
+                ? tr("Global: vale para TODAS as especies — alterar aqui altera em todas (e reinicia os cerebros).",
+                     "Global: applies to ALL species — changing it here changes it for all (and resets the brains).")
+                : tr("Global: vale para TODAS as especies — alterar aqui altera em todas.",
+                     "Global: applies to ALL species — changing it here changes it for all."));
+        }
+        else
+        {
+            const char* help = config::prefsParameterHelp(full);
+            const char* tip = help != nullptr
+                ? help
+                : (def->description.empty() ? nullptr : def->description.c_str());
+            if (tip != nullptr) ImGui::SetTooltip("%s", tip);
+        }
     }
 
     ImGui::TableSetColumnIndex(1);
     ImGui::PushID(suffix);
     ImGui::SetNextItemWidth(-1.0F);
 
-    const std::string field = suffix;
-    if (!simulation::isGenomeField(field))
-    {
-        // Global field: read-only display + "(global)" badge.
-        const config::ParameterValue eff = prefsEffectiveValue(reg, state.preferences, full);
-        std::string shown;
-        switch (def->type)
-        {
-        case config::ParameterType::Boolean: shown = asBool(eff) ? tr("sim", "yes") : tr("nao", "no"); break;
-        case config::ParameterType::Integer: shown = std::to_string(asInt(eff)); break;
-        case config::ParameterType::Floating:
-        {
-            char b[40];
-            std::snprintf(b, sizeof(b), "%.*f", config::prefsDecimalsFor(full), asDouble(eff));
-            shown = b;
-            break;
-        }
-        case config::ParameterType::String: shown = config::prefsEnumDisplayLabel(full, asString(eff)); break;
-        case config::ParameterType::ColorRgb:
-        {
-            const auto c = asColor(eff);
-            shown = std::to_string(c.r) + "," + std::to_string(c.g) + "," + std::to_string(c.b);
-            break;
-        }
-        }
-        ImGui::TextDisabled("%s  %s", shown.c_str(), tr("(global)", "(global)"));
-        if (ImGui::IsItemHovered())
-        {
-            ImGui::SetTooltip("%s", tr(
-                "Global: vale para todas as especies. Edite em Preferencias; vira por-especie na Fase 34.2.",
-                "Global: applies to all species. Edit in Preferences; becomes per-species in Phase 34.2."));
-        }
-        ImGui::PopID();
-        return;
-    }
-
-    // Per-species genome field, seeded from the species' genome.
-    const config::ParameterValue gv =
-        simulation::genomeFieldValue(genome, field).value_or(config::ParameterValue{0.0});
+    // Value source: per-species fields read the genome; global fields read the shared
+    // registry value (bacteria_-prefixed).
+    const config::ParameterValue cur = perSpecies
+        ? simulation::genomeFieldValue(genome, field).value_or(config::ParameterValue{0.0})
+        : prefsEffectiveValue(reg, state.preferences, full);
     const auto apply = [&](config::ParameterValue v) {
-        queue.push(core::CmdSetSpeciesGenomeField{sid, field, std::move(v)});
-        state.applyFeedbackNeural = false;
+        if (perSpecies) queue.push(core::CmdSetSpeciesGenomeField{sid, field, std::move(v)});
+        else queue.push(core::CmdSetGlobalGenomeParam{field, std::move(v)});
+        state.applyFeedbackNeural = resetsBrains;
         state.applyFeedbackAt = ImGui::GetTime();
     };
     const auto markOrange = []() {
@@ -402,14 +401,14 @@ void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
     {
     case config::ParameterType::Boolean:
     {
-        bool b = asBool(gv);
+        bool b = asBool(cur);
         if (ImGui::Checkbox("##v", &b)) apply(config::ParameterValue{b});
         break;
     }
     case config::ParameterType::String:
     {
         const auto options = config::prefsEnumValuesFor(full);
-        const std::string c = asString(gv);
+        const std::string c = asString(cur);
         if (!options.empty() && ImGui::BeginCombo("##v", config::prefsEnumDisplayLabel(full, c).c_str()))
         {
             for (const auto& opt : options)
@@ -425,7 +424,7 @@ void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
     }
     case config::ParameterType::Integer:
     {
-        const int g = asInt(gv);
+        const int g = asInt(cur);
         int v = g;
         ImGui::InputInt("##v", &v, 0, 0);
         if (ImGui::IsItemActive() && v != g) markOrange();
@@ -434,10 +433,10 @@ void drawSpeciesGenomeField(const config::ParameterRegistry& reg,
     }
     case config::ParameterType::Floating:
     {
-        // Compare against the genome value cast to float (the seed): the box starts
-        // equal to it and only diverges on a real edit. Comparing the float to the
-        // double would glow orange forever for values float cannot represent (0.05).
-        const float gf = static_cast<float>(asDouble(gv));
+        // Compare against the value cast to float (the seed): the box starts equal to
+        // it and only diverges on a real edit. Comparing float to double would glow
+        // orange forever for values float cannot represent (e.g. 0.05).
+        const float gf = static_cast<float>(asDouble(cur));
         float f = gf;
         char fmt[8];
         std::snprintf(fmt, sizeof(fmt), "%%.%df", config::prefsDecimalsFor(full));

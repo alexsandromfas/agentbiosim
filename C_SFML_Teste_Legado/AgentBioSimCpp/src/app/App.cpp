@@ -859,6 +859,18 @@ void App::drainCommandsAndApply()
                     ++uiState_.preferences.controlInteractions;
                 }
             }
+            else if constexpr (std::is_same_v<T, ui::CmdSetGlobalGenomeParam>)
+            {
+                // Fase 34.3: a "(global)" genome-editor field — write the shared
+                // registry value LIVE (bacteria_-prefixed; the systems read it for
+                // every agent each step), so editing it from one species' editor
+                // changes the trait for ALL species at once. No pending/Apply needed.
+                if (parameters_.setValue("bacteria_" + c.field, c.value))
+                {
+                    configureFromParameters();
+                    configureRenderOptions();
+                }
+            }
             else if constexpr (std::is_same_v<T, ui::CmdApplyPreferences>)
             {
                 const unsigned int flags =

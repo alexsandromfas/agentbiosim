@@ -204,6 +204,16 @@ struct CmdSetSpeciesGenomeField
 // population (the species' initialCount, default 5). With a selection the dock
 // emits CmdCreateSpeciesFromSelected instead (those agents become the species).
 struct CmdCreateSpeciesDefault {};
+// Fase 34.3: edit a GLOBAL genome-editor field (a trait not yet per-species:
+// vision geometry, movement_mode, hidden_layers, ...). The species editor shows
+// these marked "(global)"; editing one writes the shared registry value
+// (`bacteria_<field>`) LIVE, so it changes for ALL species at once. `field` is
+// the canonical suffix (e.g. "retina_count", "movement_mode").
+struct CmdSetGlobalGenomeParam
+{
+    std::string field;
+    config::ParameterValue value;
+};
 
 // Phase 28: save/load. App-level handlers (open a file dialog + do file I/O);
 // the engine treats them as no-ops. Save uses the current path (prompting once
@@ -320,6 +330,7 @@ using Command = std::variant<
     CmdSetSpeciesColor,
     CmdSetSpeciesGenomeField,
     CmdCreateSpeciesDefault,
+    CmdSetGlobalGenomeParam,
     CmdSaveSimulation,
     CmdSaveSimulationAs,
     CmdLoadSimulation,
