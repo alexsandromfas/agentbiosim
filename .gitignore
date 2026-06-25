@@ -32,6 +32,10 @@ tests/substrato_de_teste/resultados_benchmark/
 build/
 dist/
 
+# Vendored SFML download (local build dependency; point CMake via -DSFML_ROOT=...)
+C_SFML_Teste_Legado/AgentBioSimCpp/third_party/SFML-2.6.2/
+C_SFML_Teste_Legado/AgentBioSimCpp/third_party/SFML-2.6.2-windows-vc17-64-bit.zip
+
 # Coverage and logs
 .coverage
 htmlcov/

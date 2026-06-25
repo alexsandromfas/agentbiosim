@@ -1140,6 +1140,11 @@ PerceptionResult PerceptionSystem::computeInputs(const simulation::AgentStore& a
             debugSink->eyeCount = retina.eyeCount;
             debugSink->visionRadius = retina.visionRadius;
             debugSink->fovDegrees = retina.fovDegrees;
+            debugSink->distanceSubdivisions = (activeMode == VisionMode::Sector)
+                ? static_cast<std::size_t>(std::max(1, retina.sectorBins.subdivisions))
+                : 1U;
+            debugSink->nearDetail =
+                (retina.sectorBins.distribution == BinsDistribution::NearDetail);
             debugSink->rays.reserve(retina.retinaCount * std::max<std::size_t>(1U, retina.eyeCount));
         }
 

@@ -41,53 +41,105 @@ sf::Vector2f w2s(const Camera2D& camera, const double x, const double y,
     return camera.worldToScreen({static_cast<float>(x), static_cast<float>(y)}, vp);
 }
 
-// ---- Sector / bin look: filled angular wedges + a faint polar grid ----------
+// ---- Sector / bins look: a polar GRID (angular bins x distance rings). The faint
+// grid always shows the bin structure; the cell (angle x distance band) where an
+// object is detected LIGHTS UP with the object color, transparency growing with the
+// activation. This mirrors the perception (retinaCount angular bins, subdivisions
+// radial bands, near_detail = sqrt spacing). Cheap: a couple of VertexArrays, one
+// draw each, and it only runs for the single selected agent.
 std::size_t drawSector(sf::RenderTarget& target, const Camera2D& camera,
                        const perception::VisionDebugData& debug, const sf::Vector2u vp)
 {
-    const std::size_t binCount = std::max<std::size_t>(1, debug.retinaCount);
     const double fovRad = debug.fovDegrees * kPi / 180.0;
+    const std::size_t binCount = std::max<std::size_t>(1, debug.retinaCount);
     const double binWidth = fovRad / static_cast<double>(binCount);
     const double halfBin = binWidth * 0.5;
     const double radius = std::max(1.0, debug.visionRadius);
+    const std::size_t subs = std::max<std::size_t>(1, debug.distanceSubdivisions);
+    const bool nearDetail = debug.nearDetail;
 
-    sf::VertexArray wedges(sf::Triangles);
-    sf::VertexArray grid(sf::Lines);
+    // Radius of the ring boundary at normalized fraction `f` (matches the perception's
+    // distance distribution: near_detail packs more bands close to the eye via sqrt).
+    const auto ringR = [&](const double f) {
+        return nearDetail ? radius * f * f : radius * f;
+    };
+    // Which distance band a normalized distance falls into (same math as the engine).
+    const auto bandOf = [&](double norm) {
+        norm = std::clamp(norm, 0.0, 1.0);
+        const int b = nearDetail
+            ? static_cast<int>(std::floor(std::sqrt(norm) * static_cast<double>(subs)))
+            : static_cast<int>(std::floor(norm * static_cast<double>(subs)));
+        return std::clamp(b, 0, static_cast<int>(subs) - 1);
+    };
+
+    sf::VertexArray cells(sf::Triangles);  // only the lit cells get filled
+    sf::VertexArray grid(sf::Lines);       // faint polar grid (always)
+    constexpr int kSeg = 4;
 
     for (const auto& ray : debug.rays)
     {
         const double cAng = std::atan2(ray.dirY, ray.dirX);
-        const double act = std::clamp(ray.activation, 0.0, 1.0);
-        // Active bins reach farther so the "where is something" reads at a glance.
-        const double reach = radius * (0.30 + 0.70 * act);
-        const sf::Color fill = seenColor(ray, 28.0, 200.0);
-        const sf::Vector2f apex = w2s(camera, ray.startX, ray.startY, vp);
-
-        constexpr int kSeg = 5;
         const double a0 = cAng - halfBin;
         const double a1 = cAng + halfBin;
-        for (int s = 0; s < kSeg; ++s)
+        const double act = std::clamp(ray.activation, 0.0, 1.0);
+
+        // The lit band: the nearest object's distance band (or the inner band for the
+        // aggregate modes that do not track a single distance).
+        int litBand = -1;
+        if (ray.hit)
         {
-            const double t0 = a0 + (a1 - a0) * (static_cast<double>(s) / kSeg);
-            const double t1 = a0 + (a1 - a0) * (static_cast<double>(s + 1) / kSeg);
-            const sf::Vector2f p0 = w2s(camera, ray.startX + std::cos(t0) * reach,
-                                        ray.startY + std::sin(t0) * reach, vp);
-            const sf::Vector2f p1 = w2s(camera, ray.startX + std::cos(t1) * reach,
-                                        ray.startY + std::sin(t1) * reach, vp);
-            wedges.append({apex, fill});
-            wedges.append({p0, fill});
-            wedges.append({p1, fill});
+            litBand = ray.hitDistance >= 0.0 ? bandOf(ray.hitDistance / radius) : 0;
+        }
+        // Lit color = the detected object's color (bright floor so dark objects still
+        // read); alpha grows with activation so nearer/stronger glows more.
+        sf::Color lit(130, 200, 250, 0);
+        if (ray.hit)
+        {
+            const double sum = ray.hitColorR + ray.hitColorG + ray.hitColorB;
+            if (sum > 0.12)
+            {
+                lit.r = toByte(ray.hitColorR * 255.0);
+                lit.g = toByte(ray.hitColorG * 255.0);
+                lit.b = toByte(ray.hitColorB * 255.0);
+            }
+            lit.a = toByte(70.0 + 170.0 * act);
         }
 
-        // Thin bin boundary at full radius (structure of the polar grid).
-        const sf::Color edge(90, 120, 170, 70);
-        grid.append({apex, edge});
-        grid.append({w2s(camera, ray.startX + std::cos(a1) * radius,
-                         ray.startY + std::sin(a1) * radius, vp), edge});
+        for (std::size_t b = 0; b < subs; ++b)
+        {
+            const double r0 = ringR(static_cast<double>(b) / static_cast<double>(subs));
+            const double r1 = ringR(static_cast<double>(b + 1) / static_cast<double>(subs));
+            // Concentric ring boundary arc (faint) — shows the longitudinal segmentation.
+            const sf::Color arcCol(120, 150, 200, 48);
+            for (int s = 0; s < kSeg; ++s)
+            {
+                const double t0 = a0 + (a1 - a0) * (static_cast<double>(s) / kSeg);
+                const double t1 = a0 + (a1 - a0) * (static_cast<double>(s + 1) / kSeg);
+                grid.append({w2s(camera, ray.startX + std::cos(t0) * r1, ray.startY + std::sin(t0) * r1, vp), arcCol});
+                grid.append({w2s(camera, ray.startX + std::cos(t1) * r1, ray.startY + std::sin(t1) * r1, vp), arcCol});
+                if (static_cast<int>(b) == litBand)
+                {
+                    const sf::Vector2f i0 = w2s(camera, ray.startX + std::cos(t0) * r0, ray.startY + std::sin(t0) * r0, vp);
+                    const sf::Vector2f i1 = w2s(camera, ray.startX + std::cos(t1) * r0, ray.startY + std::sin(t1) * r0, vp);
+                    const sf::Vector2f o0 = w2s(camera, ray.startX + std::cos(t0) * r1, ray.startY + std::sin(t0) * r1, vp);
+                    const sf::Vector2f o1 = w2s(camera, ray.startX + std::cos(t1) * r1, ray.startY + std::sin(t1) * r1, vp);
+                    cells.append({i0, lit}); cells.append({o0, lit}); cells.append({o1, lit});
+                    cells.append({i0, lit}); cells.append({o1, lit}); cells.append({i1, lit});
+                }
+            }
+        }
+
+        // Radial bin edges (faint) — the angular segmentation structure.
+        const sf::Color edge(120, 150, 200, 55);
+        const sf::Vector2f eye = w2s(camera, ray.startX, ray.startY, vp);
+        grid.append({eye, edge});
+        grid.append({w2s(camera, ray.startX + std::cos(a0) * radius, ray.startY + std::sin(a0) * radius, vp), edge});
+        grid.append({eye, edge});
+        grid.append({w2s(camera, ray.startX + std::cos(a1) * radius, ray.startY + std::sin(a1) * radius, vp), edge});
     }
 
+    target.draw(cells);
     target.draw(grid);
-    target.draw(wedges);
     return debug.rays.size();
 }
 

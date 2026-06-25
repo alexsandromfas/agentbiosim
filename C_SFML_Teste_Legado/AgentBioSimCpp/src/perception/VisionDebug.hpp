@@ -36,6 +36,10 @@ struct VisionDebugData
     std::size_t eyeCount = 0;
     double visionRadius = 0.0;
     double fovDegrees = 0.0;
+    // Sector/bins: how the distance axis is segmented, so the overlay can draw the
+    // longitudinal (radial) bin grid that matches the perception. 1 = no radial split.
+    std::size_t distanceSubdivisions = 1;
+    bool nearDetail = false;  // true = sqrt distribution (finer bins up close)
     std::vector<VisionRayDebug> rays;
 
     void clear() noexcept

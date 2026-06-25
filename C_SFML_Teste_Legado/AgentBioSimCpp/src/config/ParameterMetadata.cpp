@@ -494,11 +494,14 @@ std::vector<std::string> prefsEnumValuesFor(const std::string& name)
         "proto_neat",
         "recurrent_neat"
     };
-    if (name == "retina_vision_mode")  return {"frontal", "omni", "raycast", "raycast_omni"};
-    if (name == "retina_bins_mode")    return {"single", "sector", "global", "auto_sector"};
-    if (name == "retina_bins_distance_distribution") return {"linear", "log", "quadratic"};
-    if (name == "retina_bins_distance_falloff")      return {"none", "linear", "exponential"};
-    if (name == "retina_bins_projection")            return {"flat", "fisheye"};
+    // Vision/bins enums: the canonical values the perception's normalize* helpers
+    // understand (the old lists here were stale -> the combo showed bogus options and
+    // the real default fell outside the list, "disappearing" when another was picked).
+    if (name == "retina_vision_mode")  return {"single", "fullbody", "sector"};
+    if (name == "retina_bins_mode")    return {"nearest", "strongest", "sum_saturating", "weighted_average"};
+    if (name == "retina_bins_distance_distribution") return {"near_detail", "linear"};
+    if (name == "retina_bins_distance_falloff")      return {"linear", "quadratic", "step", "none"};
+    if (name == "retina_bins_projection")            return {"center", "center_edges", "apparent_size"};
     if (name == "neural_neat_initial_topology")            return {"empty", "minimal", "layered"};
     if (name == "neural_proto_neat_initial_topology")      return {"empty", "minimal", "layered"};
     if (name == "neural_recurrent_neat_initial_topology")  return {"empty", "minimal", "layered"};
@@ -571,17 +574,34 @@ std::string prefsEnumDisplayLabel(const std::string& name, const std::string& v)
     }
     if (name == "retina_vision_mode")
     {
-        if (is("frontal"))      return tr::tr("Frontal", "Frontal");
-        if (is("omni"))         return tr::tr("Omni", "Omni");
-        if (is("raycast"))      return tr::tr("Raycast", "Raycast");
-        if (is("raycast_omni")) return tr::tr("Raycast omni", "Raycast omni");
+        if (is("single"))   return tr::tr("Unico (raio central)", "Single (center ray)");
+        if (is("fullbody")) return tr::tr("Raycast (corpo inteiro)", "Raycast (full body)");
+        if (is("sector"))   return tr::tr("Setores / bins", "Sectors / bins");
     }
     if (name == "retina_bins_mode")
     {
-        if (is("single"))      return tr::tr("Unico", "Single");
-        if (is("sector"))      return tr::tr("Setor", "Sector");
-        if (is("global"))      return tr::tr("Global", "Global");
-        if (is("auto_sector")) return tr::tr("Auto-setor", "Auto-sector");
+        if (is("nearest"))          return tr::tr("Mais proximo", "Nearest");
+        if (is("strongest"))        return tr::tr("Mais forte", "Strongest");
+        if (is("sum_saturating"))   return tr::tr("Soma (satura)", "Sum (saturating)");
+        if (is("weighted_average")) return tr::tr("Media ponderada", "Weighted average");
+    }
+    if (name == "retina_bins_distance_distribution")
+    {
+        if (is("near_detail")) return tr::tr("Mais detalhe perto", "More detail near");
+        if (is("linear"))      return tr::tr("Linear", "Linear");
+    }
+    if (name == "retina_bins_distance_falloff")
+    {
+        if (is("linear"))    return tr::tr("Linear", "Linear");
+        if (is("quadratic")) return tr::tr("Quadratico", "Quadratic");
+        if (is("step"))      return tr::tr("Degrau", "Step");
+        if (is("none"))      return tr::tr("Nenhum", "None");
+    }
+    if (name == "retina_bins_projection")
+    {
+        if (is("center"))        return tr::tr("Centro", "Center");
+        if (is("center_edges"))  return tr::tr("Centro + bordas", "Center + edges");
+        if (is("apparent_size")) return tr::tr("Tamanho aparente", "Apparent size");
     }
     if (name == "retina_bins_distance_distribution")
     {
