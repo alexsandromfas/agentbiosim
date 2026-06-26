@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -50,8 +51,13 @@ public:
         std::uint64_t maxNs = 0;    // worst single scope
     };
 
-    void setEnabled(bool enabled) noexcept { enabled_ = enabled; }
-    [[nodiscard]] bool enabled() const noexcept { return enabled_; }
+    // Fase 35: enabled_ é atômico porque, no modo SIM/RENDER em 2 threads, o
+    // worker chama setEnabled() dentro de step() (Fase B) enquanto a main lê
+    // enabled() ao construir o ScopedTimer de Render (mesma Fase B). É o único
+    // ponto de concorrência no profiler — os slots `stats_` são por-seção
+    // disjuntos (worker: sim; main: Render/Ui).
+    void setEnabled(bool enabled) noexcept { enabled_.store(enabled, std::memory_order_relaxed); }
+    [[nodiscard]] bool enabled() const noexcept { return enabled_.load(std::memory_order_relaxed); }
 
     // Record one scope sample. Called by ScopedTimer on scope exit.
     void addSample(ProfileSection section, std::uint64_t nanoseconds) noexcept;
@@ -89,7 +95,7 @@ public:
     [[nodiscard]] std::string report() const;
 
 private:
-    bool enabled_ = false;
+    std::atomic<bool> enabled_{false};
     std::array<Stat, static_cast<std::size_t>(ProfileSection::Count)> stats_{};
 };
 

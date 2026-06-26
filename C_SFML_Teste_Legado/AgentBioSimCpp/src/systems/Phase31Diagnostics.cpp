@@ -469,7 +469,13 @@ Phase31ValidationSummary runPhase31Validation()
 
         // G5: a reproducao honra o genoma POR LABEL — split barato aplicado so
         // na label faz so a label reproduzir (bacteria continua split=150).
+        // Fase 35.1: no modelo "custo por filho" o split barato torna o organismo
+        // ELEGIVEL cedo, mas ele ainda precisa de energia p/ PAGAR o initialEnergy do
+        // filho e continuar vivo (energia > deathEnergy). Por isso baixamos tambem o
+        // initialEnergy da label, senao um pai com ~100 de energia nao paga um filho
+        // de 100 sem morrer e nao reproduz (comportamento correto do novo modelo).
         static_cast<void>(reg4.setValue("bacteria_split_energy", 1.0));
+        static_cast<void>(reg4.setValue("bacteria_initial_energy", 10.0));
         static_cast<void>(r.applyEditorGenomeToSpecies(labelId));
         const std::size_t labelPre = r.countAgentsOfSpecies(labelId);
         const std::size_t bacteriaPre = r.countAgentsOfSpecies(bacteriaId);

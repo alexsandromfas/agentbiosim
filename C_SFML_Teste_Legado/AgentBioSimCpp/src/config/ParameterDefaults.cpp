@@ -272,6 +272,9 @@ void registerDefaultParameters(ParameterRegistry& registry)
     // Phase 32: deterministic multithreading of perception + neural forward
     // (disjoint per-agent writes, no RNG -> bit-identical to serial).
     addBool(registry, "use_parallel_systems", true, "performance.parallel", "Multithread perception and neural forward (deterministic).", {}, {"runtime", "performance"});
+    // Fase 35: pipeline em 2 threads (simulação numa thread, render/UI na principal).
+    // Só afeta a janela interativa; selftests/golden/bench não passam por App.
+    addBool(registry, "sim_render_threaded", true, "performance.parallel", "Run simulation on its own thread, overlapped with rendering (window only).", {}, {"runtime", "performance"});
     addString(registry, "substrate_shape", "rectangular", "world.substrate", "Substrate shape: rectangular or circular.", {}, {"runtime", "world"});
     addDouble(registry, "world_w", 1000.0, "world.substrate", "Rectangular substrate width.", 1.0, std::nullopt, {}, {"runtime", "world"});
     addDouble(registry, "world_h", 700.0, "world.substrate", "Rectangular substrate height.", 1.0, std::nullopt, {}, {"runtime", "world"});

@@ -59,6 +59,7 @@ endif()
 add_executable(AgentBioSimCpp
     src/main.cpp
     src/app/App.cpp
+    src/app/SimWorker.cpp
     src/bench/Benchmark.cpp
     src/config/ParameterDefaults.cpp
     src/config/ParameterMetadata.cpp

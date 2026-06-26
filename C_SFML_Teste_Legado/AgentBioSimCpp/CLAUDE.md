@@ -218,6 +218,24 @@ de codigo.
   uniforme byte-identico — a parte de maior risco a determinismo/FPS. Ficam GLOBAIS (marcados no
   editor). Fazer numa sub-fase focada (com benchmark antes/depois) SO quando o usuario quiser
   especies com geometria de visao diferente (ex.: predador com mais retinas).
+- **Fase 35 (Sim/Render em 2 threads) CONCLUIDA** (ver `MIGRACAO_C++SFML/
+  PHASE_35_SIM_RENDER_THREADING_STATUS.md`; plano `PHASE_35_SIM_RENDER_THREADING.md`; analise
+  `PERF_PARALELIZACAO_ANALISE.md`). Pipeline produtor/consumidor: a simulacao roda numa thread
+  (`app::SimWorker`) SOBREPOSTA ao desenho do mundo na main, com **barreira por frame** (double
+  buffer via `app::RenderSnapshot` — copia SoA de agents/foods/obstacles/world/visao). Paralelismo
+  de TAREFA (sim ‖ render), complementar ao de DADOS da Fase 32. Modelo: `wait()` (barreira) ->
+  Fase A com worker OCIOSO (drain comandos, targets, autosave, captura snapshot, build do ImGui
+  lendo o runner VIVO) -> `request(N,dt)` (KICK) -> Fase B desenha so o SNAPSHOT (sobrepoe o
+  worker). Hazards: fila de comandos JA era main-only (worker nunca toca -> sem lock); `Profiler`
+  slots por-secao disjuntos + `enabled_` virou `std::atomic<bool>`; tudo que muta o runner cai na
+  Fase A. Engine **NAO** tocado no caminho do golden -> determinismo de graca. Knob
+  `sim_render_threaded` (Preferencias > Performance), **default true**; caminho serial
+  (`runSerialFrame`) intacto como fallback. **GOLDEN `--phase32-checksum` BYTE-IDENTICO**;
+  `--phase35-selftest` = 5 checks (worker-driven == serial-driven bit-identico; no-op de 0 passos;
+  ciclo de vida sem deadlock); smoke de janela threaded 6s OK; bateria 7-34 PASS Debug+Release.
+  Arquivos novos: `src/app/RenderSnapshot.hpp`, `src/app/SimWorker.{hpp,cpp}`. PENDENTE: medir FPS
+  serial vs threaded (propriedade da JANELA — A/B interativo via toggle do knob; bench mede o
+  engine, inalterado). Estagio 3 (futuro): sim free-running exige snapshotar a leitura do ImGui.
 - **Proxima fase:** Fase 33 — Campanha Final de Paridade + Prova de Performance C++ vs Python
   (fecha a Divida 10; ver `PHASE_33.md`).
 
@@ -246,6 +264,7 @@ build/Release/AgentBioSimCpp.exe --phase7-selftest
 ... ate ...
 build/Release/AgentBioSimCpp.exe --phase32-selftest
 build/Release/AgentBioSimCpp.exe --phase34-selftest   # Fase 34.1 (editor por especie)
+build/Release/AgentBioSimCpp.exe --phase35-selftest   # Fase 35 (SimWorker: determinismo + ciclo de vida)
 build/Release/AgentBioSimCpp.exe --phase32-checksum    # GOLDEN: deve bater byte-a-byte
 ```
 Diagnostics extras: `--phase26-diagnostics` (viewer neural), `--phase27-diagnostics`

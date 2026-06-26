@@ -1,5 +1,7 @@
 #pragma once
 
+#include "app/RenderSnapshot.hpp"
+#include "app/SimWorker.hpp"
 #include "config/ParameterRegistry.hpp"
 #include "perception/VisionDebug.hpp"
 #include "render/Camera2D.hpp"
@@ -44,8 +46,24 @@ private:
     void configureRenderOptions();
     void fitCameraToWorld();
     void captureRenderPrevPositions();
+    // Fase 35: copia o estado de mundo (agents/foods/obstacles/world/visão) dos
+    // stores vivos para snapshot_, do qual o desenho do mundo passa a ler. Chamado
+    // com o worker de simulação ocioso (mono-thread no Estágio 1).
+    void captureRenderSnapshot();
     void update();
     void render();
+    // Fase 35: orquestração de frame. runSerialFrame = caminho de sempre (fallback);
+    // runThreadedFrame = pipeline em 2 threads (barreira → Fase A → kick → Fase B).
+    void runSerialFrame();
+    void runThreadedFrame();
+    // Fase 35: render() dividido — buildImGuiFrame (Fase A, lê runner vivo) e
+    // presentFrame (Fase B, desenha só o snapshot + present).
+    void buildImGuiFrame();
+    void presentFrame();
+    // Fase 35: blocos extraídos de update() reusados pelo caminho threaded (rodam
+    // SEMPRE com o worker ocioso).
+    void updateEngineTargetsFromUi();
+    void emitHeartbeat();
     // Teste de tema: enter/leave the theme-backdrop preview. Entering fits the
     // camera to the theme scene and clamps zoom-out so you cannot go past the SVG
     // framing; leaving restores the simulation camera.
@@ -76,6 +94,9 @@ private:
 
     config::ParameterRegistry parameters_;
     sim::SimulationRunner runner_;
+    // Fase 35: worker da simulação (thread). Declarado APÓS runner_ para que a ordem
+    // de init garanta runner_ pronto quando o worker arranca. Init no ctor: simWorker_(runner_).
+    app::SimWorker simWorker_{runner_};
     simulation::FixedTimestep timestep_;
     render::Camera2D camera_;
     render::Renderer renderer_;
@@ -113,6 +134,10 @@ private:
     // render_interpolation_enabled. Purely visual; rebuilt only while enabled.
     std::unordered_map<std::uint64_t, simulation::Vec2> renderPrevPos_;
     bool renderPrevValid_ = false;
+
+    // Fase 35: snapshot de mundo do qual o render desenha (desacopla render dos
+    // stores vivos). Recapturado a cada frame com o worker ocioso.
+    app::RenderSnapshot snapshot_{};
 
     // Phase 28: last saved/loaded file path ("Salvar" reuses it; empty = prompt).
     std::string currentSavePath_;

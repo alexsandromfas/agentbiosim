@@ -34,10 +34,154 @@
 #include "systems/Phase7Diagnostics.hpp"
 #include "systems/Phase8Diagnostics.hpp"
 
+#include "io/SaveFile.hpp"
+#include "config/ParameterHelpers.hpp"
+
+#include <algorithm>
+#include <cstdlib>
 #include <exception>
 #include <iomanip>
 #include <iostream>
+#include <map>
 #include <string>
+
+namespace
+{
+// Diagnóstico ad-hoc: carrega um save, roda N passos e loga populacao por especie +
+// nascimentos/mortes (cumulativos e por janela) + energia por especie. Revela
+// dinamicas como "populacao presa no piso por reproducao natimorta".
+int investigateSave(const std::string& path, const int steps)
+{
+    using namespace agentbiosim;
+    io::LoadResult lr = io::loadFromFile(path);
+    if (!lr.ok) { std::cerr << "investigate: load FALHOU: " << lr.error << "\n"; return 2; }
+    config::ParameterRegistry reg = config::createDefaultParameterRegistry();
+    for (const auto& p : lr.bundle.params) static_cast<void>(reg.setValue(p.first, p.second));
+    sim::SimulationRunner runner(reg);
+    runner.restore(lr.bundle.snapshot);
+    runner.setPaused(false);  // o save pode ter sido salvo PAUSADO; rodar de fato.
+    const double dt = 1.0 / std::max(1.0, config::parameterDouble(reg, "physics_steps_per_second", 30.0));
+
+    std::size_t prevB = 0, prevD = 0;
+    const auto report = [&](const long long s) {
+        const auto& a = runner.agents();
+        std::map<std::uint32_t, int> cnt;
+        std::map<std::uint32_t, double> emin, emax, esum;
+        for (std::size_t i = 0; i < a.size(); ++i)
+        {
+            if (!a.aliveAt(i)) continue;
+            const std::uint32_t sp = a.speciesIdAt(i);
+            const double e = a.energyAt(i);
+            if (!cnt.count(sp)) { cnt[sp] = 0; emin[sp] = e; emax[sp] = e; esum[sp] = 0.0; }
+            ++cnt[sp]; esum[sp] += e;
+            emin[sp] = std::min(emin[sp], e); emax[sp] = std::max(emax[sp], e);
+        }
+        int alive = 0; for (const auto& kv : cnt) alive += kv.second;
+        const auto st = runner.stats();
+        std::cout << "step=" << s << " vivos=" << alive
+                  << " nasc(cum)=" << st.births << " mortes(cum)=" << st.deaths
+                  << " | dNasc=" << (st.births - prevB) << " dMortes=" << (st.deaths - prevD)
+                  << " | foods=" << runner.foods().size() << "\n";
+        for (const auto& kv : cnt)
+        {
+            const std::uint32_t sp = kv.first;
+            std::cout << "    spc " << sp << ": " << kv.second << " vivos  energia[min="
+                      << static_cast<int>(emin[sp]) << " med="
+                      << static_cast<int>(esum[sp] / std::max(1, kv.second)) << " max="
+                      << static_cast<int>(emax[sp]) << "]\n";
+        }
+        prevB = st.births; prevD = st.deaths;
+    };
+
+    std::cout << "=== INVESTIGATE " << path << " | dt=" << dt << " | " << steps << " passos ===\n";
+    const int interval = std::max(1, steps / 20);
+    for (int s = 0; s <= steps; ++s)
+    {
+        if (s % interval == 0) report(s);
+        runner.step(dt);
+    }
+    return 0;
+}
+
+// Fase 35: valida o app::SimWorker headless (selftests não passam por App, então
+// este é o ÚNICO teste automatizado do mecanismo de thread): determinismo
+// (worker-driven == serial-driven, bit-idêntico), no-op de 0 passos e ciclo de
+// vida (criar/destruir/wait sem request → sem deadlock; stop() idempotente).
+struct Phase35Result { bool passed = true; int checks = 0; std::string details; };
+
+double phase35AgentsDigest(const agentbiosim::sim::SimulationRunner& r)
+{
+    const auto& a = r.agents();
+    double d = 0.0;
+    for (std::size_t i = 0; i < a.size(); ++i)
+    {
+        if (!a.aliveAt(i)) continue;
+        const auto p = a.positionAt(i);
+        d += p.x * 1.000003 + p.y * 0.999991 + a.energyAt(i) * 1.00007
+             + static_cast<double>(a.idAt(i).value) * 1.0e-6;
+    }
+    return d;
+}
+
+Phase35Result runPhase35WorkerValidation()
+{
+    using namespace agentbiosim;
+    Phase35Result res;
+    const auto check = [&](const bool ok, const char* name) {
+        ++res.checks;
+        res.details += (ok ? "  ok: " : "  FAILED: ");
+        res.details += name;
+        res.details += '\n';
+        if (!ok) res.passed = false;
+    };
+
+    const double dt = 1.0 / 60.0;
+    const int total = 300;
+    config::ParameterRegistry reg = config::createDefaultParameterRegistry();
+
+    sim::SimulationRunner serial(reg);
+    serial.reset();
+    sim::SimulationRunner worker(reg);
+    worker.reset();
+    const double initDigest = phase35AgentsDigest(worker);
+
+    for (int i = 0; i < total; ++i) serial.step(dt);
+
+    // Mesmos 300 passos, mas conduzidos pela thread do worker (lotes 100/0/200).
+    {
+        app::SimWorker w(worker);
+        w.request(100, dt); w.wait();
+        w.request(0, dt);   w.wait();  // no-op de 0 passos é válido
+        w.request(200, dt); w.wait();
+        w.stop();
+    }
+
+    const double sd = phase35AgentsDigest(serial);
+    const double wd = phase35AgentsDigest(worker);
+    check(serial.agents().size() == worker.agents().size(), "worker e serial: mesma populacao");
+    check(sd == wd, "worker-driven == serial-driven (digest bit-identico)");
+    check(wd != initDigest, "worker avancou o estado (digest mudou)");
+
+    // Ciclo de vida: criar e destruir SEM nenhum request (dtor não pode travar).
+    {
+        sim::SimulationRunner r2(reg); r2.reset();
+        app::SimWorker w2(r2);
+    }
+    check(true, "criar/destruir worker sem request nao trava");
+
+    // wait() ocioso retorna na hora; stop() idempotente.
+    {
+        sim::SimulationRunner r3(reg); r3.reset();
+        app::SimWorker w3(r3);
+        w3.wait();
+        w3.stop();
+        w3.stop();
+    }
+    check(true, "wait() ocioso + stop() idempotente");
+
+    return res;
+}
+} // namespace
 
 int main(const int argc, char* argv[])
 {
@@ -101,6 +245,9 @@ int main(const int argc, char* argv[])
         bool runPhase32Validation = false;
         bool runPhase32Checksum = false;
         bool runPhase34Validation = false;
+        bool runPhase35Validation = false;
+        std::string investigateSavePath;
+        int investigateSaveSteps = 3000;
 
         for (int index = 1; index < argc; ++index)
         {
@@ -486,6 +633,20 @@ int main(const int argc, char* argv[])
             {
                 runPhase34Validation = true;
             }
+            else if (argument == "--phase35-selftest")
+            {
+                runPhase35Validation = true;
+            }
+            else if (argument == "--investigate-save")
+            {
+                if (index + 1 < argc) investigateSavePath = argv[++index];
+                if (index + 1 < argc) investigateSaveSteps = std::max(1, std::atoi(argv[++index]));
+            }
+        }
+
+        if (!investigateSavePath.empty())
+        {
+            return investigateSave(investigateSavePath, investigateSaveSteps);
         }
 
         if (runSpatialValidation)
@@ -1425,6 +1586,15 @@ int main(const int argc, char* argv[])
                       << " (" << summary.checks << " checks)\n"
                       << summary.details << '\n';
             return summary.passed ? 0 : 34;
+        }
+
+        if (runPhase35Validation)
+        {
+            const auto summary = runPhase35WorkerValidation();
+            std::cout << "Phase35 (SimWorker) validation: " << (summary.passed ? "PASS" : "FAIL")
+                      << " (" << summary.checks << " checks)\n"
+                      << summary.details << '\n';
+            return summary.passed ? 0 : 35;
         }
 
         if (runPhase31Validation)

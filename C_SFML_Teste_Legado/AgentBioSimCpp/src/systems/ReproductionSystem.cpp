@@ -217,6 +217,8 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
         double effMutationRate = config.mutationRate;
         double effMutationStrength = config.mutationStrength;
         double effInitialEnergy = config.initialEnergy;
+        double effDeathEnergy = 0.0;     // Fase 35.1: piso de sobrevivencia do "custo por filho"
+        bool parentHasGenome = false;
         simulation::ReproductionMode effMode = config.reproductionMode;
         int offspring = config.offspringCount;
         if (config.honorGenome)
@@ -229,6 +231,8 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
                 effMutationRate = std::clamp(pg->mutationRate, 0.0, 1.0);
                 effMutationStrength = std::max(0.0, pg->mutationStrength);
                 effInitialEnergy = std::max(0.0, pg->initialEnergy);
+                effDeathEnergy = std::max(0.0, pg->deathEnergy);
+                parentHasGenome = true;
                 effMode = pg->reproductionMode;
                 offspring = std::max(1, pg->offspringCount);
             }
@@ -257,19 +261,49 @@ ReproductionStats ReproductionSystem::apply(simulation::AgentStore& agents,
             ++lastStats_.blockedByPopulation;
             continue;
         }
-        const int actualChildren = slots;
+        int actualChildren = slots;
 
-        // Energy per mode. ENERGY: split the parent's energy among it and the children
-        // (each gets 1/(N+1); for N=1 this is the legacy halve -> golden byte-identical).
-        // AGE: children get a fresh initialEnergy and the parent KEEPS its energy
-        // (reproduction has no energy cost), so reproduction is fully decoupled from food.
+        // Energia por modo.
+        // ENERGY (Fase 35.1) = "CUSTO POR FILHO": cada filho nasce com effInitialEnergy
+        //   e o PAI PAGA do bolso. A ninhada e limitada ao que o pai aguenta pagar
+        //   mantendo a energia ESTRITAMENTE acima de deathEnergy (a morte e energy <=
+        //   deathEnergy). Resolve o bug das ninhadas natimortas: o modelo antigo DIVIDIA
+        //   a energia do pai em N+1 partes iguais, e com N alto cada um nascia abaixo do
+        //   limiar de morte. Conservacao de energia preservada (o que o filho recebe sai
+        //   do pai). O fallback SEM genoma mantem o split antigo (caminho dos selftests).
+        // AGE: filhos recebem effInitialEnergy e o pai MANTEM a energia (reproducao sem
+        //   custo, desacoplada de comida).
         const double parentEnergyBefore = agents.energyAt(parentIndex);
         double childEnergy = effInitialEnergy;
         if (effMode == simulation::ReproductionMode::Energy)
         {
-            childEnergy = parentEnergyBefore / static_cast<double>(actualChildren + 1);
-            agents.setEnergyAt(parentIndex,
-                               parentEnergyBefore - childEnergy * static_cast<double>(actualChildren));
+            if (parentHasGenome)
+            {
+                childEnergy = effInitialEnergy;
+                // Maior ninhada que o pai consegue pagar e CONTINUAR vivo (> deathEnergy).
+                while (actualChildren > 0 &&
+                       parentEnergyBefore - static_cast<double>(actualChildren) * effInitialEnergy
+                           <= effDeathEnergy)
+                {
+                    --actualChildren;
+                }
+                if (actualChildren <= 0)
+                {
+                    // Elegivel (>= splitEnergy) mas sem energia p/ pagar nem 1 filho sem
+                    // morrer: nao reproduz, MANTEM a energia e segue comendo ate poder.
+                    ++lastStats_.blockedByEnergy;
+                    continue;
+                }
+                agents.setEnergyAt(parentIndex,
+                                   parentEnergyBefore - effInitialEnergy * static_cast<double>(actualChildren));
+            }
+            else
+            {
+                // Fallback legado (sem genoma): split igualitario entre pai + filhos.
+                childEnergy = parentEnergyBefore / static_cast<double>(actualChildren + 1);
+                agents.setEnergyAt(parentIndex,
+                                   parentEnergyBefore - childEnergy * static_cast<double>(actualChildren));
+            }
         }
         agents.setReproductionCooldownAt(parentIndex, effCooldown);
 

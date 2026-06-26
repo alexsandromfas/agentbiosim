@@ -215,13 +215,67 @@ int App::run()
 {
     while (window_.isOpen())
     {
-        processEvents();
-        update();
-        render();
+        // Fase 35: knob sim_render_threaded escolhe o pipeline. O caminho serial é
+        // exatamente o de sempre (fallback / depuração / paridade); o threaded
+        // sobrepõe o passo de simulação (worker) ao desenho do mundo (main).
+        if (config::parameterBool(parameters_, "sim_render_threaded", false))
+        {
+            runThreadedFrame();
+        }
+        else
+        {
+            runSerialFrame();
+        }
         updateFpsTitle();
         if (uiState_.quitRequested) window_.close();
     }
+    // Encerramento limpo: garante o worker parado/junto antes de destruir o runner.
+    simWorker_.stop();
     return 0;
+}
+
+void App::runSerialFrame()
+{
+    // O worker pode estar ocioso (nunca usado) ou ter acabado de ser desligado por
+    // um toggle do knob; wait() é no-op quando ocioso e garante consistência.
+    simWorker_.wait();
+    processEvents();
+    update();
+    render();
+}
+
+void App::runThreadedFrame()
+{
+    // ===== BARREIRA: espera o batch do frame anterior terminar (worker ocioso) =====
+    simWorker_.wait();
+
+    // ===== Fase A: worker OCIOSO — seguro ler/mutar o runner =====
+    processEvents();
+    const double realDeltaSeconds = frameClock_.restart().asSeconds();
+    drainCommandsAndApply();
+    updateEngineTargetsFromUi();
+    maybeAutosave(realDeltaSeconds);
+
+    const unsigned int steps = timestep_.beginFrame(realDeltaSeconds);
+    lastStepsThisFrame_ = steps;
+    const bool interpolate = config::parameterBool(parameters_, "render_interpolation_enabled", false);
+    // Interpolação: prev = estado ATUAL (pós-batch anterior); o render vai lerp entre
+    // este prev e o snapshot pós-batch que aparecerá no próximo frame.
+    if (interpolate) captureRenderPrevPositions();
+    else renderPrevValid_ = false;
+
+    // snapshot_ = estado a DESENHAR neste frame (pós-batch anterior; worker ocioso).
+    captureRenderSnapshot();
+    // Build do ImGui lê o runner VIVO — só pode aqui, com o worker ocioso.
+    buildImGuiFrame();
+    simulatedSteps_ += steps;
+    emitHeartbeat();
+
+    // ===== KICK: o worker roda os N passos deste frame em background =====
+    simWorker_.request(steps, timestep_.fixedDeltaSeconds());
+
+    // ===== Fase B: desenha o SNAPSHOT (sobrepõe o worker); nunca lê os stores vivos =====
+    presentFrame();
 }
 
 void App::processEvents()
@@ -464,6 +518,24 @@ void App::captureRenderPrevPositions()
         }
     }
     renderPrevValid_ = true;
+}
+
+void App::captureRenderSnapshot()
+{
+    // Fase 35: copia o estado de mundo que o render desenha. Deve rodar com o
+    // worker de simulação OCIOSO (mono-thread no Estágio 1; entre a barreira e o
+    // kick no Estágio 2). Os stores são SoA copiáveis; a cópia é barata vs um passo.
+    snapshot_.world = runner_.world();
+    snapshot_.agents = runner_.agents();
+    snapshot_.foods = runner_.foods();
+    snapshot_.obstacles = runner_.obstacles();
+    snapshot_.vision = runner_.visionDebug();
+    snapshot_.visionActive = runner_.visionDebug().active;
+    snapshot_.spatialOverlay = runner_.spatialHashOverlay();
+    snapshot_.spatialCellSize = runner_.spatialHashCellSize();
+    snapshot_.agentCount = snapshot_.agents.size();
+    snapshot_.foodCount = snapshot_.foods.size();
+    snapshot_.obstacleCount = snapshot_.obstacles.size();
 }
 
 void App::saveSimulation(const bool forcePrompt)
@@ -1318,11 +1390,8 @@ void App::drainCommandsAndApply()
     }
 }
 
-void App::update()
+void App::updateEngineTargetsFromUi()
 {
-    const double realDeltaSeconds = frameClock_.restart().asSeconds();
-    drainCommandsAndApply();
-
     // Phase 30: while the developer window is open, keep the profiler on without
     // touching the user's profiler_enabled preference. Zero cost when closed.
     runner_.setProfilerForced(uiState_.showDevWindow);
@@ -1331,6 +1400,7 @@ void App::update()
     // UI state the inspector set last frame. When the Rede Neural tab is hidden
     // (or no agent selected) the target is cleared, so the engine captures no
     // trace and the cost is zero.
+    // Fase 35: chamado SEMPRE com o worker ocioso (mutar alvos do runner é seguro).
     if (uiState_.neuralTraceActive && runner_.agents().contains(uiState_.neuralTraceAgent))
     {
         runner_.setNeuralViewerTarget(uiState_.neuralTraceAgent);
@@ -1363,6 +1433,24 @@ void App::update()
             runner_.clearVisionDebugTarget();
         }
     }
+}
+
+void App::emitHeartbeat()
+{
+    // Phase 27: heartbeat (no-op unless logging is enabled). Interval from the
+    // existing diagnostic_heartbeat_minutes knob.
+    const double heartbeatSeconds =
+        std::max(1.0, config::parameterDouble(parameters_, "diagnostic_heartbeat_minutes", 5.0) * 60.0);
+    core::Logger::instance().heartbeat(
+        heartbeatSeconds, "steps=" + std::to_string(simulatedSteps_) +
+                              " agents=" + std::to_string(runner_.agents().size()));
+}
+
+void App::update()
+{
+    const double realDeltaSeconds = frameClock_.restart().asSeconds();
+    drainCommandsAndApply();
+    updateEngineTargetsFromUi();
 
     lastStepsThisFrame_ = timestep_.beginFrame(realDeltaSeconds);
     const bool interpolate = config::parameterBool(parameters_, "render_interpolation_enabled", false);
@@ -1386,22 +1474,29 @@ void App::update()
 
     // Phase 28: periodic autosave (wall-clock; writes on a background thread).
     maybeAutosave(realDeltaSeconds);
+    emitHeartbeat();
 
-    // Phase 27: heartbeat (no-op unless logging is enabled). Interval from the
-    // existing diagnostic_heartbeat_minutes knob.
-    const double heartbeatSeconds =
-        std::max(1.0, config::parameterDouble(parameters_, "diagnostic_heartbeat_minutes", 5.0) * 60.0);
-    core::Logger::instance().heartbeat(
-        heartbeatSeconds, "steps=" + std::to_string(simulatedSteps_) +
-                              " agents=" + std::to_string(runner_.agents().size()));
+    // Fase 35 (Estágio 1): capturar o snapshot de mundo APÓS os passos, do qual o
+    // render desenha (caminho SERIAL, mono-thread).
+    captureRenderSnapshot();
 }
 
 void App::render()
+{
+    // Fase 35: render() = build do ImGui (Fase A) + desenho/present (Fase B). No
+    // caminho SERIAL os dois rodam em sequência aqui; no caminho de 2 threads a janela
+    // (runThreadedFrame) intercala o kick do worker ENTRE eles.
+    buildImGuiFrame();
+    presentFrame();
+}
+
+void App::buildImGuiFrame()
 {
     // Phase 25: build the Dear ImGui frame every render pass (between
     // ImGui::SFML::Update and ImGui::SFML::Render), regardless of whether the
     // world is drawn, so the UI stays responsive. ImGuiUi reads engine/UI state
     // and emits commands; it never mutates stores.
+    // Fase 35: roda com o worker OCIOSO (Fase A) — por isso pode ler o runner vivo.
     ImGui::SFML::Update(window_, uiDeltaClock_.restart());
     // Aparencia > Tamanho da interface (ui_scale): scales fonts AND widget/spacing
     // sizes so small screens / low vision can read the UI. Applied live every frame
@@ -1429,10 +1524,18 @@ void App::render()
         core::ScopedTimer uiTimer(runner_.profilerMutable(), core::ProfileSection::Ui);
         imguiUi_.draw(parameters_, runner_, uiState_, commandQueue_, info);
     }
+}
 
+void App::presentFrame()
+{
+    // Fase 35: desenho do MUNDO (lê snapshot_) + render do ImGui + present. No modo
+    // 2 threads roda na Fase B, sobreposto ao worker; toca apenas a CÓPIA (snapshot_)
+    // e as draw-lists do ImGui já construídas — nunca os stores vivos.
     if (theme_.active || renderOptions_.renderEnabled)
     {
-        const auto* obstaclePtr = runner_.obstacles().empty() ? nullptr : &runner_.obstacles();
+        // Fase 35: o DESENHO DO MUNDO lê do snapshot_ (cópia capturada com o worker
+        // ocioso), nunca dos stores vivos — é o que torna o Estágio 2 livre de corrida.
+        const auto* obstaclePtr = snapshot_.obstacles.empty() ? nullptr : &snapshot_.obstacles;
 
         // Phase 22.1: wire selection overlays into the renderer. Marquee/lasso
         // are taken from uiState_; selection halos read agent positions through
@@ -1459,14 +1562,13 @@ void App::render()
         }
 
         // Phase 26: selected-agent vision overlay (rays come from the engine's
-        // debug data, only filled when a vision target is set).
-        const auto& visionData = runner_.visionDebug();
+        // debug data, only filled when a vision target is set). Fase 35: do snapshot.
         const auto* visionDebugPtr =
-            (uiState_.selectedVisionOverlay && visionData.active) ? &visionData : nullptr;
+            (uiState_.selectedVisionOverlay && snapshot_.visionActive) ? &snapshot_.vision : nullptr;
 
-        // Fase 32.1 (auditoria): spatial-hash grid overlay (menu Exibir).
-        renderOptions_.showSpatialHashOverlay = runner_.spatialHashOverlay();
-        renderOptions_.spatialHashCellSize = runner_.spatialHashCellSize();
+        // Fase 32.1 (auditoria): spatial-hash grid overlay (menu Exibir). Fase 35: snapshot.
+        renderOptions_.showSpatialHashOverlay = snapshot_.spatialOverlay;
+        renderOptions_.spatialHashCellSize = snapshot_.spatialCellSize;
 
         // Fase 32.1: render interpolation (smooth movement at low physics rates).
         render::RenderInterpolation interp;
@@ -1485,7 +1587,7 @@ void App::render()
             // both derived from the substrate so they adapt to its size.
             const sf::Vector2u vp = window_.getSize();
             const float dockW = uiState_.preferences.dockVisible ? ui::ImGuiUi::kDockW : 0.0F;
-            const render::ThemeFrame frame = computeThemeFrame(theme_, runner_.world(), vp, dockW);
+            const render::ThemeFrame frame = computeThemeFrame(theme_, snapshot_.world, vp, dockW);
             camera_.setZoomLimits(frame.homeZoom, frame.homeZoom * kThemeMaxZoomFactor);
             // Smooth (eased) zoom toward the scroll target, anchored at the cursor.
             {
@@ -1536,8 +1638,8 @@ void App::render()
             render::drawThemeBehind(window_, camera_, theme_,
                                     themeClock_.getElapsedTime().asSeconds(), frame);
             renderOptions_.themeSkinActive = true;
-            lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
-                                                  runner_.agents(), runner_.foods(),
+            lastRenderStats_ = renderer_.render(window_, camera_, snapshot_.world,
+                                                  snapshot_.agents, snapshot_.foods,
                                                   renderOptions_, visionDebugPtr, obstaclePtr,
                                                   &selInput, &interp);
             renderOptions_.themeSkinActive = false;
@@ -1545,8 +1647,8 @@ void App::render()
         }
         else
         {
-            lastRenderStats_ = renderer_.render(window_, camera_, runner_.world(),
-                                                  runner_.agents(), runner_.foods(),
+            lastRenderStats_ = renderer_.render(window_, camera_, snapshot_.world,
+                                                  snapshot_.agents, snapshot_.foods,
                                                   renderOptions_, visionDebugPtr, obstaclePtr,
                                                   &selInput, &interp);
         }
